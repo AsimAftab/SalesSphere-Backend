@@ -70,10 +70,7 @@ MONGO_URI_LOCAL=mongodb://localhost:27017/salessphere
 # For MongoDB Atlas (Cloud)
 MONGO_URI_CLOUD=mongodb+srv://<username>:<password>@cluster.mongodb.net/salessphere?retryWrites=true&w=majority
 
-# JWT Configuration
-JWT_SECRET=your_jwt_secret_key_here_make_it_long_and_secure
-JWT_EXPIRE=30d
-```
+
 
 3. **Configure your environment**:
 
@@ -136,26 +133,6 @@ SalesSphere-Backend/
 
 - `GET /health` - Health check endpoint
 
-### Authentication
-
-- `POST /api/auth/register` - Register a new user
-- `POST /api/auth/login` - Login user
-- `POST /api/auth/logout` - Logout user
-
-### Users
-
-- `GET /api/users` - Get all users
-- `GET /api/users/:id` - Get user by ID
-- `PUT /api/users/:id` - Update user
-- `DELETE /api/users/:id` - Delete user
-
-### Clients
-
-- `GET /api/clients` - Get all clients
-- `GET /api/clients/:id` - Get client by ID
-- `POST /api/clients` - Create new client
-- `PUT /api/clients/:id` - Update client
-- `DELETE /api/clients/:id` - Delete client
 
 ## 🛠️ Technologies Used
 
@@ -163,7 +140,6 @@ SalesSphere-Backend/
 - **Express.js** - Web framework
 - **MongoDB** - NoSQL database
 - **Mongoose** - MongoDB object modeling
-- **JWT** - JSON Web Tokens for authentication
 - **Morgan** - HTTP request logger
 - **Helmet** - Security middleware
 - **CORS** - Cross-Origin Resource Sharing
