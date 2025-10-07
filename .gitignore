@@ -73,6 +73,7 @@ temp/
 
 # dotenv environment variable files
 .env*
+!.env.example
 
 # Serverless directories
 .serverless/
