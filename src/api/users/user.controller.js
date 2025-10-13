@@ -55,9 +55,23 @@ exports.updateUser = async (req, res, next) => {
             }
         }
         
+        // Limit updates to specific allowed fields
+        const allowedFields = ['name', 'email', 'role', 'isActive', 'phone'];
+        const updateData = {};
+        for (const field of allowedFields) {
+            if (Object.prototype.hasOwnProperty.call(req.body, field)) {
+                updateData[field] = req.body[field];
+            }
+        }
+        // Disallow any update operator injection
+        for (const key of Object.keys(req.body)) {
+            if (key.startsWith('$')) {
+                return res.status(400).json({ success: false, message: 'Invalid update parameter.' });
+            }
+        }
         const user = await User.findOneAndUpdate(
             { _id: req.params.id, organizationId: req.user.organizationId },
-            req.body,
+            updateData,
             { new: true, runValidators: true }
         );
         
