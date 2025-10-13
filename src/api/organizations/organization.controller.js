@@ -24,20 +24,34 @@ exports.getMyOrganization = async (req, res) => {
 // @desc    Update the details of the currently logged-in user's organization
 // @route   PUT /api/v1/organizations/my-organization
 // @access  Private (Admin, Manager)
+// Update the details of the currently logged-in user's organization
 exports.updateMyOrganization = async (req, res) => {
     try {
+        // 1. Create a whitelist of fields that are allowed to be updated
+        const allowedUpdates = {
+            name: req.body.name,
+            // Add other safe fields here in the future, e.g., address, phone, etc.
+        };
+
+        // This removes any undefined properties so you don't accidentally wipe fields
+        Object.keys(allowedUpdates).forEach(key => allowedUpdates[key] === undefined && delete allowedUpdates[key]);
+
+        // 2. Update the organization using only the whitelisted fields
         const updatedOrganization = await Organization.findByIdAndUpdate(
             req.user.organizationId,
-            req.body,
+            allowedUpdates, // Use the safe object instead of the full req.body
             { new: true, runValidators: true }
         );
+
+        if (!updatedOrganization) {
+            return res.status(404).json({ message: 'Organization not found' });
+        }
 
         res.status(200).json({ status: 'success', data: updatedOrganization });
     } catch (error) {
         res.status(500).json({ message: 'Server Error', error: error.message });
     }
 };
-
 // @desc    Deactivate an organization (for superadmin)
 // @route   PUT /api/v1/organizations/:id/deactivate
 // @access  Private (Superadmin)
@@ -45,12 +59,13 @@ exports.deactivateOrganization = async (req, res) => {
     try {
         const { id } = req.params;
         
-        await User.updateMany({ organizationId: id }, { isActive: false });
-        const organization = await Organization.findByIdAndUpdate(id, { isActive: false }, { new: true });
-
+        const organization = await Organization.findById(id);
         if (!organization) {
             return res.status(404).json({ message: 'Organization not found' });
         }
+
+        await User.updateMany({ organizationId: id }, { isActive: false });
+        await Organization.findByIdAndUpdate(id, { isActive: false });
 
         res.status(200).json({ status: 'success', message: 'Organization deactivated' });
     } catch (error) {

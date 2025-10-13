@@ -19,7 +19,7 @@ exports.register = async (req, res) => {
             return res.status(400).json({ message: 'Please provide name, email, password, and organization name' });
         }
 
-        const userExists = await User.findOne({ email });
+        const userExists = await User.findOne({ email: { $eq: email } });
         if (userExists) {
             return res.status(400).json({ message: 'User with this email already exists' });
         }
@@ -66,7 +66,7 @@ exports.login = async (req, res) => {
             return res.status(400).json({ message: 'Please provide email and password' });
         }
 
-        const user = await User.findOne({ email }).select('+password');
+        const user = await User.findOne({ email: { $eq: email } }).select('+password');
 
         if (!user || !(await user.matchPassword(password))) {
             return res.status(401).json({ message: 'Incorrect email or password' });

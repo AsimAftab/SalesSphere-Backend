@@ -40,9 +40,20 @@ exports.getUserById = async (req, res, next) => {
 // Update a user, ensuring they are in the same organization
 exports.updateUser = async (req, res, next) => {
     try {
-        // Prevent users from changing their organization or making themselves a superadmin
+        // 1. Prevent users from changing their organizationId
         delete req.body.organizationId;
-        delete req.body.role;
+
+        // 2. Implement smarter role update logic
+        if (req.body.role) {
+            // Prevent anyone from assigning the 'superadmin' role
+            if (req.body.role === 'superadmin') {
+                return res.status(403).json({ success: false, message: 'Cannot assign superadmin role.' });
+            }
+            // Prevent users from changing their own role
+            if (req.user.id === req.params.id) {
+                return res.status(403).json({ success: false, message: 'Users cannot change their own role.' });
+            }
+        }
         
         const user = await User.findOneAndUpdate(
             { _id: req.params.id, organizationId: req.user.organizationId },
@@ -59,7 +70,6 @@ exports.updateUser = async (req, res, next) => {
         next(error);
     }
 };
-
 // Soft delete a user (deactivate)
 exports.deleteUser = async (req, res, next) => {
     try {
