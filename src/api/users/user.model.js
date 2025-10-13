@@ -38,7 +38,7 @@ userSchema.pre('save', async function (next) {
     if (!this.isModified('password')) return next();
     
     // Combine salt generation and hashing into one step
-    this.password = await bcrypt.hash(this.password, 10);
+    this.password = await bcrypt.hash(this.password, 12);
     
     next();
 });
