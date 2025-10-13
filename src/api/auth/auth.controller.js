@@ -65,6 +65,9 @@ exports.login = async (req, res) => {
         if (!email || !password) {
             return res.status(400).json({ message: 'Please provide email and password' });
         }
+        if (typeof email !== 'string') {
+            return res.status(400).json({ message: 'Invalid email format' });
+        }
 
         const user = await User.findOne({ email: { $eq: email } }).select('+password');
 
