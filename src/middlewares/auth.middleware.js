@@ -1,46 +1,44 @@
 const jwt = require('jsonwebtoken');
 const User = require('../api/users/user.model');
-const ApiError = require('../utils/ApiError');
 
-exports.protect = async (req, res, next) => {
-  try {
+const protect = async (req, res, next) => {
     let token;
 
-    // Check if token exists in headers
+    // 1. Get token from header
     if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-      token = req.headers.authorization.split(' ')[1];
+        token = req.headers.authorization.split(' ')[1];
     }
 
     if (!token) {
-      return next(new ApiError('Not authorized to access this route', 401));
+        return res.status(401).json({ message: 'Not authorized, no token provided' });
     }
 
     try {
-      // Verify token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      
-      // Get user from token
-      req.user = await User.findById(decoded.id).select('-password');
-      
-      if (!req.user) {
-        return next(new ApiError('User no longer exists', 401));
-      }
+        // 2. Verify the token's signature
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-      next();
+        // 3. Check if the user for the token still exists
+        const currentUser = await User.findById(decoded.id).select('-password');
+        if (!currentUser) {
+            return res.status(401).json({ message: 'The user belonging to this token no longer exists' });
+        }
+
+        // 4. Grant access to the protected route
+        req.user = currentUser;
+        next();
     } catch (error) {
-      return next(new ApiError('Not authorized to access this route', 401));
+        return res.status(401).json({ message: 'Not authorized, token is invalid or has expired' });
     }
-  } catch (error) {
-    next(error);
-  }
 };
 
-// Restrict routes to specific roles
-exports.restrictTo = (...roles) => {
-  return (req, res, next) => {
-    if (!roles.includes(req.user.role)) {
-      return next(new ApiError('You do not have permission to perform this action', 403));
-    }
-    next();
-  };
+const restrictTo = (...roles) => {
+    return (req, res, next) => {
+        // This function assumes 'protect' has already run and attached req.user
+        if (!roles.includes(req.user.role)) {
+            return res.status(403).json({ message: 'You do not have permission to perform this action' });
+        }
+        next();
+    };
 };
+
+module.exports = { protect, restrictTo };
