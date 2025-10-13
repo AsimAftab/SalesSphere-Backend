@@ -67,6 +67,10 @@ exports.updateUser = async (req, res, next) => {
         
         // 3. Implement smarter role update logic separately
         if (req.body.role) {
+            // Prevent NoSQL injection by ensuring the role is a simple string
+            if (typeof req.body.role !== 'string') {
+                return res.status(400).json({ success: false, message: 'Invalid type for field: role' });
+            }
             if (req.body.role === 'superadmin') {
                 return res.status(403).json({ success: false, message: 'Cannot assign superadmin role.' });
             }
