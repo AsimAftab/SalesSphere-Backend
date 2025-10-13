@@ -26,7 +26,6 @@ exports.getMyOrganization = async (req, res) => {
 // @route   PUT /api/v1/organizations/my-organization
 // @access  Private (Admin, Manager)
 // Update the details of the currently logged-in user's organization
-// Update the details of the currently logged-in user's organization
 exports.updateMyOrganization = async (req, res) => {
     try {
         // 1. Whitelist fields that are allowed to be updated
