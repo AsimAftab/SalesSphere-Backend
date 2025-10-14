@@ -93,6 +93,9 @@ exports.getAttendanceSummary = async (req, res) => {
     }
 };
 
+// @desc    Get the sales trend data for the dashboard
+// @route   GET /api/v1/dashboard/sales-trend
+// @access  Private (Admin, Manager)
 exports.getSalesTrend = async (req, res) => {
     try {
         const { organizationId } = req.user;
