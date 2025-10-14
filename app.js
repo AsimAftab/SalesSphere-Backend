@@ -8,6 +8,7 @@ const dotenv = require("dotenv");
 const morgan = require("morgan");
 const authRoutes = require('./src/api/auth/auth.route.js');
 const userRoutes = require('./src/api/users/user.route.js');
+const dashboardRoutes = require('./src/api/dashboard/dashboard.route.js');
 
 dotenv.config();
 
@@ -48,6 +49,7 @@ app.use(express.json());
 app.use('/health', healthcheck());
 app.use('/api/v1/auth',authLimiter,  authRoutes);
 app.use('/api/v1/users',authLimiter, userRoutes);
+app.use('/api/v1/dashboard', authLimiter, dashboardRoutes);
 
 // Test Route
 app.get("/", (req, res) => {
