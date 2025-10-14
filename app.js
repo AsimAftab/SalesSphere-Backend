@@ -49,7 +49,7 @@ app.use(express.json());
 app.use('/health', healthcheck());
 app.use('/api/v1/auth',authLimiter,  authRoutes);
 app.use('/api/v1/users',authLimiter, userRoutes);
-app.use('/api/v1/dashboard', dashboardRoutes);
+app.use('/api/v1/dashboard', authLimiter, dashboardRoutes);
 
 // Test Route
 app.get("/", (req, res) => {
