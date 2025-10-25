@@ -126,8 +126,8 @@ exports.updateUser = async (req, res, next) => {
             if (Object.prototype.hasOwnProperty.call(req.body, field)) {
                 const value = req.body[field];
                  // Basic Type checks
-                if (field === 'age' && value !== null && typeof value !== 'number') return res.status(400).json({ message: `Invalid type for age` });
-                if (field !== 'age' && value !== null && typeof value !== 'string') return res.status(400).json({ message: `Invalid type for ${field}` });
+                if (field === 'age' && value !== null && typeof value !== 'number') return res.status(400).json({ success: false, message: `Invalid type for age` });
+                if (field !== 'age' && value !== null && typeof value !== 'string') return res.status(400).json({ success: false, message: `Invalid type for ${field}` });
                 updateData[field] = value;
             }
         }
