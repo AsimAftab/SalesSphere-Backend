@@ -200,8 +200,7 @@ exports.updateMyProfileImage = async (req, res, next) => {
     } catch (error) {
         cleanupTempFile(tempFilePath);
         console.error("Profile image upload error:", error);
-        res.status(500).json({ message: 'Server Error during image upload' });
-        // next(error);
+        next(error);
     }
 };
 
