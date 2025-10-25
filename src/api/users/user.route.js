@@ -1,6 +1,5 @@
 const express = require('express');
 const multer = require('multer'); // Import multer
-const path = require('path'); // Import path for potential future use
 const userController = require('./user.controller');
 const { protect, restrictTo } = require('../../middlewares/auth.middleware');
 
