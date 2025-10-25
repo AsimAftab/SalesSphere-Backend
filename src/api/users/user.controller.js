@@ -190,7 +190,13 @@ exports.updateMyProfileImage = async (req, res, next) => {
     try {
         if (!req.file) return res.status(400).json({ message: 'Please upload an image file' });
 
-        const result = await cloudinary.uploader.upload(req.file.path, { /* ... */ });
+        const result = await cloudinary.uploader.upload(req.file.path, {
+            folder: 'profile_images',
+            allowed_formats: ['jpg', 'jpeg', 'png', 'gif'],
+            use_filename: true,
+            unique_filename: false,
+            resource_type: 'image'
+        });
         cleanupTempFile(tempFilePath);
         tempFilePath = null;
 
