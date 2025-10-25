@@ -176,7 +176,6 @@ exports.deleteUser = async (req, res, next) => {
         // --- End Permission Checks ---
 
         const user = await User.findByIdAndUpdate(req.params.id, { isActive: false }, { new: true });
-        if (!user) return res.status(404).json({ success: false, message: 'User not found during update.' }); // Redundant check
 
         res.status(200).json({ success: true, message: 'User deactivated successfully' });
     } catch (error) {
