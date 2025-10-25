@@ -223,7 +223,13 @@ exports.uploadUserDocuments = async (req, res, next) => {
                 const userNameClean = user.name.replace(/\s+/g, '_');
                 const desiredPublicIdWithExt = `${userNameClean}_${originalNameBase}_${Date.now()}.pdf`;
 
-                const result = await cloudinary.uploader.upload(currentFilePath, { /* ... */ });
+                const result = await cloudinary.uploader.upload(currentFilePath, {
+                    resource_type: 'raw',
+                    public_id: `user_documents/${desiredPublicIdWithExt}`,
+                    use_filename: true,
+                    unique_filename: false,
+                    overwrite: true
+                });
                 cleanupTempFile(currentFilePath);
 
                 const correctFileUrl = result.secure_url.replace('/image/upload/', '/raw/upload/');
