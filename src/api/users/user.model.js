@@ -26,11 +26,57 @@ const userSchema = new mongoose.Schema({
     organizationId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Organization',
+        // Organization is required for everyone except the superadmin
+        required: [
+            function() { return this.role !== 'superadmin'; },
+            'Organization ID is required for non-superadmin users'
+        ]
     },
     isActive: {
         type: Boolean,
         default: true,
-    }
+    },
+
+    // --- New Employee Detail Fields ---
+    avatarUrl: {
+        type: String,
+    },
+    phone: {
+        type: String,
+        trim: true,
+    },
+    address: {
+        type: String,
+        trim: true,
+    },
+    gender: {
+        type: String,
+        enum: ['Male', 'Female', 'Other'],
+    },
+    age: {
+        type: Number,
+    },
+    panNumber: {
+        type: String,
+        trim: true,
+    },
+    citizenshipNumber: {
+        type: String,
+        trim: true,
+    },
+    dateJoined: {
+        type: Date,
+        default: Date.now,
+    },
+    documents: [
+        {
+            fileName: String,
+            fileUrl: String,
+            uploadedAt: { type: Date, default: Date.now }
+        }
+    ]
+    // --- End of New Fields ---
+
 }, { timestamps: true });
 
 // Middleware to hash password before saving
