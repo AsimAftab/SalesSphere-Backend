@@ -1,9 +1,8 @@
 const express = require('express');
 const multer = require('multer'); // Import multer
-const path = require('path'); // Import path for potential future use
 const userController = require('./user.controller');
 const { protect, restrictTo } = require('../../middlewares/auth.middleware');
-
+const handleMulterErrors = require('../../middlewares/multerError.middleware');
 const router = express.Router();
 
 // Configure multer for DOCUMENTS: PDF only, 2MB limit
@@ -55,17 +54,19 @@ router.put(
 // --- Routes for managing OTHER users (Admin/Manager only) ---
 router.route('/')
     .post(restrictTo('admin', 'manager'), imageUpload.single('avatar'), userController.createUser)
+    
     .get(restrictTo('admin', 'manager'), userController.getAllUsers);
 
 router.route('/:id')
     .get(restrictTo('admin', 'manager'), userController.getUserById)
-    .put(restrictTo('admin', 'manager'), userController.updateUser)
+    .put(restrictTo('admin', 'manager'), imageUpload.single('avatar'), userController.updateUser) 
     .delete(restrictTo('admin', 'manager'), userController.deleteUser);
 
 router.post(
     '/:id/documents',
     restrictTo('admin', 'manager'),
-    documentUpload.array('documents', 5),
+    documentUpload.array('documents', 2),
+    handleMulterErrors,
     userController.uploadUserDocuments
 );
 // --- END Admin/Manager Routes ---
