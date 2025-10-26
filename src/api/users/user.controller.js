@@ -285,7 +285,7 @@ exports.uploadUserDocuments = async (req, res, next) => {
                 return { fileName: file.originalname, fileUrl: correctFileUrl };
             } catch (uploadError) {
                 cleanupTempFile(currentFilePath);
-                console.error(`Failed to upload ${file.originalname}:`, uploadError);
+                console.error("Failed to upload file:", file.originalname, uploadError);
                 throw uploadError;
             }
         });
