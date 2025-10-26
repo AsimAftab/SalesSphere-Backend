@@ -53,9 +53,10 @@ const userSchema = new mongoose.Schema({
         type: String,
         enum: ['Male', 'Female', 'Other'],
     },
-    age: {
-        type: Number,
+    dateOfBirth: {
+        type: Date,
     },
+    
     panNumber: {
         type: String,
         trim: true,
@@ -93,7 +94,39 @@ userSchema.pre('save', async function (next) {
 userSchema.methods.matchPassword = async function (enteredPassword) {
     return await bcrypt.compare(enteredPassword, this.password);
 };
+// --- Optional: Add a virtual property to calculate age ---
+userSchema.virtual('age').get(function() {
+  if (!this.dateOfBirth) return undefined; // Or null, or 0
+  
+  const today = new Date();
+  const birthDate = new Date(this.dateOfBirth);
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const m = today.getMonth() - birthDate.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+  }
+  return age;
+});
 
+userSchema.set('toJSON', {
+  virtuals: true,
+  transform: function (doc, ret) {
+    // Move virtual 'age' to appear right after dateOfBirth
+    if (ret.dateOfBirth && ret.age !== undefined) {
+      const { age, ...rest } = ret;
+      const reordered = {};
+      for (const key in rest) {
+        reordered[key] = rest[key];
+        if (key === 'dateOfBirth') {
+          reordered.age = age; // insert after dateOfBirth
+        }
+      }
+      return reordered;
+    }
+    return ret;
+  }
+});
+// --- End Virtual ---
 const User = mongoose.model('User', userSchema);
 
 module.exports = User;

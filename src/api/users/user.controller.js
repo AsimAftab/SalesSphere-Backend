@@ -21,7 +21,7 @@ exports.createUser = async (req, res, next) => {
 
     try {
         const {
-            name, email, role, phone, address, gender, age,
+            name, email, role, phone, address, gender, dateOfBirth,
             panNumber, citizenshipNumber, dateJoined
         } = req.body;
 
@@ -35,7 +35,7 @@ exports.createUser = async (req, res, next) => {
 
         // --- Step 1: Create user WITHOUT avatarUrl first ---
         newUser = await User.create({
-            name, email, role, phone, address, gender, age,
+            name, email, role, phone, address, gender, dateOfBirth,
             panNumber, citizenshipNumber, dateJoined,
             password: temporaryPassword,
             organizationId: req.user.organizationId
@@ -118,41 +118,83 @@ exports.getUserById = async (req, res, next) => {
 
 // Update a user, enforcing role permissions
 exports.updateUser = async (req, res, next) => {
+    let tempAvatarPath = req.file ? req.file.path : null; // Track potential new avatar file
     try {
-        const userToUpdate = await User.findOne({ _id: req.params.id, organizationId: req.user.organizationId });
+        const userIdToUpdate = req.params.id;
+
+        const userToUpdate = await User.findOne({ _id: userIdToUpdate, organizationId: req.user.organizationId });
         if (!userToUpdate) return res.status(404).json({ success: false, message: 'User not found' });
 
         // --- Permission Checks ---
-        if (userToUpdate.role === 'admin' && req.user.role !== 'admin') return res.status(403).json({ success: false, message: 'Only the org admin can modify another admin.' });
-        if (req.user.id === req.params.id) return res.status(403).json({ success: false, message: 'Use the /me endpoint to update your own profile.' });
+        if (req.user.id === userIdToUpdate) return res.status(403).json({ success: false, message: 'Use the /me endpoint to update your own profile.' });
+        if (req.user.role === 'manager' && (userToUpdate.role === 'admin' || userToUpdate.role === 'manager')) return res.status(403).json({ success: false, message: 'Managers cannot modify admin or other manager accounts.' });
+        if (userToUpdate.role === 'admin' && req.user.role !== 'admin') return res.status(403).json({ success: false, message: 'Only the organization admin can modify another admin account.' });
         // --- End Permission Checks ---
 
         // Whitelist fields & Validate Types
-        const allowedUpdates = [ 'name', 'email', 'phone', 'address', 'gender', 'age', 'panNumber', 'citizenshipNumber' ];
+        const allowedUpdates = [ 'name', 'email', 'phone', 'address', 'gender', 'dateOfBirth', 'panNumber', 'citizenshipNumber' ];
         const updateData = {};
         for (const field of allowedUpdates) {
             if (Object.prototype.hasOwnProperty.call(req.body, field)) {
                 const value = req.body[field];
-                if (field === 'age' && value !== null && typeof value !== 'number') return res.status(400).json({ message: `Invalid type for age` });
-                if (field !== 'age' && value !== null && typeof value !== 'string') return res.status(400).json({ message: `Invalid type for ${field}` });
-                updateData[field] = value;
+                // Prevent NoSQL injection: disallow objects/arrays
+                if (
+                    value !== null &&
+                    (typeof value === "object" || Array.isArray(value))
+                ) return res.status(400).json({ success: false, message: `Invalid value for ${field}. No objects or arrays allowed.` });
+                if (field === 'dateOfBirth') {
+                    if (value !== null && isNaN(Date.parse(value))) return res.status(400).json({ success: false, message: `Invalid type or format for dateOfBirth` });
+                    updateData[field] = value ? new Date(value) : null;
+                } else if (value !== null && typeof value !== 'string') return res.status(400).json({ success: false, message: `Invalid type for ${field}. Expected string.` });
+                else if (value !== null) updateData[field] = value;
             }
         }
 
         // Role update logic
         if (req.body.role) {
-             if (typeof req.body.role !== 'string') return res.status(400).json({ success: false, message: 'Invalid type for field: role' });
-            if (req.body.role === 'superadmin' || req.body.role === 'admin') return res.status(403).json({ success: false, message: 'Cannot assign admin/superadmin role.' });
-            if (req.body.role === 'manager' && req.user.role !== 'admin') return res.status(403).json({ success: false, message: 'Only admins can assign manager role.' });
+            if (typeof req.body.role !== 'string') return res.status(400).json({ success: false, message: 'Invalid type for field: role' });
+            if (req.body.role === 'superadmin' || req.body.role === 'admin') return res.status(403).json({ success: false, message: 'Cannot assign admin or superadmin role.' });
+            if (req.body.role === 'manager' && req.user.role !== 'admin') return res.status(403).json({ success: false, message: 'Only admins can assign the manager role.' });
             if (!User.schema.path('role').enumValues.includes(req.body.role)) return res.status(400).json({ success: false, message: 'Invalid role specified.' });
+            if(userToUpdate.role === 'admin') return res.status(403).json({ success: false, message: 'Cannot change the role of an admin account.' });
             updateData.role = req.body.role;
         }
 
-        const user = await User.findByIdAndUpdate(req.params.id, updateData, { new: true, runValidators: true });
-        res.status(200).json({ success: true, data: user });
-    } catch (error) { next(error); }
-};
+        // --- Handle Optional Avatar Update ---
+        if (req.file && req.file.fieldname === 'avatar') {
+            try {
+                const result = await cloudinary.uploader.upload(req.file.path, {
+                    folder: `sales-sphere/avatars`,
+                    public_id: `${userIdToUpdate}_avatar`, // Use the target user's ID
+                    overwrite: true,
+                    transformation: [
+                         { width: 250, height: 250, gravity: "face", crop: "thumb" },
+                         { fetch_format: "auto", quality: "auto" }
+                    ]
+                });
+                updateData.avatarUrl = result.secure_url; // Add avatar URL to the update data
+                cleanupTempFile(tempAvatarPath);
+                tempAvatarPath = null;
+            } catch (uploadError) {
+                 console.error(`Avatar upload failed during update for user ${userIdToUpdate}:`, uploadError);
+                 // Decide: Fail the whole update or just skip avatar? Skipping for now.
+                 // Keep tempAvatarPath for cleanup in final catch
+            }
+        }
+        // --- End Avatar Update ---
 
+
+        const user = await User.findByIdAndUpdate(userIdToUpdate, updateData, { new: true, runValidators: true });
+        // No need to check !user again as findOneAndUpdate handles the not found case implicitly (returns null)
+        // Although the findOne check at the start makes this robust.
+
+        res.status(200).json({ success: true, data: user });
+    } catch (error) {
+         cleanupTempFile(tempAvatarPath); // Clean up avatar temp file on any error
+         if (error.code === 11000) return res.status(400).json({ success: false, message: 'Email already in use.' });
+        next(error);
+    }
+};
 // Soft delete a user (deactivate), enforcing role permissions
 exports.deleteUser = async (req, res, next) => {
     try {
@@ -202,7 +244,9 @@ exports.updateMyProfileImage = async (req, res, next) => { // Added next for err
 exports.uploadUserDocuments = async (req, res, next) => {
     const tempFilePaths = req.files ? req.files.map(f => f.path) : [];
     try {
-        if (!req.files || req.files.length === 0) return res.status(400).json({ message: 'Please upload at least one document file' });
+        if (!req.files || req.files.length === 0) {
+            return res.status(400).json({ message: 'Please upload at least one document file' });
+        }
 
         const user = await User.findOne({ _id: req.params.id, organizationId: req.user.organizationId });
         if (!user) {
@@ -210,6 +254,20 @@ exports.uploadUserDocuments = async (req, res, next) => {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
 
+        // 🔒 Enforce a maximum of 5 total documents per user
+        const MAX_DOCUMENTS = 2;
+        const currentCount = user.documents.length;
+        const newFilesCount = req.files.length;
+
+        if (currentCount + newFilesCount > MAX_DOCUMENTS) {
+            tempFilePaths.forEach(cleanupTempFile);
+            return res.status(400).json({
+                success: false,
+                message: `User already has ${currentCount} document(s). Maximum allowed is ${MAX_DOCUMENTS}. You can upload up to ${MAX_DOCUMENTS - currentCount} more.`
+            });
+        }
+
+        // Continue uploading files
         const uploadPromises = req.files.map(async (file) => {
             let currentFilePath = file.path;
             try {
@@ -231,9 +289,9 @@ exports.uploadUserDocuments = async (req, res, next) => {
                 const correctFileUrl = result.secure_url.replace('/image/upload/', '/raw/upload/');
                 return { fileName: file.originalname, fileUrl: correctFileUrl };
             } catch (uploadError) {
-                 cleanupTempFile(currentFilePath);
-                 console.error(`Failed to upload ${file.originalname}:`, uploadError);
-                 throw uploadError;
+                cleanupTempFile(currentFilePath);
+                console.error("Failed to upload file:", file.originalname, uploadError);
+                throw uploadError;
             }
         });
 
@@ -242,7 +300,11 @@ exports.uploadUserDocuments = async (req, res, next) => {
         user.documents.push(...uploadedDocuments);
         await user.save();
 
-        res.status(200).json({ success: true, message: `${uploadedDocuments.length} document(s) uploaded successfully`, data: uploadedDocuments });
+        res.status(200).json({
+            success: true,
+            message: `${uploadedDocuments.length} document(s) uploaded successfully`,
+            data: uploadedDocuments
+        });
     } catch (error) {
         tempFilePaths.forEach(cleanupTempFile);
         console.error("Multiple Document upload error:", error);
@@ -262,16 +324,37 @@ exports.getMyProfile = async (req, res, next) => {
 // Update logged-in user's profile details
 exports.updateMyProfile = async (req, res, next) => {
     try {
-        const allowedUpdates = [ 'name', 'email', 'phone', 'address', 'gender', 'age', 'panNumber', 'citizenshipNumber' ];
+        // --- Whitelist updated ---
+        const allowedUpdates = [ 'name', 'email', 'phone', 'address', 'gender', 'dateOfBirth', 'panNumber', 'citizenshipNumber' ]; // Changed age to dateOfBirth
         const updateData = {};
         for (const field of allowedUpdates) {
              if (Object.prototype.hasOwnProperty.call(req.body, field)) {
                 const value = req.body[field];
-                 if (field === 'age' && value !== null && typeof value !== 'number') return res.status(400).json({ message: `Invalid type for age` });
-                if (field !== 'age' && value !== null && typeof value !== 'string') return res.status(400).json({ message: `Invalid type for ${field}` });
-                updateData[field] = value;
+                // --- Type/Format validation for dateOfBirth ---
+                 if (field === 'dateOfBirth') {
+                    if (value !== null && isNaN(Date.parse(value))) {
+                         return res.status(400).json({ message: `Invalid type or format for dateOfBirth` });
+                    }
+                    // Allow setting dateOfBirth to null or a valid date
+                    updateData[field] = value ? new Date(value) : null;
+                } else if (value !== null && typeof value !== 'string') {
+                    // Allow null for other string fields if needed, otherwise check type
+                    return res.status(400).json({ success: false, message: `Invalid type for ${field}. Expected string.` });
+                } else if (value !== null) { // Only assign non-null string values
+                     updateData[field] = value;
+                }
+                 // If you want to allow explicitly setting string fields to null or empty string:
+                 // else {
+                 //    updateData[field] = value; // Assign null or "" if provided
+                 // }
             }
         }
+        // --- End Whitelist/Validation ---
+
+        // Prevent unwanted updates
+        delete updateData.role; // Already preventing role changes here
+        delete updateData.organizationId;
+        delete updateData.isActive;
 
         const user = await User.findByIdAndUpdate(req.user.id, updateData, { new: true, runValidators: true }).select('-documents');
         if (!user) return res.status(404).json({ success: false, message: 'User not found during update' });
