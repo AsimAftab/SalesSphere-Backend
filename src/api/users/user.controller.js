@@ -135,10 +135,15 @@ exports.updateUser = async (req, res, next) => {
         const allowedUpdates = [ 'name', 'email', 'phone', 'address', 'gender', 'dateOfBirth', 'panNumber', 'citizenshipNumber' ];
         const updateData = {};
         for (const field of allowedUpdates) {
-             if (Object.prototype.hasOwnProperty.call(req.body, field)) {
+            if (Object.prototype.hasOwnProperty.call(req.body, field)) {
                 const value = req.body[field];
+                // Prevent NoSQL injection: disallow objects/arrays
+                if (
+                    value !== null &&
+                    (typeof value === "object" || Array.isArray(value))
+                ) return res.status(400).json({ success: false, message: `Invalid value for ${field}. No objects or arrays allowed.` });
                 if (field === 'dateOfBirth') {
-                    if (value !== null && isNaN(Date.parse(value))) return res.status(400).json({ message: `Invalid type or format for dateOfBirth` });
+                    if (value !== null && isNaN(Date.parse(value))) return res.status(400).json({ success: false, message: `Invalid type or format for dateOfBirth` });
                     updateData[field] = value ? new Date(value) : null;
                 } else if (value !== null && typeof value !== 'string') return res.status(400).json({ success: false, message: `Invalid type for ${field}. Expected string.` });
                 else if (value !== null) updateData[field] = value;
