@@ -116,9 +116,7 @@ exports.deleteProduct = async (req, res) => {
             {
                 _id: req.params.id,
                 organizationId: organizationId
-            },
-            { isActive: false }, // Perform a soft delete
-            { new: true }
+            }
         );
 
         if (!product) {
