@@ -1,59 +1,56 @@
 const mongoose = require('mongoose');
 
-// This schema is based on your 'PartyDetails' interface
 const partySchema = new mongoose.Schema({
-    // Corresponds to 'name'
-    name: {
+    partyName: {
         type: String,
         required: [true, 'Party name is required'],
         trim: true,
     },
-    // Corresponds to 'location' or 'designation'
-    location: {
-        type: String,
-        trim: true,
-        default: '',
-    },
-    // Corresponds to 'imageUrl'
-    imageUrl: {
-        type: String,
-        trim: true,
-        default: 'https://placehold.co/100x100/E2E8F0/4A5568?text=N/A'
-    },
-    // Corresponds to 'ownerName'
     ownerName: {
         type: String,
+        required: [true, 'Owner name is required'],
         trim: true,
-        default: '',
     },
-    // Corresponds to 'panVat'
-    panVat: {
+    dateJoined: {
+        type: Date,
+        required: [true, 'Date joined is required'],
+    },
+    panVatNumber: {
         type: String,
         required: [true, 'PAN/VAT number is required'],
         trim: true,
+        maxlength: 14
     },
-    // Corresponds to 'contact'
     contact: {
+        phone: {
+            type: String,
+            required: [true, 'Phone number is required'],
+            trim: true,
+        },
         email: {
             type: String,
             trim: true,
             lowercase: true,
         },
-        phone: {
-            type: String,
-            trim: true,
-            required: [true, 'Party phone number is required'],
-        },
+    },
+    location: {
         address: {
             type: String,
+            required: [true, 'Address is required'],
             trim: true,
-            default: '',
-        }
+        },
+        latitude: {
+            type: Number,
+            required: [true, 'Latitude is required'],
+        },
+        longitude: {
+            type: Number,
+            required: [true, 'Longitude is required'],
+        },
     },
-    // --- Backend-specific fields ---
-    isActive: {
-        type: Boolean,
-        default: true,
+    description: {
+        type: String,
+        trim: true,
     },
     organizationId: {
         type: mongoose.Schema.Types.ObjectId,
@@ -64,15 +61,19 @@ const partySchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
         required: true,
-    }
+    },
+    // --- REMOVED isActive ---
+    // isActive: {
+    //   type: Boolean,
+    //   default: true,
+    // },
+    // --- END REMOVAL ---
 }, { timestamps: true });
 
-// Index for faster queries by organization
-partySchema.index({ organizationId: 1 });
-// Index for finding a party by PAN/VAT within an org
-// Set as unique so you don't have duplicate parties in one org
-partySchema.index({ panVat: 1, organizationId: 1 }, { unique: true });
-
+// --- RE-ADDED UNIQUE INDEX ---
+// Index to ensure panVatNumber is unique within an organization
+partySchema.index({ panVatNumber: 1, organizationId: 1 }, { unique: true });
+// --- END RE-ADDITION ---
 
 const Party = mongoose.model('Party', partySchema);
 
