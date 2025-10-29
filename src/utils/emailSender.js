@@ -16,7 +16,9 @@ const sendEmail = async (options) => {
 
     const mailOptions = {
         from: process.env.EMAIL_FROM,
-        to: options.email,
+        to: Array.isArray(options.emails)
+        ? options.emails.join(',')
+        : options.email || '', // fallback if single email
         subject: options.subject,
         text: options.message,
         html: options.html, // Added HTML support
@@ -71,4 +73,4 @@ Thank you!`;
     }
 };
 
-module.exports = { sendWelcomeEmail }; // Now this export will work
+module.exports = { sendEmail,sendWelcomeEmail }; // Now this export will work
