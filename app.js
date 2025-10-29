@@ -17,13 +17,18 @@ dotenv.config();
 connectDB();
 
 const app = express();
-
+app.set('trust proxy', 1);
 // --- Middlewares ---
 
 // CORS Configuration
 const corsOptions = {
-    origin: 'http://localhost:5173',
-    optionsSuccessStatus: 200
+  origin: [
+    'http://localhost:5173',
+    'https://salessphere360.com',
+    'https://www.salessphere360.com'
+  ],
+  optionsSuccessStatus: 200,
+  credentials: true, // if you ever use cookies / auth headers
 };
 app.use(cors(corsOptions));
 
