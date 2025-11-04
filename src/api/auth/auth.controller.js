@@ -254,3 +254,244 @@ exports.resetPassword = async (req, res) => {
     res.status(500).json({ message: 'Server Error', error: error.message });
   }
 };
+
+const validateEmail = (email) => {
+  if (!email || typeof email !== 'string') return false;
+  // simple, permissive email regex
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+};
+
+const isValidPreferredDate = (d) => {
+  if (!d) return false;
+  // allow Date objects or strings
+  const date = typeof d === 'string' ? new Date(d) : new Date(d);
+  return !Number.isNaN(date.getTime());
+};
+
+const validatePhone = (phone) => {
+  if (!phone) return false;
+  if (typeof phone !== 'string') return false;
+  const cleaned = phone.trim();
+  return /^[+\d\-\s()]{6,20}$/.test(cleaned);
+};
+// Simple HTML-escape helper (use a library for stronger guarantees)
+const escapeHtml = (str = '') =>
+  String(str)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+
+// -----------------------------
+// Contact Admin controller
+// -----------------------------
+// @desc    Handle 'Contact Admin' form submission
+// @route   POST /api/v1/auth/contact-admin
+exports.contactAdmin = async (req, res) => {
+  try {
+    const {
+      fullName = '',
+      email = '',
+      department = '',
+      requestType = '',
+      message = '',
+    } = req.body || {};
+
+    if (!fullName || !email || !message) {
+      return res.status(400).json({ status: 'error', message: 'Please provide fullName, email and message.' });
+    }
+
+    if (!validateEmail(email)) {
+      return res.status(400).json({ status: 'error', message: 'Please provide a valid email address.' });
+    }
+
+    const adminEmail = (process.env.ADMIN_EMAIL || '').trim();
+    if (!adminEmail) {
+      console.error('❌ CRITICAL: ADMIN_EMAIL is not set in environment.');
+      return res.status(500).json({ status: 'error', message: 'Server error: Cannot process request.' });
+    }
+
+    const subject = `New Admin Request: ${requestType || 'General Inquiry'} from ${fullName}`;
+
+    const textMessage = [
+      'New support request received from the "Contact Admin" form:',
+      '',
+      `Full Name: ${fullName}`,
+      `Email: ${email}`,
+      `Department / Role: ${department || 'Not provided'}`,
+      `Request Type: ${requestType || 'Not provided'}`,
+      '',
+      'Message:',
+      `${message}`,
+    ].join('\n');
+
+    const htmlMessage = `
+      <div style="font-family: 'Segoe UI', Arial, sans-serif; color: #333; line-height: 1.6;">
+        <h2 style="color: #2563eb;">New Support Request</h2>
+        <p>A new request has been submitted via the "Contact Admin" form.</p>
+        <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
+          <tr style="border-bottom: 1px solid #e5e7eb;">
+            <td style="padding: 10px 5px; color: #6b7280; width: 150px;">Full Name:</td>
+            <td style="padding: 10px 5px; font-weight: bold;">${escapeHtml(fullName)}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #e5e7eb;">
+            <td style="padding: 10px 5px; color: #6b7280;">Email ID:</td>
+            <td style="padding: 10px 5px; font-weight: bold;">${escapeHtml(email)}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #e5e7eb;">
+            <td style="padding: 10px 5px; color: #6b7280;">Department / Role:</td>
+            <td style="padding: 10px 5px; font-weight: bold;">${escapeHtml(department || 'Not provided')}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #e5e7eb;">
+            <td style="padding: 10px 5px; color: #6b7280;">Request Type:</td>
+            <td style="padding: 10px 5px; font-weight: bold;">${escapeHtml(requestType || 'Not provided')}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #e5e7eb;">
+            <td style="padding: 10px 5px; color: #6b7280; vertical-align: top;">Message:</td>
+            <td style="padding: 10px 5px; font-weight: bold; white-space: pre-wrap;">${escapeHtml(message)}</td>
+          </tr>
+        </table>
+        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;">
+        <p style="font-size: 12px; color: #6b7280;">This is an automated notification.</p>
+      </div>
+    `;
+
+    // sendEmail signature: { email, subject, message, html, ... }
+    // If your email util expects `replyTo` instead of `reply_to` use that. We include both keys
+    await sendEmail({
+      email: adminEmail,
+      subject,
+      message: textMessage,
+      html: htmlMessage,
+      replyTo: email,
+      reply_to: email,
+    });
+
+    return res.status(200).json({ status: 'success', message: 'Your request has been sent to the admin.' });
+  } catch (error) {
+    console.error('❌ Error in contactAdmin controller:', error);
+    return res.status(500).json({ status: 'error', message: 'Server Error while processing your request.' });
+  }
+};
+
+
+
+// Schedule Demo controller
+// -----------------------------
+// @desc    Handle 'Schedule a Demo' form submission
+// @route   POST /api/v1/auth/schedule-demo
+exports.scheduleDemo = async (req, res) => {
+  try {
+    const {
+      fullName = '',
+      company = '',
+      email = '',
+      phone = '',
+      preferredDate = '',
+      message = '',
+    } = req.body || {};
+
+    // required fields: fullName, email, message
+    if (!fullName || !email || !message) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Please provide fullName, email and message.',
+      });
+    }
+
+    if (!validateEmail(email)) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Please provide a valid email address.',
+      });
+    }
+
+    if (phone && !validatePhone(phone)) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Please provide a valid phone number (including country code).',
+      });
+    }
+
+    if (preferredDate && !isValidPreferredDate(preferredDate)) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Please provide a valid preferredDate (ISO date string or parseable date).',
+      });
+    }
+
+    // target recipient: DEMO_EMAIL or fallback to ADMIN_EMAIL
+    const demoEmail = (process.env.DEMO_EMAIL || process.env.ADMIN_EMAIL || '').trim();
+    if (!demoEmail) {
+      console.error('❌ CRITICAL: DEMO_EMAIL / ADMIN_EMAIL is not set in environment.');
+      return res.status(500).json({ status: 'error', message: 'Server error: Cannot process request.' });
+    }
+
+    const subject = `Demo Request: ${fullName}${company ? ` — ${company}` : ''}`;
+
+    const textMessageParts = [
+      'New demo request received:',
+      '',
+      `Full Name: ${fullName}`,
+      `Company: ${company || 'Not provided'}`,
+      `Email: ${email}`,
+      `Phone: ${phone || 'Not provided'}`,
+      `Preferred Date: ${preferredDate || 'Not provided'}`,
+      '',
+      'Message:',
+      `${message}`,
+    ];
+    const textMessage = textMessageParts.join('\n');
+
+    const htmlMessage = `
+      <div style="font-family: 'Segoe UI', Arial, sans-serif; color: #333; line-height: 1.6;">
+        <h2 style="color: #2563eb;">New Demo Request</h2>
+        <p>A new demo request has been submitted via the "Schedule a Demo" form.</p>
+        <table style="width:100%; border-collapse: collapse; margin-top: 20px;">
+          <tr style="border-bottom: 1px solid #e5e7eb;">
+            <td style="padding:10px 5px; color:#6b7280; width:150px;">Full Name:</td>
+            <td style="padding:10px 5px; font-weight:bold;">${escapeHtml(fullName)}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #e5e7eb;">
+            <td style="padding:10px 5px; color:#6b7280;">Company:</td>
+            <td style="padding:10px 5px; font-weight:bold;">${escapeHtml(company || 'Not provided')}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #e5e7eb;">
+            <td style="padding:10px 5px; color:#6b7280;">Email:</td>
+            <td style="padding:10px 5px; font-weight:bold;">${escapeHtml(email)}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #e5e7eb;">
+            <td style="padding:10px 5px; color:#6b7280;">Phone:</td>
+            <td style="padding:10px 5px; font-weight:bold;">${escapeHtml(phone || 'Not provided')}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #e5e7eb;">
+            <td style="padding:10px 5px; color:#6b7280;">Preferred Date:</td>
+            <td style="padding:10px 5px; font-weight:bold;">${escapeHtml(preferredDate || 'Not provided')}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #e5e7eb;">
+            <td style="padding:10px 5px; color:#6b7280; vertical-align: top;">Message:</td>
+            <td style="padding:10px 5px; font-weight:bold; white-space: pre-wrap;">${escapeHtml(message)}</td>
+          </tr>
+        </table>
+        <hr style="border:none; border-top:1px solid #e5e7eb; margin:20px 0;">
+        <p style="font-size:12px; color:#6b7280;">This is an automated notification.</p>
+      </div>
+    `;
+
+    // sendEmail signature: { email, subject, message, html, replyTo/ reply_to }
+    await sendEmail({
+      email: demoEmail,
+      subject,
+      message: textMessage,
+      html: htmlMessage,
+      replyTo: email,
+      reply_to: email,
+    });
+
+    return res.status(200).json({ status: 'success', message: 'Your demo request has been sent. Our team will reach out soon.' });
+  } catch (error) {
+    console.error('❌ Error in scheduleDemo controller:', error);
+    return res.status(500).json({ status: 'error', message: 'Server Error while processing your request.' });
+  }
+};
