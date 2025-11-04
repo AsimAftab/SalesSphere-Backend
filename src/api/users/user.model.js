@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto'); // <-- 1. ADDED: For generating reset tokens
 
 const userSchema = new mongoose.Schema({
     name: {
@@ -37,7 +38,7 @@ const userSchema = new mongoose.Schema({
         default: true,
     },
 
-    // --- New Employee Detail Fields ---
+    // --- Employee Detail Fields ---
     avatarUrl: {
         type: String,
     },
@@ -56,7 +57,6 @@ const userSchema = new mongoose.Schema({
     dateOfBirth: {
         type: Date,
     },
-    
     panNumber: {
         type: String,
         trim: true,
@@ -75,8 +75,13 @@ const userSchema = new mongoose.Schema({
             fileUrl: String,
             uploadedAt: { type: Date, default: Date.now }
         }
-    ]
-    // --- End of New Fields ---
+    ],
+    // --- End of Employee Fields ---
+
+    // --- 2. ADDED: Fields for Password Reset ---
+    passwordResetToken: String,
+    passwordResetExpires: Date,
+    // ----------------------------------------
 
 }, { timestamps: true });
 
@@ -94,6 +99,26 @@ userSchema.pre('save', async function (next) {
 userSchema.methods.matchPassword = async function (enteredPassword) {
     return await bcrypt.compare(enteredPassword, this.password);
 };
+
+// --- 3. ADDED: Method to create and hash password reset token ---
+userSchema.methods.createPasswordResetToken = function() {
+    // Generate the unhashed token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+
+    // Hash the token and save it to the user document
+    this.passwordResetToken = crypto
+        .createHash('sha256')
+        .update(resetToken)
+        .digest('hex');
+
+    // Set an expiry time (e.g., 10 minutes from now)
+    this.passwordResetExpires = Date.now() + 10 * 60 * 1000; 
+
+    // Return the *unhashed* token (this is what you email to the user)
+    return resetToken;
+};
+// -------------------------------------------------------------
+
 // --- Optional: Add a virtual property to calculate age ---
 userSchema.virtual('age').get(function() {
   if (!this.dateOfBirth) return undefined; // Or null, or 0
@@ -127,6 +152,7 @@ userSchema.set('toJSON', {
   }
 });
 // --- End Virtual ---
+
 const User = mongoose.model('User', userSchema);
 
 module.exports = User;
