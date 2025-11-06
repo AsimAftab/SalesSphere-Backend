@@ -111,7 +111,12 @@ exports.login = async (req, res) => {
         if (!user || !(await user.matchPassword(password))) {
             return res.status(401).json({ message: 'Incorrect email or password' });
         }
-
+         if (user.isActive === false) {
+            return res.status(403).json({ 
+                status: 'error',
+                message: 'Your account is inactive. Please contact the administrator to reactivate your account.' 
+            });
+        }
         const token = signToken(user._id);
         user.password = undefined; // Remove password from the output
 

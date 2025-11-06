@@ -12,6 +12,7 @@ const dashboardRoutes = require('./src/api/dashboard/dashboard.route.js');
 const productRoutes = require('./src/api/product/product.routes.js');
 const partiesRoutes = require('./src/api/parties/party.routes.js')
 const prospectsRoutes = require('./src/api/prospect/prospect.route.js')
+const sitesRoutes = require('./src/api/sites/sites.route.js')
 
 dotenv.config();
 
@@ -61,6 +62,7 @@ app.use('/api/v1/dashboard', authLimiter, dashboardRoutes);
 app.use('/api/v1/products',authLimiter,productRoutes);
 app.use('/api/v1/parties',authLimiter,partiesRoutes);
 app.use('/api/v1/prospects',authLimiter,prospectsRoutes);
+app.use('/api/v1/sites',authLimiter,sitesRoutes);
 
 
 // Test Route
