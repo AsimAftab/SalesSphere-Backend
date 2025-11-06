@@ -9,10 +9,13 @@ const morgan = require("morgan");
 const authRoutes = require('./src/api/auth/auth.route.js');
 const userRoutes = require('./src/api/users/user.route.js');
 const dashboardRoutes = require('./src/api/dashboard/dashboard.route.js');
-const productRoutes = require('./src/api/product/product.routes.js');
 const partiesRoutes = require('./src/api/parties/party.routes.js')
 const prospectsRoutes = require('./src/api/prospect/prospect.route.js')
+const categoryRoutes = require('./src/api/product/category/category.routes.js')
+const productRoutes = require('./src/api/product/product.routes.js');
 const sitesRoutes = require('./src/api/sites/sites.route.js')
+
+
 
 dotenv.config();
 
@@ -63,6 +66,9 @@ app.use('/api/v1/products',authLimiter,productRoutes);
 app.use('/api/v1/parties',authLimiter,partiesRoutes);
 app.use('/api/v1/prospects',authLimiter,prospectsRoutes);
 app.use('/api/v1/sites',authLimiter,sitesRoutes);
+app.use('/api/v1/categories', authLimiter, categoryRoutes);
+app.use('/api/v1/products', authLimiter, productRoutes);
+
 
 
 // Test Route
