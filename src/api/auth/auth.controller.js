@@ -500,3 +500,19 @@ exports.scheduleDemo = async (req, res) => {
     return res.status(500).json({ status: 'error', message: 'Server Error while processing your request.' });
   }
 };
+
+
+// @desc    Check if user's JWT is valid
+// @route   GET /api/v1/auth/check-status
+exports.checkAuthStatus = (req, res) => {
+    // If the 'protect' middleware passed, req.user is attached.
+    // The middleware handles the 401 error if the token is invalid/expired.
+
+    // The frontend just needs to know if the token is good.
+    // If it gets this 200 OK, it proceeds.
+    // If it gets a 401 (handled by 'protect'), it redirects to login.
+    res.status(200).json({
+        status: 'success',
+        message: 'Token is valid.'
+    });
+};

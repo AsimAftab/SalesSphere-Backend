@@ -6,8 +6,9 @@ const {
   resetPassword,
   contactAdmin, 
   scheduleDemo,
+  checkAuthStatus,
 } = require('./auth.controller'); 
-
+const { protect } = require('../../middlewares/auth.middleware');
 const router = express.Router();
 
 // Authentication Routes
@@ -22,4 +23,8 @@ router.patch('/resetpassword/:token', resetPassword);
 router.post('/contact-admin', contactAdmin); 
 // Demo Scheduling Route
 router.post('/schedule-demo', scheduleDemo);
+
+// Check Authentication Status Route
+router.get('/check-status', protect, checkAuthStatus);
+
 module.exports = router;
