@@ -1,46 +1,43 @@
 const mongoose = require('mongoose');
 
 const productSchema = new mongoose.Schema({
-    name: {
+    productName: {
         type: String,
         required: [true, 'Product name is required'],
         trim: true,
     },
-    description: {
+    // --- NEW FIELD ---
+    serialNo: {
         type: String,
         trim: true,
-        default: '',
+        default: null
     },
-    // Corresponds to 'imageUrl' in your interface
-    imageUrl: {
-        type: String,
-        trim: true,
-        default: 'https://placehold.co/40x40/cccccc/ffffff?text=N/A'
+    // --- END NEW FIELD ---
+    image: {
+        public_id: {
+            type: String,
+            default: null
+        },
+        url: {
+            type: String,
+            default: null 
+        }
     },
-    // Corresponds to 'category' in your interface
     category: {
-        type: String,
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Category', 
         required: [true, 'Product category is required'],
-        trim: true,
-        default: 'Uncategorized'
     },
-    // Corresponds to 'price' in your interface
     price: {
         type: Number,
         required: [true, 'Product price is required'],
         min: [0, 'Price cannot be negative'],
         default: 0,
     },
-    // Corresponds to 'piece' in your interface
-    piece: {
+    qty: {
         type: Number,
         default: 0,
-        min: [0, 'Piece count cannot be negative'],
-    },
-    sku: {
-        type: String,
-        trim: true,
-        default: '',
+        min: [0, 'Quantity cannot be negative'],
     },
     isActive: {
         type: Boolean,
@@ -58,14 +55,16 @@ const productSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
-// Index for faster queries by organization
+// Indexes
 productSchema.index({ organizationId: 1 });
-// Index for case-insensitive name search within an organization
-// This helps the 'bulkUpdateProducts' logic find existing products
-productSchema.index({ name: 1, organizationId: 1 }, { collation: { locale: 'en', strength: 2 } });
-
+productSchema.index({ category: 1 });
+// --- UPDATED: Added unique constraint ---
+productSchema.index({ productName: 1, organizationId: 1 }, { 
+    unique: true,
+// --- END UPDATE ---
+    collation: { locale: 'en', strength: 2 } 
+});
 
 const Product = mongoose.model('Product', productSchema);
 
 module.exports = Product;
-
