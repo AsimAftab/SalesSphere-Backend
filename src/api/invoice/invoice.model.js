@@ -38,6 +38,18 @@ const invoiceSchema = new mongoose.Schema({
         type: String,
         required: true,
     },
+    organizationPanVatNumber: {
+        type: String,
+        required: true,
+    },
+    organizationAddress: {
+        type: String,
+        required: true,
+    },
+    organizationPhone: {
+        type: String,
+        required: true,
+    },
     // --- END ---
 
     // --- Copied Party Data (FOR PDF) ---
