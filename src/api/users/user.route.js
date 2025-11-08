@@ -35,6 +35,9 @@ const imageUpload = multer({
 // Apply the 'protect' middleware to ALL routes below this point
 router.use(protect);
 
+// --- SUPERADMIN ONLY: System Overview ---
+router.get('/system-overview', restrictTo('superadmin'), userController.getSystemOverview);
+
 // --- NEW: Routes for the logged-in user ('/me') ---
 // These do NOT need restrictTo, as users manage their own profile
 router.route('/me')
