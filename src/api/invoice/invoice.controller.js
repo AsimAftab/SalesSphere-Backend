@@ -86,7 +86,7 @@ exports.createInvoice = async (req, res, next) => {
             throw new Error('Party not found.');
         }
 
-        const organization = await Organization.findById(organizationId).select('name').session(session);
+        const organization = await Organization.findById(organizationId).select('name panVatNumber address phone').session(session);
         if (!organization) {
             throw new Error('Organization not found.');
         }
@@ -155,11 +155,16 @@ exports.createInvoice = async (req, res, next) => {
             status: 'pending',
             organizationId: organizationId,
             createdBy: userId,
+            // Organization details (for PDF generation)
             organizationName: organization.name,
+            organizationPanVatNumber: organization.panVatNumber,
+            organizationAddress: organization.address,
+            organizationPhone: organization.phone,
+            // Party details (for PDF generation)
             partyName: party.partyName,
             partyOwnerName: party.ownerName,
-            partyAddress: party.location.address, 
-            partyPanVatNumber: party.panVatNumber  
+            partyAddress: party.location.address,
+            partyPanVatNumber: party.panVatNumber
         });
 
         await newInvoice.save({ session: session });
