@@ -11,11 +11,21 @@ const signToken = (id) => {
     });
 };
 
-// @desc    Register a new organization and its admin user
-// @route   POST /api/v1/auth/register
-exports.register = async (req, res) => {
+// @desc    Register a superadmin (no organization required)
+// @route   POST /api/v1/auth/register/superadmin
+exports.registerSuperAdmin = async (req, res) => {
   try {
-    const { name, email, password, organizationName, role } = req.body;
+    const {
+      name,
+      email,
+      password,
+      phone,
+      address,
+      gender,
+      dateOfBirth,
+      citizenshipNumber,
+      avatarUrl
+    } = req.body;
 
     // Basic validation
     if (!name || !email || !password) {
@@ -24,51 +34,145 @@ exports.register = async (req, res) => {
       });
     }
 
+    // Check if email already exists
     const existingUser = await User.findOne({ email: { $eq: email } });
     if (existingUser) {
       return res.status(400).json({ message: 'User with this email already exists' });
     }
 
-    let newUser;
-    let newOrganization;
+    // Build user data object
+    const userData = {
+      name,
+      email,
+      password,
+      role: 'superadmin',
+    };
 
-    // 👑 CASE 1: SUPERADMIN CREATION (no organization)
-    if (role === 'superadmin') {
-      newUser = await User.create({
-        name,
-        email,
-        password,
-        role: 'superadmin',
+    // Add optional fields if provided
+    if (phone) userData.phone = phone;
+    if (address) userData.address = address;
+    if (gender) userData.gender = gender;
+    if (dateOfBirth) userData.dateOfBirth = dateOfBirth;
+    if (citizenshipNumber) userData.citizenshipNumber = citizenshipNumber;
+    if (avatarUrl) userData.avatarUrl = avatarUrl;
+
+    // Create superadmin user (no organization)
+    const newUser = await User.create(userData);
+
+    // Create token
+    const token = signToken(newUser._id);
+
+    res.status(201).json({
+      status: 'success',
+      token,
+      data: {
+        user: {
+          _id: newUser._id,
+          name: newUser.name,
+          email: newUser.email,
+          role: newUser.role,
+          phone: newUser.phone,
+          address: newUser.address,
+          gender: newUser.gender,
+          dateOfBirth: newUser.dateOfBirth,
+          citizenshipNumber: newUser.citizenshipNumber,
+          avatarUrl: newUser.avatarUrl,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('❌ SuperAdmin registration error:', error);
+    res.status(500).json({ message: 'Server Error', error: error.message });
+  }
+};
+
+// @desc    Register a new organization and its admin user
+// @route   POST /api/v1/auth/register
+exports.register = async (req, res) => {
+  try {
+    const {
+      name,
+      email,
+      password,
+      organizationName,
+      panVatNumber,
+      phone,
+      address,
+      latitude,
+      longitude,
+      googleMapLink,
+      subscriptionType
+    } = req.body;
+
+    // Basic validation
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        message: 'Please provide name, email, and password',
       });
-
-    // 🏢 CASE 2: NORMAL REGISTRATION (admin + organization)
-    } else {
-      if (!organizationName) {
-        return res.status(400).json({ message: 'Organization name is required for non-superadmin users' });
-      }
-
-      // 1️⃣ Create organization
-      newOrganization = await Organization.create({ name: organizationName });
-
-      // 2️⃣ Create admin user
-      newUser = await User.create({
-        name,
-        email,
-        password,
-        role: 'admin',
-        organizationId: newOrganization._id,
-      });
-
-      // 3️⃣ Link organization owner
-      newOrganization.owner = newUser._id;
-      await newOrganization.save();
     }
+
+    // Organization-specific validation
+    if (!organizationName || !panVatNumber || !phone || !address) {
+      return res.status(400).json({
+        message: 'Please provide organization name, PAN/VAT number, phone, and address'
+      });
+    }
+
+    if (!subscriptionType || !['6months', '12months'].includes(subscriptionType)) {
+      return res.status(400).json({
+        message: 'Please provide a valid subscription type (6months or 12months)'
+      });
+    }
+
+    // Check if email already exists
+    const existingUser = await User.findOne({ email: { $eq: email } });
+    if (existingUser) {
+      return res.status(400).json({ message: 'User with this email already exists' });
+    }
+
+    // Check if PAN/VAT number already exists
+    const existingOrg = await Organization.findOne({ panVatNumber: { $eq: panVatNumber } });
+    if (existingOrg) {
+      return res.status(400).json({ message: 'Organization with this PAN/VAT number already exists' });
+    }
+
+    // 1️⃣ Create organization with all details
+    const organizationData = {
+      name: organizationName,
+      panVatNumber,
+      phone,
+      address,
+      subscriptionType,
+    };
+
+    // Add optional location fields if provided
+    if (latitude !== undefined && latitude !== null) {
+      organizationData.latitude = latitude;
+    }
+    if (longitude !== undefined && longitude !== null) {
+      organizationData.longitude = longitude;
+    }
+    if (googleMapLink) {
+      organizationData.googleMapLink = googleMapLink;
+    }
+
+    const newOrganization = await Organization.create(organizationData);
+
+    // 2️⃣ Create admin user
+    const newUser = await User.create({
+      name,
+      email,
+      password,
+      role: 'admin',
+      organizationId: newOrganization._id,
+    });
+
+    // 3️⃣ Link organization owner
+    newOrganization.owner = newUser._id;
+    await newOrganization.save();
 
     // 🔑 Create token
     const token = signToken(newUser._id);
-
-    // TODO: You could send a generic "Welcome!" email here if you want
-    // (but not the 'sendWelcomeEmail' with a temp password)
 
     res.status(201).json({
       status: 'success',
@@ -80,13 +184,29 @@ exports.register = async (req, res) => {
           email: newUser.email,
           role: newUser.role,
         },
-        organization: newOrganization
-          ? { _id: newOrganization._id, name: newOrganization.name }
-          : null,
+        organization: {
+          _id: newOrganization._id,
+          name: newOrganization.name,
+          panVatNumber: newOrganization.panVatNumber,
+          phone: newOrganization.phone,
+          address: newOrganization.address,
+          subscriptionType: newOrganization.subscriptionType,
+          subscriptionEndDate: newOrganization.subscriptionEndDate,
+          isSubscriptionActive: newOrganization.isSubscriptionActive,
+        },
       },
     });
   } catch (error) {
     console.error('❌ Registration error:', error);
+
+    // Handle MongoDB duplicate key errors
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern)[0];
+      return res.status(400).json({
+        message: `An organization with this ${field} already exists`
+      });
+    }
+
     res.status(500).json({ message: 'Server Error', error: error.message });
   }
 };

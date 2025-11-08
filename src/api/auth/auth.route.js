@@ -1,18 +1,20 @@
 const express = require('express');
 const {
   register,
+  registerSuperAdmin,
   login,
   forgotPassword,
   resetPassword,
-  contactAdmin, 
+  contactAdmin,
   scheduleDemo,
   checkAuthStatus,
-} = require('./auth.controller'); 
+} = require('./auth.controller');
 const { protect } = require('../../middlewares/auth.middleware');
 const router = express.Router();
 
 // Authentication Routes
 router.post('/register', register);
+router.post('/register/superadmin', registerSuperAdmin);
 router.post('/login', login);
 
 // Password Management Routes

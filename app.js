@@ -14,7 +14,7 @@ const prospectsRoutes = require('./src/api/prospect/prospect.route.js')
 const categoryRoutes = require('./src/api/product/category/category.routes.js')
 const productRoutes = require('./src/api/product/product.routes.js');
 const sitesRoutes = require('./src/api/sites/sites.route.js')
-
+const invoicesRoutes = require('./src/api/invoice/invoice.routes')
 
 
 dotenv.config();
@@ -68,7 +68,7 @@ app.use('/api/v1/prospects',authLimiter,prospectsRoutes);
 app.use('/api/v1/sites',authLimiter,sitesRoutes);
 app.use('/api/v1/categories', authLimiter, categoryRoutes);
 app.use('/api/v1/products', authLimiter, productRoutes);
-
+app.use('/api/v1/invoices', authLimiter, invoicesRoutes);
 
 
 // Test Route
