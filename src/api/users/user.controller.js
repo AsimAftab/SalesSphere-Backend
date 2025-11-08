@@ -386,3 +386,40 @@ exports.updateMyPassword = async (req, res, next) => {
     } catch (error) { next(error); }
 };
 
+// --- SUPERADMIN ONLY: Get system overview ---
+// @desc    Get all organizations and system users (superadmin & developers without organizationId)
+// @route   GET /api/v1/users/system-overview
+// @access  Private (Superadmin only)
+exports.getSystemOverview = async (req, res, next) => {
+    try {
+        // Fetch all organizations
+        const Organization = require('../organizations/organization.model');
+        const organizations = await Organization.find()
+            .select('name panVatNumber phone address subscriptionType subscriptionStartDate subscriptionEndDate isActive')
+            .populate('owner', 'name email phone')
+            .sort({ createdAt: -1 });
+
+        // Fetch all system users (users without organizationId)
+        const systemUsers = await User.find({
+            organizationId: { $exists: false }
+        }).select('name email role phone address isActive createdAt');
+
+        res.status(200).json({
+            success: true,
+            data: {
+                organizations: {
+                    count: organizations.length,
+                    list: organizations
+                },
+                systemUsers: {
+                    count: systemUsers.length,
+                    list: systemUsers
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching system overview:', error);
+        next(error);
+    }
+};
+
