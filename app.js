@@ -15,6 +15,8 @@ const categoryRoutes = require('./src/api/product/category/category.routes.js')
 const productRoutes = require('./src/api/product/product.routes.js');
 const sitesRoutes = require('./src/api/sites/sites.route.js')
 const invoicesRoutes = require('./src/api/invoice/invoice.routes')
+const attendanceRoutes = require('./src/api/attendance/attendance.route.js');
+const organizationRoutes = require('./src/api/organizations/organization.route.js');
 
 
 dotenv.config();
@@ -69,6 +71,8 @@ app.use('/api/v1/sites',authLimiter,sitesRoutes);
 app.use('/api/v1/categories', authLimiter, categoryRoutes);
 app.use('/api/v1/products', authLimiter, productRoutes);
 app.use('/api/v1/invoices', authLimiter, invoicesRoutes);
+app.use('/api/v1/attendance', authLimiter, attendanceRoutes);
+app.use('/api/v1/organizations', authLimiter, organizationRoutes);
 
 
 // Test Route

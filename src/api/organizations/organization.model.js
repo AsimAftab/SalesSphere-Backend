@@ -63,6 +63,17 @@ const organizationSchema = new mongoose.Schema({
             message: 'Check-out time must be in HH:MM format (24-hour)'
         }
     },
+    halfDayCheckOutTime: {
+        type: String,
+        trim: true,
+        default: '14:00',
+        validate: {
+            validator: function(v) {
+                return /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(v);
+            },
+            message: 'Half day check-out time must be in HH:MM format (24-hour)'
+        }
+    },
     weeklyOffDay: {
         type: String,
         enum: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],

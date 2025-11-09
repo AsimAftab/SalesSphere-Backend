@@ -103,6 +103,7 @@ exports.register = async (req, res) => {
       subscriptionType,
       checkInTime,
       checkOutTime,
+      halfDayCheckOutTime,
       weeklyOffDay
     } = req.body;
 
@@ -168,6 +169,9 @@ exports.register = async (req, res) => {
     if (checkOutTime) {
       organizationData.checkOutTime = checkOutTime;
     }
+    if (halfDayCheckOutTime) {
+      organizationData.halfDayCheckOutTime = halfDayCheckOutTime;
+    }
 
     // Add optional weekly off day if provided
     if (weeklyOffDay) {
@@ -214,6 +218,7 @@ exports.register = async (req, res) => {
           address: newOrganization.address,
           checkInTime: newOrganization.checkInTime,
           checkOutTime: newOrganization.checkOutTime,
+          halfDayCheckOutTime: newOrganization.halfDayCheckOutTime,
           weeklyOffDay: newOrganization.weeklyOffDay,
           subscriptionType: newOrganization.subscriptionType,
           subscriptionEndDate: newOrganization.subscriptionEndDate,

@@ -19,10 +19,19 @@ const attendanceSchema = new mongoose.Schema({
         enum: ['P', 'A', 'W', 'L', 'H'],
     },
     
-    // --- NEW FIELDS ---
+    // Check-in related fields
     checkInTime: {
         type: Date, // Full timestamp of check-in
     },
+    checkInLocation: {
+        latitude: Number,
+        longitude: Number,
+    },
+    checkInAddress: {
+        type: String,
+        trim: true,
+    },
+    // Check-out related fields
     checkOutTime: {
         type: Date, // Full timestamp of check-out
     },
@@ -30,11 +39,9 @@ const attendanceSchema = new mongoose.Schema({
         latitude: Number,
         longitude: Number,
     },
-    // --- END NEW FIELDS ---
-
-    checkInLocation: {
-        latitude: Number,
-        longitude: Number,
+    checkOutAddress: {
+        type: String,
+        trim: true,
     },
     markedBy: {
         type: mongoose.Schema.Types.ObjectId,
@@ -45,6 +52,23 @@ const attendanceSchema = new mongoose.Schema({
         type: String,
         trim: true,
     },
+    // Organization settings at time of attendance (for multi-tenant history)
+    orgCheckInTime: {
+        type: String,
+        trim: true,
+    },
+    orgCheckOutTime: {
+        type: String,
+        trim: true,
+    },
+    orgHalfDayCheckOutTime: {
+        type: String,
+        trim: true,
+    },
+    orgWeeklyOffDay: {
+        type: String,
+        trim: true,
+    },
     organizationId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Organization',
@@ -52,10 +76,10 @@ const attendanceSchema = new mongoose.Schema({
     },
 }, { timestamps: true });
 
-// Helper function to get the start of a given day (to ignore time)
+// Helper function to get the start of a given day (to ignore time) - uses UTC
 const getStartOfDay = (date) => {
     const d = new Date(date);
-    d.setHours(0, 0, 0, 0);
+    d.setUTCHours(0, 0, 0, 0);
     return d;
 };
 

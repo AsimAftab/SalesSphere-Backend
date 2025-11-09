@@ -9,7 +9,7 @@ const {
   scheduleDemo,
   checkAuthStatus,
 } = require('./auth.controller');
-const { protect } = require('../../middlewares/auth.middleware');
+const { protect, restrictTo } = require('../../middlewares/auth.middleware');
 const router = express.Router();
 
 // Authentication Routes
