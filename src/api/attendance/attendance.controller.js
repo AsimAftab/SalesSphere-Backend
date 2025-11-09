@@ -4,14 +4,55 @@ const Organization = require('../organizations/organization.model');
 const { z } = require('zod');
 const mongoose = require('mongoose');
 
-// Helper to get the start of the current day, ignoring time (in UTC)
+/**
+ * Timezone-aware helper functions
+ * These functions convert between organization's local time and UTC
+ */
+
+// Helper to get the start of today in organization's timezone
+const getStartOfTodayInTimezone = (timezone = 'Asia/Kolkata') => {
+    const now = new Date();
+
+    // Get the date string in the organization's timezone (YYYY-MM-DD)
+    const dateStrInTz = now.toLocaleString('en-CA', {
+        timeZone: timezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    }).split(',')[0]; // en-CA gives YYYY-MM-DD format
+
+    // Parse the date components
+    const [year, month, day] = dateStrInTz.split('-').map(Number);
+
+    // Create UTC date at midnight of that local date
+    // This represents "today at 00:00:00" in the organization's timezone
+    return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+};
+
+// Helper to get the start of a specific day in organization's timezone
+const getStartOfDayInTimezone = (date, timezone = 'Asia/Kolkata') => {
+    const d = new Date(date);
+
+    // Get the date string in the organization's timezone
+    const dateStrInTz = d.toLocaleString('en-CA', {
+        timeZone: timezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    }).split(',')[0];
+
+    const [year, month, day] = dateStrInTz.split('-').map(Number);
+
+    return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+};
+
+// Legacy helpers (kept for backward compatibility if needed)
 const getStartOfToday = () => {
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
     return today;
 };
 
-// Helper to get the start of a given day (in UTC)
 const getStartOfDay = (date) => {
     const d = new Date(date);
     d.setUTCHours(0, 0, 0, 0);
@@ -68,7 +109,17 @@ exports.checkIn = async (req, res, next) => {
         const { _id: userId, organizationId } = req.user;
 
         const { latitude, longitude, address } = checkInSchema.parse(req.body);
-        const today = getStartOfToday();
+
+        // Fetch organization settings to get timezone and check-in time
+        const organization = await Organization.findById(organizationId).select('checkInTime checkOutTime halfDayCheckOutTime weeklyOffDay timezone');
+
+        if (!organization) {
+            return res.status(404).json({ success: false, message: 'Organization not found' });
+        }
+
+        // Use organization's timezone to calculate "today"
+        const timezone = organization.timezone || 'Asia/Kolkata';
+        const today = getStartOfTodayInTimezone(timezone);
 
         // Check if a record exists and if user is already checked in
         const existingRecord = await Attendance.findOne({
@@ -79,13 +130,6 @@ exports.checkIn = async (req, res, next) => {
 
         if (existingRecord && existingRecord.checkInTime) {
             return res.status(400).json({ success: false, message: 'You have already checked in today.' });
-        }
-
-        // Fetch organization settings to get expected check-in time
-        const organization = await Organization.findById(organizationId).select('checkInTime checkOutTime halfDayCheckOutTime weeklyOffDay');
-
-        if (!organization) {
-            return res.status(404).json({ success: false, message: 'Organization not found' });
         }
 
         // Validate: Prevent check-in on weekly off days
@@ -176,9 +220,19 @@ exports.checkOut = async (req, res, next) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { _id: userId, organizationId } = req.user;
-        const today = getStartOfToday();
 
         const { latitude, longitude, address, isHalfDay } = checkOutSchema.parse(req.body);
+
+        // Fetch organization settings to get timezone and check-out time
+        const organization = await Organization.findById(organizationId).select('checkInTime checkOutTime halfDayCheckOutTime timezone');
+
+        if (!organization) {
+            return res.status(404).json({ success: false, message: 'Organization not found' });
+        }
+
+        // Use organization's timezone to calculate "today"
+        const timezone = organization.timezone || 'Asia/Kolkata';
+        const today = getStartOfTodayInTimezone(timezone);
 
         // Find the record to check out
         const existingRecord = await Attendance.findOne({
@@ -193,13 +247,6 @@ exports.checkOut = async (req, res, next) => {
 
         if (existingRecord.checkOutTime) {
             return res.status(400).json({ success: false, message: "You have already checked out today." });
-        }
-
-        // Fetch organization settings to get expected check-out time
-        const organization = await Organization.findById(organizationId).select('checkInTime checkOutTime halfDayCheckOutTime');
-
-        if (!organization) {
-            return res.status(404).json({ success: false, message: 'Organization not found' });
         }
 
         const checkOutTime = new Date();
@@ -289,11 +336,15 @@ exports.checkOut = async (req, res, next) => {
 // @route   GET /api/v1/attendance/status/today
 // @access  Private (Salesperson, Manager)
 exports.getMyStatusToday = async (req, res, next) => {
-// ... (This function remains unchanged, it works as-is)
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { _id: userId, organizationId } = req.user;
-        const today = getStartOfToday();
+
+        // Fetch organization to get timezone
+        const organization = await Organization.findById(organizationId).select('timezone');
+        const timezone = organization?.timezone || 'Asia/Kolkata';
+
+        const today = getStartOfTodayInTimezone(timezone);
 
         const record = await Attendance.findOne({
             employee: userId,
@@ -311,6 +362,124 @@ exports.getMyStatusToday = async (req, res, next) => {
     }
 };
 
+// @desc    Get the logged-in user's monthly attendance report
+// @route   GET /api/v1/attendance/my-monthly-report
+// @access  Private (Salesperson, Manager)
+exports.getMyMonthlyReport = async (req, res, next) => {
+    const reportQuerySchema = z.object({
+        month: z.coerce.number().int().min(1).max(12),
+        year: z.coerce.number().int().min(2020).max(2100),
+    });
+
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { _id: userId, organizationId } = req.user;
+
+        const { month, year } = reportQuerySchema.parse(req.query);
+
+        // Fetch organization to get weekly off day and timezone
+        const organization = await Organization.findById(organizationId).select('weeklyOffDay timezone');
+        const weeklyOffDay = organization?.weeklyOffDay || 'Saturday';
+        const timezone = organization?.timezone || 'Asia/Kolkata';
+
+        const startDate = new Date(year, month - 1, 1);
+        const endDate = new Date(year, month, 0);
+        endDate.setHours(23, 59, 59, 999);
+
+        // Map day names to JavaScript day numbers (0 = Sunday, 6 = Saturday)
+        const dayNameToNumber = {
+            'Sunday': 0,
+            'Monday': 1,
+            'Tuesday': 2,
+            'Wednesday': 3,
+            'Thursday': 4,
+            'Friday': 5,
+            'Saturday': 6
+        };
+        const weeklyOffDayNumber = dayNameToNumber[weeklyOffDay];
+
+        // Fetch all attendance records for the user for the specified month
+        const records = await Attendance.find({
+            employee: userId,
+            organizationId: organizationId,
+            date: { $gte: startDate, $lte: endDate }
+        }).select('date status checkInTime checkOutTime notes').lean();
+
+        // Build a map of date -> attendance data
+        const attendanceByDate = {};
+        const summary = {
+            totalDays: endDate.getDate(),
+            present: 0,
+            absent: 0,
+            leave: 0,
+            halfDay: 0,
+            weeklyOff: 0,
+            notMarked: 0,
+            workingDays: 0
+        };
+
+        // Create attendance map and calculate summary
+        for (const record of records) {
+            const day = record.date.getUTCDate();
+            attendanceByDate[day] = {
+                status: record.status,
+                checkInTime: record.checkInTime,
+                checkOutTime: record.checkOutTime,
+                notes: record.notes
+            };
+
+            // Update summary counts
+            if (record.status === 'P') {
+                summary.present += 1;
+                summary.workingDays += 1;
+            } else if (record.status === 'H') {
+                summary.halfDay += 1;
+                summary.workingDays += 0.5;
+            } else if (record.status === 'A') {
+                summary.absent += 1;
+            } else if (record.status === 'L') {
+                summary.leave += 1;
+            } else if (record.status === 'W') {
+                summary.weeklyOff += 1;
+            }
+        }
+
+        // Calculate weekly offs and not marked days
+        for (let day = 1; day <= endDate.getDate(); day++) {
+            const date = new Date(Date.UTC(year, month - 1, day));
+            const dayOfWeek = date.getUTCDay();
+
+            if (!attendanceByDate[day]) {
+                if (dayOfWeek === weeklyOffDayNumber) {
+                    // It's a weekly off day but not marked in DB
+                    attendanceByDate[day] = { status: 'W', checkInTime: null, checkOutTime: null, notes: null };
+                    summary.weeklyOff += 1;
+                } else {
+                    // Not marked - don't add to map, let frontend handle it
+                    summary.notMarked += 1;
+                }
+            }
+        }
+
+        res.status(200).json({
+            success: true,
+            data: {
+                month,
+                year,
+                weeklyOffDay,
+                attendance: attendanceByDate,
+                summary
+            }
+        });
+
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ success: false, message: "Validation failed", errors: error.flatten().fieldErrors });
+        }
+        next(error);
+    }
+};
+
 
 // --- 2. FOR THE WEB (Admin / Manager) ---
 
@@ -318,7 +487,6 @@ exports.getMyStatusToday = async (req, res, next) => {
 // @route   GET /api/v1/attendance/report
 // @access  Private (Admin, Manager)
 exports.getAttendanceReport = async (req, res, next) => {
-// ... (This function remains unchanged, it works as-is)
     const reportQuerySchema = z.object({
         month: z.coerce.number().int().min(1).max(12),
         year: z.coerce.number().int().min(2020).max(2100),
@@ -330,13 +498,14 @@ exports.getAttendanceReport = async (req, res, next) => {
 
         const { month, year } = reportQuerySchema.parse(req.query);
 
+        // Fetch organization to get weekly off day and timezone
+        const organization = await Organization.findById(organizationId).select('weeklyOffDay timezone');
+        const weeklyOffDay = organization?.weeklyOffDay || 'Saturday';
+        const timezone = organization?.timezone || 'Asia/Kolkata';
+
         const startDate = new Date(year, month - 1, 1);
         const endDate = new Date(year, month, 0);
         endDate.setHours(23, 59, 59, 999);
-
-        // Fetch organization to get weekly off day
-        const organization = await Organization.findById(organizationId).select('weeklyOffDay');
-        const weeklyOffDay = organization?.weeklyOffDay || 'Saturday';
 
         // Map day names to JavaScript day numbers (0 = Sunday, 6 = Saturday)
         const dayNameToNumber = {
@@ -450,6 +619,10 @@ exports.getEmployeeAttendanceByDate = async (req, res, next) => {
 
         const { employeeId, date } = dateParamSchema.parse(req.params);
 
+        // Fetch organization to get timezone
+        const organization = await Organization.findById(organizationId).select('timezone');
+        const timezone = organization?.timezone || 'Asia/Kolkata';
+
         // Verify employee belongs to the same organization
         const employee = await User.findOne({
             _id: employeeId,
@@ -463,7 +636,7 @@ exports.getEmployeeAttendanceByDate = async (req, res, next) => {
             });
         }
 
-        const recordDate = getStartOfDay(date);
+        const recordDate = getStartOfDayInTimezone(date, timezone);
 
         // Fetch the attendance record
         const attendanceRecord = await Attendance.findOne({
@@ -556,20 +729,21 @@ exports.adminMarkAttendance = async (req, res, next) => {
         const employeeRole = employee.role;
 
         if (adminRole === 'manager' && employeeRole === 'manager') {
-            return res.status(403).json({ 
-                success: false, 
+            return res.status(403).json({
+                success: false,
                 message: "Managers are not authorized to modify the attendance of other managers."
             });
         }
-        
-        const recordDate = getStartOfDay(date);
 
         // Fetch organization settings
-        const organization = await Organization.findById(organizationId).select('checkInTime checkOutTime halfDayCheckOutTime weeklyOffDay');
+        const organization = await Organization.findById(organizationId).select('checkInTime checkOutTime halfDayCheckOutTime weeklyOffDay timezone');
 
         if (!organization) {
             return res.status(404).json({ success: false, message: "Organization not found." });
         }
+
+        const timezone = organization.timezone || 'Asia/Kolkata';
+        const recordDate = getStartOfDayInTimezone(date, timezone);
 
         // Validate: Prevent marking non-weekly-off status on weekly off days
         const weeklyOffDay = organization.weeklyOffDay || 'Saturday';
@@ -650,7 +824,12 @@ exports.adminMarkAbsentees = async (req, res, next) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId, _id: adminUserId } = req.user;
-        const today = getStartOfToday();
+
+        // Fetch organization to get timezone
+        const organization = await Organization.findById(organizationId).select('timezone');
+        const timezone = organization?.timezone || 'Asia/Kolkata';
+
+        const today = getStartOfTodayInTimezone(timezone);
 
         // 1. Find all employees (salesperson, manager)
         const allEmployees = await User.find({
@@ -721,14 +900,16 @@ exports.adminMarkHoliday = async (req, res, next) => {
 
         // Validate request body
         const { date, occasionName } = holidaySchema.parse(req.body);
-        const holidayDate = getStartOfDay(date);
 
         // Fetch organization settings
-        const organization = await Organization.findById(organizationId).select('checkInTime checkOutTime halfDayCheckOutTime weeklyOffDay');
+        const organization = await Organization.findById(organizationId).select('checkInTime checkOutTime halfDayCheckOutTime weeklyOffDay timezone');
 
         if (!organization) {
             return res.status(404).json({ success: false, message: "Organization not found." });
         }
+
+        const timezone = organization.timezone || 'Asia/Kolkata';
+        const holidayDate = getStartOfDayInTimezone(date, timezone);
 
         // Find all active employees in the organization
         const allEmployees = await User.find({

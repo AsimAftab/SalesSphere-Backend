@@ -6,6 +6,7 @@ yarn-error.log*
 package-lock.json
 yarn.lock
 CLAUDE.md
+.
 # Environment variables
 .env
 .env.local
@@ -92,3 +93,6 @@ temp/
 
 # MongoDB data
 data/
+
+# MongoDB Atlas Triggers (deployed to Atlas, not run locally)
+mongodb-triggers/

@@ -104,7 +104,8 @@ exports.register = async (req, res) => {
       checkInTime,
       checkOutTime,
       halfDayCheckOutTime,
-      weeklyOffDay
+      weeklyOffDay,
+      timezone
     } = req.body;
 
     // Basic validation - password is no longer required from user
@@ -178,6 +179,11 @@ exports.register = async (req, res) => {
       organizationData.weeklyOffDay = weeklyOffDay;
     }
 
+    // Add optional timezone if provided (defaults to Asia/Kolkata in model)
+    if (timezone) {
+      organizationData.timezone = timezone;
+    }
+
     const newOrganization = await Organization.create(organizationData);
 
     // 2️⃣ Create admin user with temporary password
@@ -220,6 +226,7 @@ exports.register = async (req, res) => {
           checkOutTime: newOrganization.checkOutTime,
           halfDayCheckOutTime: newOrganization.halfDayCheckOutTime,
           weeklyOffDay: newOrganization.weeklyOffDay,
+          timezone: newOrganization.timezone,
           subscriptionType: newOrganization.subscriptionType,
           subscriptionEndDate: newOrganization.subscriptionEndDate,
           isSubscriptionActive: newOrganization.isSubscriptionActive,
