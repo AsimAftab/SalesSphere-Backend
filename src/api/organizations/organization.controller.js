@@ -28,10 +28,28 @@ exports.getMyOrganization = async (req, res) => {
 // Update the details of the currently logged-in user's organization
 exports.updateMyOrganization = async (req, res) => {
     try {
+        // Only superadmin can update organization
+        if (req.user.role !== 'superadmin') {
+            return res.status(403).json({
+                success: false,
+                message: 'Only superadmin can update organization details'
+            });
+        }
+
+        const organizationId = req.params.id;
+
         // 1. Whitelist fields that are allowed to be updated
         const allowedUpdates = {
             name: req.body.name,
-            // Add other safe fields here in the future
+            phone: req.body.phone,
+            address: req.body.address,
+            latitude: req.body.latitude,
+            longitude: req.body.longitude,
+            googleMapLink: req.body.googleMapLink,
+            checkInTime: req.body.checkInTime,
+            checkOutTime: req.body.checkOutTime,
+            halfDayCheckOutTime: req.body.halfDayCheckOutTime,
+            weeklyOffDay: req.body.weeklyOffDay,
         };
 
         // 2. Create a new object with only the defined properties
@@ -39,20 +57,45 @@ exports.updateMyOrganization = async (req, res) => {
             Object.entries(allowedUpdates).filter(([_, value]) => value !== undefined)
         );
 
+        // Check if there's anything to update
+        if (Object.keys(updateData).length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'No valid fields provided for update'
+            });
+        }
+
         // 3. Update the organization using only the safe, defined fields
         const updatedOrganization = await Organization.findByIdAndUpdate(
-            req.user.organizationId,
+            organizationId,
             updateData, // Use the clean object
             { new: true, runValidators: true }
         );
 
         if (!updatedOrganization) {
-            return res.status(404).json({ message: 'Organization not found' });
+            return res.status(404).json({
+                success: false,
+                message: 'Organization not found'
+            });
         }
 
-        res.status(200).json({ status: 'success', data: updatedOrganization });
+        res.status(200).json({
+            success: true,
+            data: updatedOrganization
+        });
     } catch (error) {
-        res.status(500).json({ message: 'Server Error', error: error.message });
+        if (error.name === 'ValidationError') {
+            return res.status(400).json({
+                success: false,
+                message: 'Validation error',
+                errors: error.message
+            });
+        }
+        res.status(500).json({
+            success: false,
+            message: 'Server Error',
+            error: error.message
+        });
     }
 };
 // @desc    Deactivate an organization (for superadmin)
@@ -64,7 +107,7 @@ exports.deactivateOrganization = async (req, res) => {
 
     try {
         const { id } = req.params;
-        
+
         const organization = await Organization.findById(id).session(session);
         if (!organization) {
             await session.abortTransaction();
@@ -81,6 +124,40 @@ exports.deactivateOrganization = async (req, res) => {
         session.endSession();
 
         res.status(200).json({ status: 'success', message: 'Organization deactivated successfully' });
+    } catch (error) {
+        // If any error occurs, abort the transaction
+        await session.abortTransaction();
+        session.endSession();
+        res.status(500).json({ message: 'Server Error', error: error.message });
+    }
+};
+
+// @desc    Reactivate an organization (for superadmin)
+// @route   PUT /api/v1/organizations/:id/reactivate
+// @access  Private (Superadmin)
+exports.reactivateOrganization = async (req, res) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+        const { id } = req.params;
+
+        const organization = await Organization.findById(id).session(session);
+        if (!organization) {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(404).json({ message: 'Organization not found' });
+        }
+
+        // Perform both updates within the transaction
+        await User.updateMany({ organizationId: id }, { isActive: true }, { session });
+        await Organization.findByIdAndUpdate(id, { isActive: true }, { session });
+
+        // If both are successful, commit the transaction
+        await session.commitTransaction();
+        session.endSession();
+
+        res.status(200).json({ status: 'success', message: 'Organization reactivated successfully' });
     } catch (error) {
         // If any error occurs, abort the transaction
         await session.abortTransaction();

@@ -4,8 +4,10 @@ const {
     checkOut, // <-- NEW
     getMyStatusToday,
     getAttendanceReport,
+    getEmployeeAttendanceByDate, // <-- NEW
     adminMarkAttendance,
-    adminMarkAbsentees // <-- NEW
+    adminMarkAbsentees, // <-- NEW
+    adminMarkHoliday // <-- NEW
 } = require('./attendance.controller');
 const { protect, restrictTo } = require('../../middlewares/auth.middleware');
 
@@ -46,6 +48,13 @@ router.get(
     getAttendanceReport
 );
 
+// Get detailed attendance for a specific employee on a specific date
+router.get(
+    '/employee/:employeeId/date/:date',
+    restrictTo('admin', 'manager'),
+    getEmployeeAttendanceByDate
+);
+
 // Admin/Manager manually marks/overrides attendance
 router.put(
     '/admin/mark',
@@ -58,6 +67,13 @@ router.post(
     '/admin/mark-absentees', // <-- NEW ROUTE
     restrictTo('admin'), // Only Admin should run this
     adminMarkAbsentees
+);
+
+// Admin marks a holiday for all employees on a specific date
+router.post(
+    '/admin/mark-holiday', 
+    restrictTo('admin','manager'), // Only Admin and manager should run this
+    adminMarkHoliday
 );
 
 module.exports = router;
