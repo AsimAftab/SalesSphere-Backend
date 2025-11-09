@@ -50,6 +50,7 @@ exports.updateMyOrganization = async (req, res) => {
             checkOutTime: req.body.checkOutTime,
             halfDayCheckOutTime: req.body.halfDayCheckOutTime,
             weeklyOffDay: req.body.weeklyOffDay,
+            timezone: req.body.timezone,
         };
 
         // 2. Create a new object with only the defined properties

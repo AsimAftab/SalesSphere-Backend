@@ -3,6 +3,7 @@ const {
     checkIn, // <-- RENAMED
     checkOut, // <-- NEW
     getMyStatusToday,
+    getMyMonthlyReport, // <-- NEW
     getAttendanceReport,
     getEmployeeAttendanceByDate, // <-- NEW
     adminMarkAttendance,
@@ -37,6 +38,13 @@ router.get(
     '/status/today',
     restrictTo('salesperson', 'manager'), // Added manager
     getMyStatusToday
+);
+
+// Get my monthly attendance report
+router.get(
+    '/my-monthly-report',
+    restrictTo('salesperson', 'manager'),
+    getMyMonthlyReport
 );
 
 // --- Admin/Manager ("Web") Routes ---

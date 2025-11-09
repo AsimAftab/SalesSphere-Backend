@@ -80,6 +80,23 @@ const organizationSchema = new mongoose.Schema({
         default: 'Saturday',
         trim: true,
     },
+    timezone: {
+        type: String,
+        default: 'Asia/Kolkata',
+        trim: true,
+        validate: {
+            validator: function(v) {
+                // Basic validation - checks if timezone exists in Intl
+                try {
+                    Intl.DateTimeFormat(undefined, { timeZone: v });
+                    return true;
+                } catch (e) {
+                    return false;
+                }
+            },
+            message: 'Invalid timezone. Use IANA timezone format (e.g., Asia/Kolkata, America/New_York)'
+        }
+    },
     subscriptionType: {
         type: String,
         enum: ['6months', '12months'],
