@@ -2,7 +2,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const User = require('../users/user.model');
 const Organization = require('../organizations/organization.model');
-const { sendEmail } = require('../../utils/emailSender'); // <-- 1. IMPORTED your email util
+const { sendEmail, sendWelcomeEmail } = require('../../utils/emailSender'); // <-- IMPORTED email utilities
 
 // Function to sign a JWT
 const signToken = (id) => {
@@ -93,7 +93,6 @@ exports.register = async (req, res) => {
     const {
       name,
       email,
-      password,
       organizationName,
       panVatNumber,
       phone,
@@ -101,13 +100,16 @@ exports.register = async (req, res) => {
       latitude,
       longitude,
       googleMapLink,
-      subscriptionType
+      subscriptionType,
+      checkInTime,
+      checkOutTime,
+      weeklyOffDay
     } = req.body;
 
-    // Basic validation
-    if (!name || !email || !password) {
+    // Basic validation - password is no longer required from user
+    if (!name || !email) {
       return res.status(400).json({
-        message: 'Please provide name, email, and password',
+        message: 'Please provide name and email',
       });
     }
 
@@ -136,6 +138,9 @@ exports.register = async (req, res) => {
       return res.status(400).json({ message: 'Organization with this PAN/VAT number already exists' });
     }
 
+    // Generate temporary password
+    const temporaryPassword = crypto.randomBytes(8).toString('hex');
+
     // 1️⃣ Create organization with all details
     const organizationData = {
       name: organizationName,
@@ -156,13 +161,26 @@ exports.register = async (req, res) => {
       organizationData.googleMapLink = googleMapLink;
     }
 
+    // Add optional check-in/check-out times if provided
+    if (checkInTime) {
+      organizationData.checkInTime = checkInTime;
+    }
+    if (checkOutTime) {
+      organizationData.checkOutTime = checkOutTime;
+    }
+
+    // Add optional weekly off day if provided
+    if (weeklyOffDay) {
+      organizationData.weeklyOffDay = weeklyOffDay;
+    }
+
     const newOrganization = await Organization.create(organizationData);
 
-    // 2️⃣ Create admin user
+    // 2️⃣ Create admin user with temporary password
     const newUser = await User.create({
       name,
       email,
-      password,
+      password: temporaryPassword,
       role: 'admin',
       organizationId: newOrganization._id,
     });
@@ -171,12 +189,16 @@ exports.register = async (req, res) => {
     newOrganization.owner = newUser._id;
     await newOrganization.save();
 
+    // 4️⃣ Send welcome email with temporary password
+    await sendWelcomeEmail(newUser.email, temporaryPassword);
+
     // 🔑 Create token
     const token = signToken(newUser._id);
 
     res.status(201).json({
       status: 'success',
       token,
+      message: 'Organization and admin user created successfully. Temporary password sent via email.',
       data: {
         user: {
           _id: newUser._id,
@@ -190,6 +212,9 @@ exports.register = async (req, res) => {
           panVatNumber: newOrganization.panVatNumber,
           phone: newOrganization.phone,
           address: newOrganization.address,
+          checkInTime: newOrganization.checkInTime,
+          checkOutTime: newOrganization.checkOutTime,
+          weeklyOffDay: newOrganization.weeklyOffDay,
           subscriptionType: newOrganization.subscriptionType,
           subscriptionEndDate: newOrganization.subscriptionEndDate,
           isSubscriptionActive: newOrganization.isSubscriptionActive,

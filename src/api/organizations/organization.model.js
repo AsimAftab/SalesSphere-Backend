@@ -41,6 +41,34 @@ const organizationSchema = new mongoose.Schema({
         type: String,
         trim: true,
     },
+    checkInTime: {
+        type: String,
+        trim: true,
+        default: '10:00',
+        validate: {
+            validator: function(v) {
+                return /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(v);
+            },
+            message: 'Check-in time must be in HH:MM format (24-hour)'
+        }
+    },
+    checkOutTime: {
+        type: String,
+        trim: true,
+        default: '18:00',
+        validate: {
+            validator: function(v) {
+                return /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(v);
+            },
+            message: 'Check-out time must be in HH:MM format (24-hour)'
+        }
+    },
+    weeklyOffDay: {
+        type: String,
+        enum: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+        default: 'Saturday',
+        trim: true,
+    },
     subscriptionType: {
         type: String,
         enum: ['6months', '12months'],
