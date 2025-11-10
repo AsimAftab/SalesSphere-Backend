@@ -22,7 +22,7 @@ const sendTokenResponse = (user, statusCode, res, includeTokenInResponse = false
         ),
         httpOnly: true, // <-- CRITICAL: Prevents JS from accessing it
         secure: process.env.NODE_ENV === 'production', // Use secure cookies in production
-        sameSite: 'strict', 
+        sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax', // lax for dev, strict for prod
     };
 
     res.cookie('token', token, cookieOptions);
@@ -657,6 +657,8 @@ exports.logout = (req, res) => {
     res.cookie('token', 'loggedout', {
         expires: new Date(Date.now() + 10 * 1000), // Expires in 10 seconds
         httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
     });
 
     res.status(200).json({
