@@ -79,9 +79,9 @@ const {
   getSecret: () => process.env.CSRF_SECRET || 'your-csrf-secret-key-change-in-production',
   cookieName: process.env.NODE_ENV === 'production' ? '__Host-psifi.x-csrf-token' : 'x-csrf-token',
   cookieOptions: {
-    sameSite: 'strict',
+    sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax', // lax for dev, strict for prod
     path: '/',
-    secure: process.env.NODE_ENV === 'production',
+    secure: process.env.NODE_ENV === 'production', // HTTPS only in production
     httpOnly: true,
   },
   size: 64,
