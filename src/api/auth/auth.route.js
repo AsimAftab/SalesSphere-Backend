@@ -3,6 +3,7 @@ const {
   register,
   registerSuperAdmin,
   login,
+  logout,
   forgotPassword,
   resetPassword,
   contactAdmin,
@@ -16,6 +17,7 @@ const router = express.Router();
 router.post('/register', register);
 router.post('/register/superadmin', registerSuperAdmin);
 router.post('/login', login);
+router.post('/logout', logout);
 
 // Password Management Routes
 router.post('/forgotpassword', forgotPassword);

@@ -1,44 +1,51 @@
 const jwt = require('jsonwebtoken');
-const User = require('../api/users/user.model');
+const User = require('../api/users/user.model'); // Adjust path as needed
 
-const protect = async (req, res, next) => {
+// @desc    Protect routes by checking for a valid token
+exports.protect = async (req, res, next) => {
     let token;
 
-    // 1. Get token from header
-    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+    // --- HYBRID AUTH: Support both cookies (web) and Bearer token (mobile) ---
+    // 1. Check for token in HttpOnly cookie (for web browsers)
+    if (req.cookies && req.cookies.token) {
+        token = req.cookies.token;
+    }
+    // 2. Check for token in Authorization header (for mobile/Flutter apps)
+    else if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
         token = req.headers.authorization.split(' ')[1];
     }
+    // --- END HYBRID AUTH ---
 
     if (!token) {
-        return res.status(401).json({ message: 'Not authorized, no token provided' });
+        return res.status(401).json({ message: 'Not authorized, no token' });
     }
 
     try {
-        // 2. Verify the token's signature
+        // Verify token
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-        // 3. Check if the user for the token still exists
-        const currentUser = await User.findById(decoded.id).select('-password');
-        if (!currentUser) {
-            return res.status(401).json({ message: 'The user belonging to this token no longer exists' });
+        // Get user from the token
+        req.user = await User.findById(decoded.id).select('-password');
+
+        if (!req.user) {
+             return res.status(401).json({ message: 'User not found' });
         }
 
-        // 4. Grant access to the protected route
-        req.user = currentUser;
         next();
     } catch (error) {
-        return res.status(401).json({ message: 'Not authorized, token is invalid or has expired' });
+        return res.status(401).json({ message: 'Not authorized, token failed' });
     }
 };
 
-const restrictTo = (...roles) => {
+// @desc    Grant access to specific roles
+exports.restrictTo = (...roles) => {
     return (req, res, next) => {
-        // This function assumes 'protect' has already run and attached req.user
+        // This middleware runs *after* protect, so req.user will exist.
         if (!roles.includes(req.user.role)) {
-            return res.status(403).json({ message: 'You do not have permission to perform this action' });
+            return res.status(403).json({ 
+                message: 'You do not have permission to perform this action' 
+            });
         }
         next();
     };
 };
-
-module.exports = { protect, restrictTo };
