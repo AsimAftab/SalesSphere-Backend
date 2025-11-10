@@ -4,7 +4,9 @@ const {
     getAllInvoices,
     getInvoiceById,
     deleteInvoice,
-    updateInvoiceStatus // <-- 1. Import new function
+    updateInvoiceStatus,
+    getPartiesOrderStats,
+    getPartyOrderStats
 } = require('./invoice.controller');
 const { protect, restrictTo } = require('../../middlewares/auth.middleware');
 
@@ -14,6 +16,18 @@ const router = express.Router();
 router.use(protect);
 
 // --- Invoice CRUD Routes ---
+
+// Get aggregated order statistics for all parties
+router.get(
+    '/parties/stats',
+    getPartiesOrderStats
+);
+
+// Get aggregated order statistics for a specific party
+router.get(
+    '/parties/:partyId/stats',
+    getPartyOrderStats
+);
 
 // Create a new invoice
 router.post(

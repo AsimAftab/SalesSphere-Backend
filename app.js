@@ -14,9 +14,10 @@ const prospectsRoutes = require('./src/api/prospect/prospect.route.js')
 const categoryRoutes = require('./src/api/product/category/category.routes.js')
 const productRoutes = require('./src/api/product/product.routes.js');
 const sitesRoutes = require('./src/api/sites/sites.route.js')
-const invoicesRoutes = require('./src/api/invoice/invoice.routes')
+const invoicesRoutes = require('./src/api/invoice/invoice.route.js')
 const attendanceRoutes = require('./src/api/attendance/attendance.route.js');
 const organizationRoutes = require('./src/api/organizations/organization.route.js');
+const territoryMapRoutes = require('./src/api/live-tracking/map-territory-view/map.route.js');
 
 
 dotenv.config();
@@ -73,6 +74,7 @@ app.use('/api/v1/products', authLimiter, productRoutes);
 app.use('/api/v1/invoices', authLimiter, invoicesRoutes);
 app.use('/api/v1/attendance', authLimiter, attendanceRoutes);
 app.use('/api/v1/organizations', authLimiter, organizationRoutes);
+app.use('/api/v1/map', authLimiter, territoryMapRoutes);
 
 
 // Test Route
