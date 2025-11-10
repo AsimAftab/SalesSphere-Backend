@@ -1,7 +1,8 @@
 const express = require("express");
 const compression = require('compression')
 const connectDB = require("./src/config/config");
-const healthcheck = require("express-healthcheck");
+const mongoose = require('mongoose');
+const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
 const cors = require('cors');
 const dotenv = require("dotenv");
@@ -59,9 +60,42 @@ const authLimiter = rateLimit({
 
 app.use(morgan('dev'));
 app.use(express.json());
+app.use(cookieParser()); // Parse cookies from requests
+
+// --- Advanced Health Check ---
+app.get('/health', async (req, res) => {
+    const healthcheck = {
+        status: 'OK',
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV || 'development',
+        services: {
+            api: 'operational',
+            database: 'operational'
+        },
+        memory: {
+            rss: `${(process.memoryUsage().rss / 1024 / 1024).toFixed(2)} MB`,
+            heapUsed: `${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`
+        }
+    };
+
+    try {
+        // Check database connection without exposing details
+        if (mongoose.connection.readyState !== 1) {
+            healthcheck.status = 'DEGRADED';
+            healthcheck.services.database = 'unavailable';
+            return res.status(503).json(healthcheck);
+        }
+
+        res.status(200).json(healthcheck);
+    } catch (error) {
+        healthcheck.status = 'ERROR';
+        healthcheck.services.api = 'error';
+        res.status(503).json(healthcheck);
+    }
+});
 
 // --- Routes ---
-app.use('/health', healthcheck());
 app.use('/api/v1/auth',authLimiter,  authRoutes);
 app.use('/api/v1/users',authLimiter, userRoutes);
 app.use('/api/v1/dashboard', authLimiter, dashboardRoutes);
