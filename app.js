@@ -1,8 +1,10 @@
 const express = require("express");
+const helmet = require("helmet");
 const compression = require('compression')
 const connectDB = require("./src/config/config");
 const mongoose = require('mongoose');
 const cookieParser = require('cookie-parser');
+const { doubleCsrf } = require('csrf-csrf');
 const rateLimit = require('express-rate-limit');
 const cors = require('cors');
 const dotenv = require("dotenv");
@@ -28,7 +30,14 @@ connectDB();
 
 const app = express();
 app.set('trust proxy', 1);
-// --- Middlewares ---
+
+// --- Security Middlewares ---
+
+// Helmet: Sets various HTTP headers for security
+app.use(helmet({
+  contentSecurityPolicy: false, // Disable if you need to load external resources
+  crossOriginEmbedderPolicy: false, // Needed for some CDN/external resources
+}));
 
 // CORS Configuration
 const corsOptions = {
@@ -52,7 +61,7 @@ app.use(compression({
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per window
+  max: 10000, // Limit each IP to 100 requests per window
   standardHeaders: true,
   legacyHeaders: false,
     message: 'Too many login attempts from this IP, please try again after 15 minutes',
@@ -61,6 +70,44 @@ const authLimiter = rateLimit({
 app.use(morgan('dev'));
 app.use(express.json());
 app.use(cookieParser()); // Parse cookies from requests
+
+// --- CSRF Protection (Modern Implementation) ---
+const {
+  generateCsrfToken,
+  doubleCsrfProtection,
+} = doubleCsrf({
+  getSecret: () => process.env.CSRF_SECRET || 'your-csrf-secret-key-change-in-production',
+  cookieName: process.env.NODE_ENV === 'production' ? '__Host-psifi.x-csrf-token' : 'x-csrf-token',
+  cookieOptions: {
+    sameSite: 'strict',
+    path: '/',
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+  },
+  size: 64,
+  ignoredMethods: ['GET', 'HEAD', 'OPTIONS'],
+  getSessionIdentifier: (req) => req.session?.id || '', // Required for session-based CSRF
+});
+
+// Conditionally apply CSRF protection
+app.use((req, res, next) => {
+  const isMobileClient = req.headers['x-client-type'] === 'mobile';
+  
+  if (isMobileClient) {
+    // Skip CSRF for mobile clients using Bearer tokens
+    return next();
+  }
+  
+  // Apply CSRF protection for web clients
+  doubleCsrfProtection(req, res, (err) => {
+    if (err) {
+      // Add more context to CSRF errors
+      err.isCsrfError = true;
+      return next(err);
+    }
+    next();
+  });
+});
 
 // --- Advanced Health Check ---
 app.get('/health', async (req, res) => {
@@ -95,6 +142,14 @@ app.get('/health', async (req, res) => {
     }
 });
 
+// --- CSRF Token Endpoint for Web Clients ---
+app.get('/api/v1/csrf-token', (req, res) => {
+    // This endpoint provides CSRF token to web clients
+    // Mobile clients don't need this as they use Bearer tokens
+    const csrfToken = generateCsrfToken(req, res);
+    res.json({ csrfToken });
+});
+
 // --- Routes ---
 app.use('/api/v1/auth',authLimiter,  authRoutes);
 app.use('/api/v1/users',authLimiter, userRoutes);
@@ -114,6 +169,62 @@ app.use('/api/v1/map', authLimiter, territoryMapRoutes);
 // Test Route
 app.get("/", (req, res) => {
     res.send("API is running...");
+});
+
+// --- Error Handlers (Must be after all routes) ---
+
+// CSRF Error Handler
+app.use((err, req, res, next) => {
+    // Check if it's a CSRF error
+    if (err.code === 'EBADCSRFTOKEN' || err.isCsrfError || err.message?.toLowerCase().includes('csrf')) {
+        console.warn('⚠️  CSRF validation failed:', {
+            ip: req.ip,
+            path: req.path,
+            method: req.method,
+            userAgent: req.get('user-agent')
+        });
+
+        return res.status(403).json({
+            status: 'error',
+            message: 'Invalid or missing CSRF token. Please refresh the page and try again.'
+        });
+    }
+    next(err);
+});
+
+// Global Error Handler
+app.use((err, req, res, next) => {
+    console.error('❌ Error:', err);
+
+    // Handle specific error types
+    if (err.name === 'ValidationError') {
+        return res.status(400).json({
+            status: 'error',
+            message: 'Validation Error',
+            errors: Object.values(err.errors).map(e => e.message)
+        });
+    }
+
+    if (err.name === 'CastError') {
+        return res.status(400).json({
+            status: 'error',
+            message: 'Invalid ID format'
+        });
+    }
+
+    if (err.code === 11000) {
+        return res.status(409).json({
+            status: 'error',
+            message: 'Duplicate field value entered'
+        });
+    }
+
+    // Default error response
+    res.status(err.statusCode || 500).json({
+        status: 'error',
+        message: err.message || 'Internal Server Error',
+        ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+    });
 });
 
 module.exports = app;
