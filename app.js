@@ -79,9 +79,13 @@ const {
   getSecret: () => process.env.CSRF_SECRET || 'your-csrf-secret-key-change-in-production',
   cookieName: process.env.NODE_ENV === 'production' ? '__Host-psifi.x-csrf-token' : 'x-csrf-token',
   cookieOptions: {
-    sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax', // lax for dev, strict for prod
+    sameSite: process.env.NODE_ENV === 'production' 
+      ? 'strict' 
+      : process.env.NODE_ENV === 'staging' 
+        ? 'none' 
+        : 'lax', // none for staging (cross-site), lax for dev, strict for prod
     path: '/',
-    secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+    secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging', // HTTPS for production and staging
     httpOnly: true,
   },
   size: 64,

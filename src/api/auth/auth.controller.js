@@ -21,8 +21,12 @@ const sendTokenResponse = (user, statusCode, res, includeTokenInResponse = false
             Date.now() + (process.env.JWT_COOKIE_EXPIRES_IN || 90) * 24 * 60 * 60 * 1000
         ),
         httpOnly: true, // <-- CRITICAL: Prevents JS from accessing it
-        secure: process.env.NODE_ENV === 'production', // Use secure cookies in production
-        sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax', // lax for dev, strict for prod
+        secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging', // Use secure cookies in production and staging
+        sameSite: process.env.NODE_ENV === 'production' 
+            ? 'strict' 
+            : process.env.NODE_ENV === 'staging' 
+                ? 'none' 
+                : 'lax', // none for staging (cross-site), lax for dev, strict for prod
     };
 
     res.cookie('token', token, cookieOptions);
@@ -657,8 +661,12 @@ exports.logout = (req, res) => {
     res.cookie('token', 'loggedout', {
         expires: new Date(Date.now() + 10 * 1000), // Expires in 10 seconds
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+        secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging',
+        sameSite: process.env.NODE_ENV === 'production' 
+            ? 'strict' 
+            : process.env.NODE_ENV === 'staging' 
+                ? 'none' 
+                : 'lax',
     });
 
     res.status(200).json({
