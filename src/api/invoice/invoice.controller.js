@@ -373,3 +373,205 @@ exports.updateInvoiceStatus = async (req, res, next) => {
         session.endSession();
     }
 };
+
+// @desc    Get aggregated order statistics for all parties
+// @route   GET /api/v1/invoices/parties/stats
+// @access  Private (All roles)
+exports.getPartiesOrderStats = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId, role, _id: userId } = req.user;
+
+        // Build match condition based on role
+        const matchCondition = { organizationId: organizationId };
+        
+        if (role === 'salesperson') {
+            matchCondition.createdBy = userId;
+        }
+
+        // Aggregation pipeline to get party order statistics
+        const partyStats = await Invoice.aggregate([
+            {
+                $match: matchCondition
+            },
+            {
+                $group: {
+                    _id: '$party',
+                    partyName: { $first: '$partyName' },
+                    partyOwnerName: { $first: '$partyOwnerName' },
+                    partyAddress: { $first: '$partyAddress' },
+                    partyPanVatNumber: { $first: '$partyPanVatNumber' },
+                    totalOrders: { $sum: 1 },
+                    totalAmount: { $sum: '$totalAmount' },
+                    pendingOrders: {
+                        $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] }
+                    },
+                    inProgressOrders: {
+                        $sum: { $cond: [{ $eq: ['$status', 'in progress'] }, 1, 0] }
+                    },
+                    inTransitOrders: {
+                        $sum: { $cond: [{ $eq: ['$status', 'in transit'] }, 1, 0] }
+                    },
+                    completedOrders: {
+                        $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] }
+                    },
+                    rejectedOrders: {
+                        $sum: { $cond: [{ $eq: ['$status', 'rejected'] }, 1, 0] }
+                    },
+                    lastOrderDate: { $max: '$createdAt' },
+                    firstOrderDate: { $min: '$createdAt' }
+                }
+            },
+            {
+                $sort: { totalAmount: -1 } // Sort by total amount (highest first)
+            },
+            {
+                $project: {
+                    _id: 1,
+                    partyName: 1,
+                    partyOwnerName: 1,
+                    partyAddress: 1,
+                    partyPanVatNumber: 1,
+                    totalOrders: 1,
+                    totalAmount: 1,
+                    ordersByStatus: {
+                        pending: '$pendingOrders',
+                        inProgress: '$inProgressOrders',
+                        inTransit: '$inTransitOrders',
+                        completed: '$completedOrders',
+                        rejected: '$rejectedOrders'
+                    },
+                    lastOrderDate: 1,
+                    firstOrderDate: 1
+                }
+            }
+        ]);
+
+        res.status(200).json({
+            success: true,
+            count: partyStats.length,
+            data: partyStats
+        });
+
+    } catch (error) {
+        console.error("Error fetching party order stats:", error);
+        next(error);
+    }
+};
+
+// @desc    Get aggregated order statistics for a specific party
+// @route   GET /api/v1/invoices/parties/:partyId/stats
+// @access  Private (All roles)
+exports.getPartyOrderStats = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId, role, _id: userId } = req.user;
+        const { partyId } = req.params;
+
+        // Validate partyId
+        if (!mongoose.Types.ObjectId.isValid(partyId)) {
+            return res.status(400).json({ success: false, message: 'Invalid party ID' });
+        }
+
+        // Build match condition based on role
+        const matchCondition = {
+            organizationId: organizationId,
+            party: new mongoose.Types.ObjectId(partyId)
+        };
+        
+        if (role === 'salesperson') {
+            matchCondition.createdBy = userId;
+        }
+
+        // Aggregation pipeline for specific party
+        const partyStats = await Invoice.aggregate([
+            {
+                $match: matchCondition
+            },
+            {
+                $facet: {
+                    summary: [
+                        {
+                            $group: {
+                                _id: '$party',
+                                partyName: { $first: '$partyName' },
+                                partyOwnerName: { $first: '$partyOwnerName' },
+                                partyAddress: { $first: '$partyAddress' },
+                                partyPanVatNumber: { $first: '$partyPanVatNumber' },
+                                totalOrders: { $sum: 1 },
+                                totalAmount: { $sum: '$totalAmount' },
+                                totalDiscount: { $sum: '$discount' },
+                                pendingOrders: {
+                                    $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] }
+                                },
+                                inProgressOrders: {
+                                    $sum: { $cond: [{ $eq: ['$status', 'in progress'] }, 1, 0] }
+                                },
+                                inTransitOrders: {
+                                    $sum: { $cond: [{ $eq: ['$status', 'in transit'] }, 1, 0] }
+                                },
+                                completedOrders: {
+                                    $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] }
+                                },
+                                rejectedOrders: {
+                                    $sum: { $cond: [{ $eq: ['$status', 'rejected'] }, 1, 0] }
+                                },
+                                lastOrderDate: { $max: '$createdAt' },
+                                firstOrderDate: { $min: '$createdAt' }
+                            }
+                        }
+                    ],
+                    allOrders: [
+                        { $sort: { createdAt: -1 } },
+                        {
+                            $project: {
+                                _id: 1,
+                                invoiceNumber: 1,
+                                totalAmount: 1,
+                                status: 1,
+                                expectedDeliveryDate: 1
+                            }
+                        }
+                    ]
+                }
+            }
+        ]);
+
+        if (!partyStats[0].summary.length) {
+            return res.status(404).json({
+                success: false,
+                message: 'No orders found for this party'
+            });
+        }
+
+        const result = {
+            summary: partyStats[0].summary[0],
+            allOrders: partyStats[0].allOrders
+        };
+
+        // Format the summary
+        result.summary.ordersByStatus = {
+            pending: result.summary.pendingOrders,
+            inProgress: result.summary.inProgressOrders,
+            inTransit: result.summary.inTransitOrders,
+            completed: result.summary.completedOrders,
+            rejected: result.summary.rejectedOrders
+        };
+        
+        // Remove individual status fields
+        delete result.summary.pendingOrders;
+        delete result.summary.inProgressOrders;
+        delete result.summary.inTransitOrders;
+        delete result.summary.completedOrders;
+        delete result.summary.rejectedOrders;
+
+        res.status(200).json({
+            success: true,
+            data: result
+        });
+
+    } catch (error) {
+        console.error("Error fetching party order stats:", error);
+        next(error);
+    }
+};

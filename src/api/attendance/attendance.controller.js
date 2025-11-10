@@ -562,7 +562,7 @@ exports.getAttendanceReport = async (req, res, next) => {
                     if (dayOfWeek === weeklyOffDayNumber) {
                         status = 'W'; // Weekly Off
                     } else {
-                        status = 'A'; // Absent
+                        status = 'NA'; // Absent
                     }
                 }
 
@@ -910,6 +910,30 @@ exports.adminMarkHoliday = async (req, res, next) => {
 
         const timezone = organization.timezone || 'Asia/Kolkata';
         const holidayDate = getStartOfDayInTimezone(date, timezone);
+
+        // Validate: Prevent bulk updates on weekly off days
+        const weeklyOffDay = organization.weeklyOffDay || 'Saturday';
+        const dayNameToNumber = {
+            'Sunday': 0,
+            'Monday': 1,
+            'Tuesday': 2,
+            'Wednesday': 3,
+            'Thursday': 4,
+            'Friday': 5,
+            'Saturday': 6
+        };
+        const weeklyOffDayNumber = dayNameToNumber[weeklyOffDay];
+        const holidayDayOfWeek = holidayDate.getUTCDay();
+
+        // Reject bulk update if the date is a weekly off day
+        if (holidayDayOfWeek === weeklyOffDayNumber) {
+            return res.status(400).json({
+                success: false,
+                message: `Cannot mark holiday on ${weeklyOffDay}. This is the organization's weekly off day and cannot be modified.`,
+                weeklyOffDay: weeklyOffDay,
+                date: holidayDate.toISOString().split('T')[0]
+            });
+        }
 
         // Find all active employees in the organization
         const allEmployees = await User.find({

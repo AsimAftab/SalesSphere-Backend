@@ -423,3 +423,170 @@ exports.getSystemOverview = async (req, res, next) => {
     }
 };
 
+// @desc    Get attendance summary for a specific employee for current month
+// @route   GET /api/v1/users/:employeeId/attendance-summary
+// @access  Private (Admin, Manager, or Self)
+exports.getEmployeeAttendanceSummary = async (req, res, next) => {
+    try {
+        if (!req.user) {
+            return res.status(401).json({ success: false, message: 'Not authenticated' });
+        }
+        const { organizationId, role: requestorRole, _id: requestorId } = req.user;
+        const { employeeId } = req.params;
+
+        const Attendance = require('../attendance/attendance.model');
+        const Organization = require('../organizations/organization.model');
+        const mongoose = require('mongoose');
+
+        // Validate employeeId
+        if (!mongoose.Types.ObjectId.isValid(employeeId)) {
+            return res.status(400).json({ success: false, message: 'Invalid employee ID' });
+        }
+
+        // Fetch the employee
+        const employee = await User.findOne({
+            _id: employeeId,
+            organizationId: organizationId,
+            isActive: true
+        }).select('name email role').lean();
+
+        if (!employee) {
+            return res.status(404).json({
+                success: false,
+                message: 'Employee not found in your organization'
+            });
+        }
+
+        // Check if employee is admin
+        if (employee.role === 'admin') {
+            return res.status(200).json({
+                success: true,
+                message: 'Admins do not have attendance tracking',
+                data: {
+                    employee: {
+                        _id: employee._id,
+                        name: employee.name,
+                        email: employee.email,
+                        role: employee.role
+                    },
+                    attendance: null
+                }
+            });
+        }
+
+        // Permission check: Only admin, manager, or the employee themselves can view
+        if (requestorRole !== 'admin' && requestorRole !== 'manager' && requestorId.toString() !== employeeId) {
+            return res.status(403).json({
+                success: false,
+                message: 'You do not have permission to view this employee\'s attendance'
+            });
+        }
+
+        // Get current month and year
+        const now = new Date();
+        const currentMonth = now.getMonth() + 1;
+        const currentYear = now.getFullYear();
+
+        // Fetch organization to get weekly off day and timezone
+        const organization = await Organization.findById(organizationId).select('weeklyOffDay timezone');
+        const weeklyOffDay = organization?.weeklyOffDay || 'Saturday';
+
+        // Calculate start and end of current month
+        const startDate = new Date(currentYear, currentMonth - 1, 1);
+        const endDate = new Date(currentYear, currentMonth, 0);
+        endDate.setHours(23, 59, 59, 999);
+
+        // Map day names to JavaScript day numbers
+        const dayNameToNumber = {
+            'Sunday': 0,
+            'Monday': 1,
+            'Tuesday': 2,
+            'Wednesday': 3,
+            'Thursday': 4,
+            'Friday': 5,
+            'Saturday': 6
+        };
+        const weeklyOffDayNumber = dayNameToNumber[weeklyOffDay];
+
+        // Fetch attendance records for this specific employee for current month
+        const attendanceRecords = await Attendance.find({
+            employee: employeeId,
+            organizationId: organizationId,
+            date: { $gte: startDate, $lte: endDate }
+        }).select('date status').lean();
+
+        // Calculate summary
+        const summary = {
+            present: 0,
+            absent: 0,
+            leave: 0,
+            halfDay: 0,
+            weeklyOff: 0,
+            workingDays: 0,
+            totalDays: endDate.getDate()
+        };
+
+        // Create a map of dates that have records
+        const recordsByDate = {};
+        for (const record of attendanceRecords) {
+            const day = record.date.getUTCDate();
+            recordsByDate[day] = record.status;
+
+            // Update summary counts
+            if (record.status === 'P') {
+                summary.present += 1;
+                summary.workingDays += 1;
+            } else if (record.status === 'H') {
+                summary.halfDay += 1;
+                summary.workingDays += 0.5;
+            } else if (record.status === 'A') {
+                summary.absent += 1;
+            } else if (record.status === 'L') {
+                summary.leave += 1;
+            } else if (record.status === 'W') {
+                summary.weeklyOff += 1;
+            }
+        }
+
+        // Check for days without records and calculate weekly offs
+        for (let day = 1; day <= endDate.getDate(); day++) {
+            if (!recordsByDate[day]) {
+                const date = new Date(Date.UTC(currentYear, currentMonth - 1, day));
+                const dayOfWeek = date.getUTCDay();
+
+                if (dayOfWeek === weeklyOffDayNumber) {
+                    summary.weeklyOff += 1;
+                } else {
+                    // Count as absent if not marked
+                    summary.absent += 1;
+                }
+            }
+        }
+
+        const attendancePercentage = summary.totalDays > 0 
+            ? ((summary.workingDays / (summary.totalDays - summary.weeklyOff)) * 100).toFixed(2)
+            : 0;
+
+        res.status(200).json({
+            success: true,
+            month: currentMonth,
+            year: currentYear,
+            weeklyOffDay: weeklyOffDay,
+            data: {
+                employee: {
+                    _id: employee._id,
+                    name: employee.name,
+                    email: employee.email,
+                    role: employee.role
+                },
+                attendance: summary,
+                attendancePercentage: attendancePercentage
+            }
+        });
+
+    } catch (error) {
+        console.error('Error fetching employee attendance summary:', error);
+        next(error);
+    }
+};
+

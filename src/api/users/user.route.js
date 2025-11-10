@@ -65,6 +65,9 @@ router.route('/:id')
     .put(restrictTo('admin', 'manager'), imageUpload.single('avatar'), userController.updateUser) 
     .delete(restrictTo('admin', 'manager'), userController.deleteUser);
 
+// --- Attendance Summary for Specific Employee ---
+router.get('/:employeeId/attendance-summary', userController.getEmployeeAttendanceSummary);
+
 router.post(
     '/:id/documents',
     restrictTo('admin', 'manager'),

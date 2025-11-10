@@ -1,7 +1,5 @@
 const User = require('../users/user.model');
-// You will need to import your other models here as you create them
-// const Order = require('../orders/order.model'); 
-// const Party = require('../parties/party.model');
+
 
 // @desc    Get the main KPI stats for the dashboard
 // @route   GET /api/v1/dashboard/stats
@@ -9,29 +7,49 @@ const User = require('../users/user.model');
 exports.getDashboardStats = async (req, res) => {
     try {
         const { organizationId } = req.user;
-// TODO: Use organizationId to filter data for multi-tenant support
+
+        const Invoice = require('../invoice/invoice.model');
+        const Party = require('../parties/party.model');
+
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-
-        // --- MOCK DATA (Replace with real queries later) ---
-        // As you build out your Order and Party models, you will replace this
-        // mock data with real aggregation queries to your database.
         
-        // Example query for total parties:
-        // const totalParties = await Party.countDocuments({ organizationId });
-        const totalParties = 847; 
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
 
-        // Example query for today's sales:
-        // const salesResult = await Order.aggregate([...]);
-        const totalSales = 125000;
+        // Query for total parties
+        const totalParties = await Party.countDocuments({ organizationId });
 
-        // Example query for today's orders:
-        // const totalOrders = await Order.countDocuments({ organizationId, createdAt: { $gte: today } });
-        const totalOrders = 342;
+        // Query for today's sales (sum of totalAmount for today's invoices, excluding rejected)
+        const todaySalesResult = await Invoice.aggregate([
+            {
+                $match: {
+                    organizationId: organizationId,
+                    createdAt: { $gte: today, $lt: tomorrow },
+                    status: { $ne: 'rejected' }
+                }
+            },
+            {
+                $group: {
+                    _id: null,
+                    totalSales: { $sum: '$totalAmount' }
+                }
+            }
+        ]);
+        const totalSales = todaySalesResult.length > 0 ? todaySalesResult[0].totalSales : 0;
 
-        // Example query for pending orders:
-        // const pendingOrders = await Order.countDocuments({ organizationId, status: 'pending' });
-        const pendingOrders = 89;
+        // Query for today's orders count (excluding rejected)
+        const totalOrders = await Invoice.countDocuments({ 
+            organizationId, 
+            createdAt: { $gte: today, $lt: tomorrow },
+            status: { $ne: 'rejected' }
+        });
+
+        // Query for ALL pending orders (not just today - across all time)
+        const pendingOrders = await Invoice.countDocuments({ 
+            organizationId, 
+            status: 'pending' 
+        });
         
         res.status(200).json({
             success: true,
@@ -43,6 +61,7 @@ exports.getDashboardStats = async (req, res) => {
             },
         });
     } catch (error) {
+        console.error('Error fetching dashboard stats:', error);
         res.status(500).json({ message: 'Server Error', error: error.message });
     }
 };
@@ -54,17 +73,90 @@ exports.getTeamPerformance = async (req, res) => {
     try {
         const { organizationId } = req.user;
 
-        // --- MOCK DATA (Replace with real queries later) ---
-        // This query would aggregate orders by user to find top performers
-        // const performance = await Order.aggregate([...]);
-        const performance = [
-            { name: "Priya Sharma", sales: 31200, orders: 52 },
-            { name: "Rajesh Kumar", sales: 28500, orders: 45 },
-            { name: "Amit Singh", sales: 24800, orders: 38 },
-        ];
+        const Invoice = require('../invoice/invoice.model');
         
-        res.status(200).json({ success: true, data: performance });
+        // Get today's start time for filtering
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+
+        // Aggregate invoices by salesperson to get performance metrics
+        const performance = await Invoice.aggregate([
+            {
+                // Filter by organization and today's date
+                $match: {
+                    organizationId: organizationId,
+                    createdAt: { $gte: today, $lt: tomorrow },
+                    status: { $ne: 'rejected' } // Exclude rejected orders
+                }
+            },
+            {
+                // Group by the person who created the invoice
+                $group: {
+                    _id: '$createdBy',
+                    totalSales: { $sum: '$totalAmount' },
+                    totalOrders: { $sum: 1 },
+                    completedOrders: {
+                        $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] }
+                    },
+                    pendingOrders: {
+                        $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] }
+                    }
+                }
+            },
+            {
+                // Lookup user details
+                $lookup: {
+                    from: 'users',
+                    localField: '_id',
+                    foreignField: '_id',
+                    as: 'userInfo'
+                }
+            },
+            {
+                // Unwind the user info array
+                $unwind: '$userInfo'
+            },
+            {
+                // Filter only salespersons and managers
+                $match: {
+                    'userInfo.role': { $in: ['salesperson', 'manager'] }
+                }
+            },
+            {
+                // Project the final shape
+                $project: {
+                    _id: 0,
+                    userId: '$_id',
+                    name: '$userInfo.name',
+                    email: '$userInfo.email',
+                    role: '$userInfo.role',
+                    avatarUrl: '$userInfo.avatarUrl',
+                    sales: '$totalSales',
+                    orders: '$totalOrders',
+                    completedOrders: 1,
+                    pendingOrders: 1
+                }
+            },
+            {
+                // Sort by total sales (highest first)
+                $sort: { sales: -1 }
+            },
+            {
+                // Limit to top 10 performers
+                $limit: 10
+            }
+        ]);
+
+        res.status(200).json({ 
+            success: true, 
+            count: performance.length,
+            data: performance 
+        });
     } catch (error) {
+        console.error('Error fetching team performance:', error);
         res.status(500).json({ message: 'Server Error', error: error.message });
     }
 };
