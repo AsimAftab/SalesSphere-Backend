@@ -10,15 +10,39 @@ exports.getDashboardStats = async (req, res) => {
 
         const Invoice = require('../invoice/invoice.model');
         const Party = require('../parties/party.model');
+        const Organization = require('../organizations/organization.model');
 
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        // Get organization's timezone (fallback to Asia/Kathmandu if not set)
+        const orgData = await Organization.findById(organizationId).select('timezone');
+        const timezone = orgData?.timezone || 'Asia/Kathmandu';
+
+        // Get current date/time in organization's timezone
+        const now = new Date();
         
-        const tomorrow = new Date(today);
-        tomorrow.setDate(tomorrow.getDate() + 1);
+        // Calculate today's date range in UTC based on organization timezone
+        // For Asia/Kathmandu (UTC+5:45), we need to offset the UTC dates
+        const timezoneOffsets = {
+            'Asia/Kathmandu': 5.75 * 60, // +5:45 in minutes
+            'Asia/Kolkata': 5.5 * 60,    // +5:30 in minutes
+            'UTC': 0
+        };
+        
+        const offsetMinutes = timezoneOffsets[timezone] || 0;
+        
+        // Create today's start in organization timezone, then convert to UTC
+        const todayLocal = new Date(now);
+        todayLocal.setHours(0, 0, 0, 0);
+        const today = new Date(todayLocal.getTime() - (offsetMinutes * 60 * 1000));
+        
+        const tomorrowLocal = new Date(todayLocal);
+        tomorrowLocal.setDate(tomorrowLocal.getDate() + 1);
+        const tomorrow = new Date(tomorrowLocal.getTime() - (offsetMinutes * 60 * 1000));
 
-        // Query for total parties
-        const totalParties = await Party.countDocuments({ organizationId });
+        // Query for today's parties created (based on organization timezone)
+        const totalPartiesToday = await Party.countDocuments({ 
+            organizationId,
+            createdAt: { $gte: today, $lt: tomorrow }
+        });
 
         // Query for today's sales (sum of totalAmount for today's invoices, excluding rejected)
         const todaySalesResult = await Invoice.aggregate([
@@ -32,14 +56,14 @@ exports.getDashboardStats = async (req, res) => {
             {
                 $group: {
                     _id: null,
-                    totalSales: { $sum: '$totalAmount' }
+                    totalSalesToday: { $sum: '$totalAmount' }
                 }
             }
         ]);
-        const totalSales = todaySalesResult.length > 0 ? todaySalesResult[0].totalSales : 0;
+        const totalSalesToday = todaySalesResult.length > 0 ? todaySalesResult[0].totalSalesToday : 0;
 
         // Query for today's orders count (excluding rejected)
-        const totalOrders = await Invoice.countDocuments({ 
+        const totalOrdersToday = await Invoice.countDocuments({ 
             organizationId, 
             createdAt: { $gte: today, $lt: tomorrow },
             status: { $ne: 'rejected' }
@@ -54,9 +78,9 @@ exports.getDashboardStats = async (req, res) => {
         res.status(200).json({
             success: true,
             data: {
-                totalParties,
-                totalSales,
-                totalOrders,
+                totalPartiesToday,
+                totalSalesToday,
+                totalOrdersToday,
                 pendingOrders,
             },
         });
