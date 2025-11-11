@@ -32,6 +32,34 @@ connectDB();
 const app = express();
 app.set('trust proxy', 1);
 
+const corsOptionsDelegate = (req, callback) => {
+  const origin = req.header('Origin');
+  // Debug helper (comment out in production)
+  console.log('CORS check origin ->', origin);
+
+  // Allow if origin in whitelist OR allow if no origin (server-to-server/backend calls)
+  const isAllowed = !origin || ALLOWED_ORIGINS.has(origin);
+
+  const corsOptions = {
+    origin: isAllowed ? origin || true : false,
+    credentials: true, // allow cookies (CSRF token cookie)
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'x-csrf-token',
+      'x-client-type',
+      'X-Requested-With',
+      'Accept',
+    ],
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    optionsSuccessStatus: 204,
+    maxAge: 60 * 60, // cache preflight for 1 hour
+  };
+  callback(null, corsOptions);
+};
+// CORS Configuration
+app.use(cors(corsOptionsDelegate));
+app.options('*', cors(corsOptionsDelegate));
 // --- Security Middlewares ---
 
 // Helmet: Sets various HTTP headers for security
@@ -40,17 +68,7 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false, // Needed for some CDN/external resources
 }));
 
-// CORS Configuration
-const corsOptions = {
-  origin: [
-    'http://localhost:5173',
-    'https://salessphere360.com',
-    'https://www.salessphere360.com'
-  ],
-  optionsSuccessStatus: 200,
-  credentials: true, // if you ever use cookies / auth headers
-};
-app.use(cors(corsOptions));
+// Compression: Gzip compress responses for better performance
 
 app.use(compression({
   threshold: 1024, // only compress responses > 1KB
