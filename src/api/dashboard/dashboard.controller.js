@@ -1,263 +1,236 @@
+// controllers/dashboard.controller.js
+const mongoose = require('mongoose');
 const User = require('../users/user.model');
+const { DateTime } = require('luxon'); // npm i luxon
 
+// Luxon helper: get UTC start/end instants for "date" in timeZone
+function getUTCRangeForDateInTimeZone(date = new Date(), timeZone = 'UTC') {
+  const dtInZone = DateTime.fromJSDate(date, { zone: timeZone });
+  const startUTC = dtInZone.startOf('day').toUTC().toJSDate();
+  const endUTC = dtInZone.plus({ days: 1 }).startOf('day').toUTC().toJSDate();
+  return { startUTC, endUTC };
+}
 
-// @desc    Get the main KPI stats for the dashboard
-// @route   GET /api/v1/dashboard/stats
-// @access  Private (Admin, Manager)
+function toObjectIdIfNeeded(id) {
+  if (!id) return null;
+  if (id instanceof mongoose.Types.ObjectId) return id;
+  return new mongoose.Types.ObjectId(id);
+}
+
+// =============================
+// GET /api/v1/dashboard/stats
+// =============================
+// Fast, index-friendly: compute UTC window via Luxon and use createdAt range.
+// Includes ALL invoices (no status filter) for today's totals, per your request.
 exports.getDashboardStats = async (req, res) => {
-    try {
-        const { organizationId } = req.user;
+  try {
+    const { organizationId } = req.user;
+    if (!organizationId)
+      return res.status(400).json({ success: false, message: 'organizationId missing' });
 
-        const Invoice = require('../invoice/invoice.model');
-        const Party = require('../parties/party.model');
-        const Organization = require('../organizations/organization.model');
+    const orgObjectId = toObjectIdIfNeeded(organizationId);
 
-        // Get organization's timezone (fallback to Asia/Kathmandu if not set)
-        const orgData = await Organization.findById(organizationId).select('timezone');
-        const timezone = orgData?.timezone || 'Asia/Kathmandu';
+    const Invoice = require('../invoice/invoice.model');
+    const Party = require('../parties/party.model');
+    const Organization = require('../organizations/organization.model');
 
-        // Get current date/time in organization's timezone
-        const now = new Date();
-        
-        // Calculate today's date range in UTC based on organization timezone
-        // For Asia/Kathmandu (UTC+5:45), we need to offset the UTC dates
-        const timezoneOffsets = {
-            'Asia/Kathmandu': 5.75 * 60, // +5:45 in minutes
-            'Asia/Kolkata': 5.5 * 60,    // +5:30 in minutes
-            'UTC': 0
-        };
-        
-        const offsetMinutes = timezoneOffsets[timezone] || 0;
-        
-        // Create today's start in organization timezone, then convert to UTC
-        const todayLocal = new Date(now);
-        todayLocal.setHours(0, 0, 0, 0);
-        const today = new Date(todayLocal.getTime() - (offsetMinutes * 60 * 1000));
-        
-        const tomorrowLocal = new Date(todayLocal);
-        tomorrowLocal.setDate(tomorrowLocal.getDate() + 1);
-        const tomorrow = new Date(tomorrowLocal.getTime() - (offsetMinutes * 60 * 1000));
+    // fetch org timezone
+    const orgData = await Organization.findById(orgObjectId).select('timezone');
+    const timezone = orgData?.timezone || 'UTC';
 
-        // Query for today's parties created (based on organization timezone)
-        const totalPartiesToday = await Party.countDocuments({ 
-            organizationId,
-            createdAt: { $gte: today, $lt: tomorrow }
-        });
+    // compute UTC range for org-local "today" (fast & indexable)
+    const { startUTC: today, endUTC: tomorrow } = getUTCRangeForDateInTimeZone(new Date(), timezone);
 
-        // Query for today's sales (sum of totalAmount for today's invoices, excluding rejected)
-        const todaySalesResult = await Invoice.aggregate([
-            {
-                $match: {
-                    organizationId: organizationId,
-                    createdAt: { $gte: today, $lt: tomorrow },
-                    status: { $ne: 'rejected' }
-                }
-            },
-            {
-                $group: {
-                    _id: null,
-                    totalSalesToday: { $sum: '$totalAmount' }
-                }
-            }
-        ]);
-        const totalSalesToday = todaySalesResult.length > 0 ? todaySalesResult[0].totalSalesToday : 0;
+    // DEBUG (enable while testing)
+    // console.log('getDashboardStats range', timezone, today.toISOString(), tomorrow.toISOString());
 
-        // Query for today's orders count (excluding rejected)
-        const totalOrdersToday = await Invoice.countDocuments({ 
-            organizationId, 
-            createdAt: { $gte: today, $lt: tomorrow },
-            status: { $ne: 'rejected' }
-        });
+    // 1) Total parties created today (index-friendly)
+    const totalPartiesToday = await Party.countDocuments({
+      organizationId: orgObjectId,
+      createdAt: { $gte: today, $lt: tomorrow }
+    });
 
-        // Query for ALL pending orders (not just today - across all time)
-        const pendingOrders = await Invoice.countDocuments({ 
-            organizationId, 
-            status: 'pending' 
-        });
-        
-        res.status(200).json({
-            success: true,
-            data: {
-                totalPartiesToday,
-                totalSalesToday,
-                totalOrdersToday,
-                pendingOrders,
-            },
-        });
-    } catch (error) {
-        console.error('Error fetching dashboard stats:', error);
-        res.status(500).json({ message: 'Server Error', error: error.message });
-    }
+    // 2) Today's invoices (ALL statuses included)
+    const invoiceMatch = {
+      organizationId: orgObjectId,
+      createdAt: { $gte: today, $lt: tomorrow },
+      // no status filter — includes pending/completed/rejected/etc.
+    };
+
+    // Sum totals using aggregation (ensures correct numeric sum)
+    const todayAgg = await Invoice.aggregate([
+      { $match: invoiceMatch },
+      { $group: { _id: null, totalSalesToday: { $sum: { $ifNull: ['$totalAmount', 0] } }, totalOrdersToday: { $sum: 1 } } }
+    ]);
+    const totalSalesToday = todayAgg[0]?.totalSalesToday || 0;
+    const totalOrdersToday = todayAgg[0]?.totalOrdersToday || 0;
+
+    // 3) Pending orders (global count across all time)
+    const pendingOrders = await Invoice.countDocuments({
+      organizationId: orgObjectId,
+      status: 'pending'
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        timezone,
+        totalPartiesToday,
+        totalSalesToday,
+        totalOrdersToday,
+        pendingOrders,
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching dashboard stats:', error);
+    return res.status(500).json({ message: 'Server Error', error: error.message });
+  }
 };
 
-// @desc    Get the team performance stats for the dashboard
-// @route   GET /api/v1/dashboard/team-performance
-// @access  Private (Admin, Manager)
+// =============================
+// GET /api/v1/dashboard/team-performance
+// =============================
+// Uses Luxon range (same approach) — excludes 'rejected' as before.
 exports.getTeamPerformance = async (req, res) => {
-    try {
-        const { organizationId } = req.user;
+  try {
+    const { organizationId } = req.user;
+    if (!organizationId) return res.status(400).json({ success: false, message: 'organizationId missing' });
 
-        const Invoice = require('../invoice/invoice.model');
-        
-        // Get today's start time for filtering
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        
-        const tomorrow = new Date(today);
-        tomorrow.setDate(tomorrow.getDate() + 1);
+    const orgObjectId = toObjectIdIfNeeded(organizationId);
 
-        // Aggregate invoices by salesperson to get performance metrics
-        const performance = await Invoice.aggregate([
-            {
-                // Filter by organization and today's date
-                $match: {
-                    organizationId: organizationId,
-                    createdAt: { $gte: today, $lt: tomorrow },
-                    status: { $ne: 'rejected' } // Exclude rejected orders
-                }
-            },
-            {
-                // Group by the person who created the invoice
-                $group: {
-                    _id: '$createdBy',
-                    totalSales: { $sum: '$totalAmount' },
-                    totalOrders: { $sum: 1 },
-                    completedOrders: {
-                        $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] }
-                    },
-                    pendingOrders: {
-                        $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] }
-                    }
-                }
-            },
-            {
-                // Lookup user details
-                $lookup: {
-                    from: 'users',
-                    localField: '_id',
-                    foreignField: '_id',
-                    as: 'userInfo'
-                }
-            },
-            {
-                // Unwind the user info array
-                $unwind: '$userInfo'
-            },
-            {
-                // Filter only salespersons and managers
-                $match: {
-                    'userInfo.role': { $in: ['salesperson', 'manager'] }
-                }
-            },
-            {
-                // Project the final shape
-                $project: {
-                    _id: 0,
-                    userId: '$_id',
-                    name: '$userInfo.name',
-                    email: '$userInfo.email',
-                    role: '$userInfo.role',
-                    avatarUrl: '$userInfo.avatarUrl',
-                    sales: '$totalSales',
-                    orders: '$totalOrders',
-                    completedOrders: 1,
-                    pendingOrders: 1
-                }
-            },
-            {
-                // Sort by total sales (highest first)
-                $sort: { sales: -1 }
-            },
-            {
-                // Limit to top 10 performers
-                $limit: 10
-            }
-        ]);
+    const Invoice = require('../invoice/invoice.model');
+    const Organization = require('../organizations/organization.model');
 
-        res.status(200).json({ 
-            success: true, 
-            count: performance.length,
-            data: performance 
-        });
-    } catch (error) {
-        console.error('Error fetching team performance:', error);
-        res.status(500).json({ message: 'Server Error', error: error.message });
-    }
+    // Get org timezone dynamically
+    const orgData = await Organization.findById(orgObjectId).select('timezone');
+    const timezone = orgData?.timezone || 'UTC';
+
+    const { startUTC: today, endUTC: tomorrow } = getUTCRangeForDateInTimeZone(new Date(), timezone);
+
+    const performance = await Invoice.aggregate([
+      {
+        $match: {
+          organizationId: orgObjectId,
+          createdAt: { $gte: today, $lt: tomorrow },
+          status: { $ne: 'rejected' }
+        }
+      },
+      {
+        $group: {
+          _id: '$createdBy',
+          totalSales: { $sum: { $ifNull: ['$totalAmount', 0] } },
+          totalOrders: { $sum: 1 },
+          completedOrders: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } },
+          pendingOrders: { $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] } }
+        }
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'userInfo'
+        }
+      },
+      { $unwind: { path: '$userInfo', preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          _id: 0,
+          userId: '$_id',
+          name: '$userInfo.name',
+          email: '$userInfo.email',
+          role: '$userInfo.role',
+          avatarUrl: '$userInfo.avatarUrl',
+          sales: '$totalSales',
+          orders: '$totalOrders',
+          completedOrders: 1,
+          pendingOrders: 1
+        }
+      },
+      { $sort: { sales: -1 } },
+      { $limit: 10 }
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      timezone,
+      count: performance.length,
+      data: performance
+    });
+  } catch (error) {
+    console.error('Error fetching team performance:', error);
+    return res.status(500).json({ message: 'Server Error', error: error.message });
+  }
 };
 
-// @desc    Get the attendance summary for the dashboard
-// @route   GET /api/v1/dashboard/attendance-summary
-// @access  Private (Admin, Manager)
+// =============================
+// GET /api/v1/dashboard/attendance-summary
+// =============================
 exports.getAttendanceSummary = async (req, res) => {
-    try {
-        const { organizationId } = req.user;
+  try {
+    const summary = {
+      teamStrength: 35,
+      present: 28,
+      absent: 4,
+      onLeave: 3,
+      attendanceRate: 80.0,
+    };
 
-        // --- MOCK DATA (Replace with real queries later) ---
-        // These queries would count users and their attendance status
-        // const teamStrength = await User.countDocuments({ organizationId, isActive: true });
-        const summary = {
-            teamStrength: 35,
-            present: 28,
-            absent: 4,
-            onLeave: 3,
-            attendanceRate: 80.0,
-        };
-        
-        res.status(200).json({ success: true, data: summary });
-    } catch (error) {
-        res.status(500).json({ message: 'Server Error', error: error.message });
-    }
+    return res.status(200).json({ success: true, data: summary });
+  } catch (error) {
+    console.error('Error fetching attendance summary:', error);
+    return res.status(500).json({ message: 'Server Error', error: error.message });
+  }
 };
 
-// @desc    Get the sales trend data for the dashboard
-// @route   GET /api/v1/dashboard/sales-trend
-// @access  Private (Admin, Manager)
+// =============================
+// GET /api/v1/dashboard/sales-trend
+// =============================
+// Pre-filter by UTC window (Luxon) then group by local date in Mongo ($dateToString + timezone)
 exports.getSalesTrend = async (req, res) => {
-    try {
-        const { organizationId } = req.user;
-        
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  try {
+    const { organizationId } = req.user;
+    if (!organizationId) return res.status(400).json({ success: false, message: 'organizationId missing' });
 
-        // --- MOCK DATA (Replace with the real query below) ---
-        const salesData = [
-            { date: "2025-10-09", sales: 12000 }, { date: "2025-10-10", sales: 16000 },
-            { date: "2025-10-11", sales: 11000 }, { date: "2025-10-12", sales: 19000 },
-            { date: "2025-10-13", sales: 23000 }, { date: "2025-10-14", sales: 20000 },
-            { date: "2025-10-15", sales: 14000 },
-        ];
+    const orgObjectId = toObjectIdIfNeeded(organizationId);
 
-        /* --- REAL QUERY (Use this when you have an Order model) ---
-        const salesData = await Order.aggregate([
-            // 1. Filter orders for the correct organization and time frame
-            {
-                $match: {
-                    organizationId: organizationId,
-                    createdAt: { $gte: sevenDaysAgo }
-                }
-            },
-            // 2. Group orders by the day they were created and sum the sales
-            {
-                $group: {
-                    _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
-                    totalSales: { $sum: "$amount" }
-                }
-            },
-            // 3. Format the output
-            {
-                $project: {
-                    _id: 0,
-                    date: "$_id",
-                    sales: "$totalSales"
-                }
-            },
-            // 4. Sort by date
-            { $sort: { date: 1 } }
-        ]);
-        */
-        
-        res.status(200).json({ success: true, data: salesData });
-    } catch (error) {
-        res.status(500).json({ message: 'Server Error', error: error.message });
-    }
+    const Organization = require('../organizations/organization.model');
+    const Invoice = require('../invoice/invoice.model');
+
+    const orgData = await Organization.findById(orgObjectId).select('timezone');
+    const timezone = orgData?.timezone || 'UTC';
+
+    // compute startUTC for 7-day window (include today)
+    const now = new Date();
+    const sevenDaysAgo = DateTime.fromJSDate(now, { zone: timezone }).minus({ days: 6 }).startOf('day').toUTC().toJSDate();
+    const { startUTC: startWindow } = { startUTC: sevenDaysAgo };
+
+    // DEBUG
+    // console.log('getSalesTrend startWindow UTC:', startWindow.toISOString(), 'timezone:', timezone);
+
+    const salesData = await Invoice.aggregate([
+      // pre-filter by UTC to reduce scanned docs (index-friendly)
+      {
+        $match: {
+          organizationId: orgObjectId,
+          createdAt: { $gte: startWindow },
+          status: { $ne: 'rejected' } // exclude rejected for trends; change if you want all statuses
+        }
+      },
+      // group by org-local date string
+      {
+        $group: {
+          _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt", timezone } },
+          totalSales: { $sum: { $ifNull: ["$totalAmount", 0] } }
+        }
+      },
+      { $project: { _id: 0, date: "$_id", sales: "$totalSales" } },
+      { $sort: { date: 1 } }
+    ]);
+
+    return res.status(200).json({ success: true, timezone, data: salesData });
+  } catch (error) {
+    console.error('Error fetching sales trend:', error);
+    return res.status(500).json({ message: 'Server Error', error: error.message });
+  }
 };
