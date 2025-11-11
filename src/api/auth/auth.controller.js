@@ -12,43 +12,50 @@ const signToken = (id) => {
 };
 
 // Helper to send token as both cookie (for web) AND in response (for mobile)
-const sendTokenResponse = (user, statusCode, res, includeTokenInResponse = false) => {
-    const token = signToken(user._id);
+// Helper to send token as both cookie (for web) AND in response (for mobile)
+const sendTokenResponse = (
+  user,
+  statusCode,
+  res,
+  includeTokenInResponse = false,
+  options = {}
+) => {
+  const { setCookie = true } = options; // default true for login flows
+  const token = signToken(user._id);
 
-    // Set HttpOnly cookie for web browsers
+  // Only set cookie when explicitly permitted
+  if (setCookie) {
     const cookieOptions = {
-        expires: new Date(
-            Date.now() + (process.env.JWT_COOKIE_EXPIRES_IN || 90) * 24 * 60 * 60 * 1000
-        ),
-        httpOnly: true, // <-- CRITICAL: Prevents JS from accessing it
-        secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging', // Use secure cookies in production and staging
-        sameSite: process.env.NODE_ENV === 'production' 
-            ? 'strict' 
-            : process.env.NODE_ENV === 'staging' 
-                ? 'none' 
-                : 'lax', // none for staging (cross-site), lax for dev, strict for prod
+      expires: new Date(
+        Date.now() + (process.env.JWT_COOKIE_EXPIRES_IN || 90) * 24 * 60 * 60 * 1000
+      ),
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging',
+      sameSite:
+        process.env.NODE_ENV === 'production'
+          ? 'strict'
+          : process.env.NODE_ENV === 'staging'
+          ? 'none'
+          : 'lax',
     };
-
     res.cookie('token', token, cookieOptions);
+  }
 
-    // Remove password from the user object before sending
-    user.password = undefined;
+  // Remove password from the user object before sending
+  user.password = undefined;
 
-    // Response structure
-    const response = {
-        status: 'success',
-        data: {
-            user,
-        },
-    };
+  const response = {
+    status: 'success',
+    data: { user },
+  };
 
-    // Include token in JSON for mobile apps (if requested via header)
-    if (includeTokenInResponse) {
-        response.token = token;
-    }
+  if (includeTokenInResponse) {
+    response.token = token;
+  }
 
-    res.status(statusCode).json(response);
+  res.status(statusCode).json(response);
 };
+
 
 // @desc    Register a superadmin (no organization required)
 // @route   POST /api/v1/auth/register/superadmin
@@ -242,7 +249,7 @@ exports.register = async (req, res) => {
     };
 
     const isMobileClient = req.headers['x-client-type'] === 'mobile';
-    sendTokenResponse(newUser, 201, res, isMobileClient);
+    sendTokenResponse(newUser, 201, res, isMobileClient, { setCookie: false });
   } catch (error) {
     console.error('❌ Registration error:', error);
 
@@ -669,6 +676,7 @@ exports.logout = (req, res) => {
                 : 'lax',
     });
 
+    
     res.status(200).json({
         status: 'success',
         message: 'Logged out successfully'

@@ -14,7 +14,7 @@ const { protect, restrictTo } = require('../../middlewares/auth.middleware');
 const router = express.Router();
 
 // Authentication Routes
-router.post('/register', register);
+router.post('/register', protect, restrictTo('superadmin'), register);
 router.post('/register/superadmin', registerSuperAdmin);
 router.post('/login', login);
 router.post('/logout', logout);
