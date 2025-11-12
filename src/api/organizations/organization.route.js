@@ -13,7 +13,7 @@ const router = express.Router();
 router.use(protect);
 
 // Get my organization details
-router.get('/my-organization', restrictTo('admin', 'manager'), getMyOrganization);
+router.get('/my-organization', restrictTo('admin', 'manager','superadmin'), getMyOrganization);
 
 // Update organization details (superadmin only)
 router.put('/:id', restrictTo('superadmin'), updateMyOrganization);
