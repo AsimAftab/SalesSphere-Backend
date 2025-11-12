@@ -1,6 +1,7 @@
 const express = require('express');
 const {
     getMyOrganization,
+    getOrganizationById,
     updateMyOrganization,
     deactivateOrganization,
     reactivateOrganization
@@ -14,6 +15,9 @@ router.use(protect);
 
 // Get my organization details
 router.get('/my-organization', restrictTo('admin', 'manager','superadmin'), getMyOrganization);
+
+// Get specific organization details by ID (superadmin only)
+router.get('/:id', restrictTo('superadmin'), getOrganizationById);
 
 // Update organization details (superadmin only)
 router.put('/:id', restrictTo('superadmin'), updateMyOrganization);

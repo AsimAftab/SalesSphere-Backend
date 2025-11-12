@@ -166,3 +166,40 @@ exports.reactivateOrganization = async (req, res) => {
         res.status(500).json({ message: 'Server Error', error: error.message });
     }
 };
+
+// @desc    Get organization details by ID (for superadmin)
+// @route   GET /api/v1/organizations/:id
+// @access  Private (Superadmin)
+exports.getOrganizationById = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Validate MongoDB ObjectId
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid organization ID'
+            });
+        }
+
+        const organization = await Organization.findById(id).populate('owner', 'name email phone role');
+
+        if (!organization) {
+            return res.status(404).json({
+                success: false,
+                message: 'Organization not found'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: organization
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Server Error',
+            error: error.message
+        });
+    }
+};
