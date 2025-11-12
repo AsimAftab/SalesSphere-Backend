@@ -437,6 +437,7 @@ exports.getEmployeeAttendanceSummary = async (req, res, next) => {
         const Attendance = require('../attendance/attendance.model');
         const Organization = require('../organizations/organization.model');
         const mongoose = require('mongoose');
+        const { DateTime } = require('luxon');
 
         // Validate employeeId
         if (!mongoose.Types.ObjectId.isValid(employeeId)) {
@@ -482,19 +483,29 @@ exports.getEmployeeAttendanceSummary = async (req, res, next) => {
             });
         }
 
-        // Get current month and year
+        // Get month and year from query params (default to current month/year)
         const now = new Date();
-        const currentMonth = now.getMonth() + 1;
-        const currentYear = now.getFullYear();
+        const currentMonth = parseInt(req.query.month) || (now.getMonth() + 1);
+        const currentYear = parseInt(req.query.year) || now.getFullYear();
+
+        // Validate month and year
+        if (currentMonth < 1 || currentMonth > 12) {
+            return res.status(400).json({ success: false, message: 'Invalid month. Must be between 1 and 12.' });
+        }
+        if (currentYear < 2020 || currentYear > 2100) {
+            return res.status(400).json({ success: false, message: 'Invalid year. Must be between 2020 and 2100.' });
+        }
 
         // Fetch organization to get weekly off day and timezone
         const organization = await Organization.findById(organizationId).select('weeklyOffDay timezone');
         const weeklyOffDay = organization?.weeklyOffDay || 'Saturday';
+        const timezone = organization?.timezone || 'Asia/Kolkata';
 
-        // Calculate start and end of current month
-        const startDate = new Date(currentYear, currentMonth - 1, 1);
-        const endDate = new Date(currentYear, currentMonth, 0);
-        endDate.setHours(23, 59, 59, 999);
+        // Calculate start and end of month using Luxon (timezone-aware)
+        const startDate = DateTime.fromObject({ year: currentYear, month: currentMonth, day: 1 }, { zone: timezone })
+            .startOf('day').toUTC().toJSDate();
+        const endDate = DateTime.fromObject({ year: currentYear, month: currentMonth, day: 1 }, { zone: timezone })
+            .endOf('month').endOf('day').toUTC().toJSDate();
 
         // Map day names to JavaScript day numbers
         const dayNameToNumber = {
@@ -516,6 +527,7 @@ exports.getEmployeeAttendanceSummary = async (req, res, next) => {
         }).select('date status').lean();
 
         // Calculate summary
+        const daysInMonth = DateTime.fromJSDate(endDate, { zone: timezone }).day;
         const summary = {
             present: 0,
             absent: 0,
@@ -523,16 +535,17 @@ exports.getEmployeeAttendanceSummary = async (req, res, next) => {
             halfDay: 0,
             weeklyOff: 0,
             workingDays: 0,
-            totalDays: endDate.getDate()
+            totalDays: daysInMonth
         };
 
         // Create a map of dates that have records
         const recordsByDate = {};
         for (const record of attendanceRecords) {
-            const day = record.date.getUTCDate();
+            const dateIso = DateTime.fromJSDate(record.date, { zone: timezone }).toISODate();
+            const day = parseInt(dateIso.split('-')[2]);
             recordsByDate[day] = record.status;
 
-            // Update summary counts
+            // Update summary counts (leaves and weekly offs now count as working days)
             if (record.status === 'P') {
                 summary.present += 1;
                 summary.workingDays += 1;
@@ -543,19 +556,22 @@ exports.getEmployeeAttendanceSummary = async (req, res, next) => {
                 summary.absent += 1;
             } else if (record.status === 'L') {
                 summary.leave += 1;
+                summary.workingDays += 1; // Leave counts as working day
             } else if (record.status === 'W') {
                 summary.weeklyOff += 1;
+                summary.workingDays += 1; // Weekly off counts as working day
             }
         }
 
         // Check for days without records and calculate weekly offs
-        for (let day = 1; day <= endDate.getDate(); day++) {
+        for (let day = 1; day <= daysInMonth; day++) {
             if (!recordsByDate[day]) {
-                const date = new Date(Date.UTC(currentYear, currentMonth - 1, day));
-                const dayOfWeek = date.getUTCDay();
+                const dt = DateTime.fromObject({ year: currentYear, month: currentMonth, day }, { zone: timezone });
+                const dayOfWeek = dt.weekday % 7; // Convert 1..7 to 0..6 where 0=Sunday
 
                 if (dayOfWeek === weeklyOffDayNumber) {
                     summary.weeklyOff += 1;
+                    summary.workingDays += 1; // Weekly off counts as working day
                 } else {
                     // Count as absent if not marked
                     summary.absent += 1;
@@ -563,8 +579,10 @@ exports.getEmployeeAttendanceSummary = async (req, res, next) => {
             }
         }
 
-        const attendancePercentage = summary.totalDays > 0 
-            ? ((summary.workingDays / (summary.totalDays - summary.weeklyOff)) * 100).toFixed(2)
+        // Calculate attendance percentage: working days / total days
+        // Working days includes everything except absents (present, half days, leaves, weekly offs)
+        const attendancePercentage = summary.totalDays > 0
+            ? ((summary.workingDays / summary.totalDays) * 100).toFixed(2)
             : 0;
 
         res.status(200).json({

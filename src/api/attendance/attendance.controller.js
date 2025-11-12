@@ -26,6 +26,45 @@ const getStartOfDayInOrgTZ = (dateOrIso = new Date(), timezone = 'Asia/Kolkata')
   return dt.startOf('day').toUTC().toJSDate();
 };
 
+// Parse date string in various formats and return start of day in org timezone
+// Accepts: "2025-11-12", "2025-11-12T10:30:00", ISO strings, etc.
+// Returns UTC instant representing start of that day in the org's timezone
+const parseDateToOrgTZ = (dateStr, timezone = 'Asia/Kolkata') => {
+  if (!dateStr) throw new Error('Date is required');
+
+  const dateString = String(dateStr).trim();
+
+  // Try ISO date format first (YYYY-MM-DD)
+  let dt = DateTime.fromISO(dateString, { zone: timezone });
+
+  // If that fails, try fromSQL format (also handles YYYY-MM-DD)
+  if (!dt.isValid) {
+    dt = DateTime.fromSQL(dateString, { zone: timezone });
+  }
+
+  // If still invalid, try parsing as JS Date then convert to org timezone
+  if (!dt.isValid) {
+    const jsDate = new Date(dateString);
+    if (isNaN(jsDate.getTime())) {
+      throw new Error(`Invalid date format: ${dateString}. Expected formats: YYYY-MM-DD, ISO 8601, or valid date string.`);
+    }
+    dt = DateTime.fromJSDate(jsDate, { zone: timezone });
+  }
+
+  if (!dt.isValid) {
+    throw new Error(`Invalid date: ${dateString}`);
+  }
+
+  return dt.startOf('day').toUTC().toJSDate();
+};
+
+// Validate date string format using Luxon
+const isValidDateString = (dateStr) => {
+  if (!dateStr) return false;
+  const dt = DateTime.fromISO(String(dateStr));
+  return dt.isValid || DateTime.fromSQL(String(dateStr)).isValid || !isNaN(Date.parse(String(dateStr)));
+};
+
 // Returns start of today in organization's timezone as JS Date (UTC instant)
 const getStartOfTodayInOrgTZ = (timezone = 'Asia/Kolkata') => {
   return DateTime.now().setZone(timezone).startOf('day').toUTC().toJSDate();
@@ -455,8 +494,8 @@ exports.getMyMonthlyReport = async (req, res, next) => {
       if (record.status === 'P') { summary.present++; summary.workingDays += 1; }
       else if (record.status === 'H') { summary.halfDay++; summary.workingDays += 0.5; }
       else if (record.status === 'A') { summary.absent++; }
-      else if (record.status === 'L') { summary.leave++; }
-      else if (record.status === 'W') { summary.weeklyOff++; }
+      else if (record.status === 'L') { summary.leave++; summary.workingDays += 1; }
+      else if (record.status === 'W') { summary.weeklyOff++; summary.workingDays += 1; }
     }
 
     // Fill in weekly offs and not marked
@@ -469,6 +508,8 @@ exports.getMyMonthlyReport = async (req, res, next) => {
           attendanceByDate[day] = { status: 'W', checkInTime: null, checkOutTime: null, notes: null };
           summary.weeklyOff++;
         } else {
+          // Add not marked days with a status so they appear in the response
+          attendanceByDate[day] = { status: 'NA', checkInTime: null, checkOutTime: null, notes: null };
           summary.notMarked++;
         }
       }
@@ -573,8 +614,8 @@ exports.getAttendanceReport = async (req, res, next) => {
         if (status === 'P') { summary[empId].workingDays += 1; summary[empId].present += 1; }
         else if (status === 'H') { summary[empId].workingDays += 0.5; summary[empId].halfDay += 1; }
         else if (status === 'A' || status === 'NA') { summary[empId].absent += 1; }
-        else if (status === 'L') { summary[empId].leave += 1; }
-        else if (status === 'W') { summary[empId].weeklyOff += 1; }
+        else if (status === 'L') { summary[empId].leave += 1; summary[empId].workingDays += 1; }
+        else if (status === 'W') { summary[empId].weeklyOff += 1; summary[empId].workingDays += 1; }
       }
 
       report.push({ employee, records: dailyRecords, totalWorkingDays: summary[empId].workingDays });
@@ -596,7 +637,7 @@ exports.getAttendanceReport = async (req, res, next) => {
 exports.getEmployeeAttendanceByDate = async (req, res, next) => {
   const dateParamSchema = z.object({
     employeeId: z.string().refine(val => mongoose.Types.ObjectId.isValid(val), { message: "Invalid employee ID" }),
-    date: z.string().refine(val => !isNaN(Date.parse(val)), { message: "Invalid date format" }),
+    date: z.string().refine(val => isValidDateString(val), { message: "Invalid date format. Expected YYYY-MM-DD or ISO 8601 format" }),
   });
 
   try {
@@ -614,7 +655,17 @@ exports.getEmployeeAttendanceByDate = async (req, res, next) => {
     const employee = await User.findOne({ _id: employeeId, organizationId: orgObjectId }).select('name email role');
     if (!employee) return res.status(404).json({ success: false, message: "Employee not found in your organization." });
 
-    const recordDate = getStartOfDayInOrgTZ(date, timezone);
+    // Use new robust date parser
+    let recordDate;
+    try {
+      recordDate = parseDateToOrgTZ(date, timezone);
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+        hint: "Please use format: YYYY-MM-DD (e.g., 2025-11-12)"
+      });
+    }
 
     const attendanceRecord = await Attendance.findOne({
       employee: employeeId,
@@ -680,8 +731,8 @@ exports.getEmployeeAttendanceByDate = async (req, res, next) => {
 // @access  Private (Admin, Manager)
 exports.adminMarkAttendance = async (req, res, next) => {
   const adminMarkSchema = z.object({
-    employeeId: z.string().refine(val => mongoose.Types.ObjectId.isValid(val)),
-    date: z.string().refine(val => !isNaN(Date.parse(val))),
+    employeeId: z.string().refine(val => mongoose.Types.ObjectId.isValid(val), { message: "Invalid employee ID format" }),
+    date: z.string().refine(val => isValidDateString(val), { message: "Invalid date format. Expected YYYY-MM-DD or ISO 8601 format" }),
     status: z.enum(['P', 'A', 'W', 'L', 'H']),
     notes: z.string().optional(),
   });
@@ -693,7 +744,7 @@ exports.adminMarkAttendance = async (req, res, next) => {
 
     const { employeeId, date, status, notes } = adminMarkSchema.parse(req.body);
 
-    const employee = await User.findOne({ _id: employeeId, organizationId: orgObjectId }).select('role');
+    const employee = await User.findOne({ _id: employeeId, organizationId: orgObjectId }).select('role name');
     if (!employee) return res.status(404).json({ success: false, message: "Employee not found in your organization." });
 
     if (adminRole === 'manager' && employee.role === 'manager') {
@@ -704,7 +755,18 @@ exports.adminMarkAttendance = async (req, res, next) => {
     if (!organization) return res.status(404).json({ success: false, message: "Organization not found." });
 
     const timezone = organization.timezone || 'Asia/Kolkata';
-    const recordDate = getStartOfDayInOrgTZ(date, timezone);
+
+    // Use new robust date parser
+    let recordDate;
+    try {
+      recordDate = parseDateToOrgTZ(date, timezone);
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+        hint: "Please use format: YYYY-MM-DD (e.g., 2025-11-12)"
+      });
+    }
 
     // Validate weekly off rule
     const dayNameToNumber = { 'Sunday': 0, 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4, 'Friday': 5, 'Saturday': 6 };
@@ -745,7 +807,21 @@ exports.adminMarkAttendance = async (req, res, next) => {
       { new: true, upsert: true, runValidators: true }
     );
 
-    res.status(200).json({ success: true, data: updatedRecord });
+    // Format the response with helpful info
+    const localDateStr = DateTime.fromJSDate(recordDate, { zone: timezone }).toFormat('yyyy-MM-dd');
+    const dayOfWeek = DateTime.fromJSDate(recordDate, { zone: timezone }).toFormat('EEEE');
+
+    res.status(200).json({
+      success: true,
+      message: `Attendance marked successfully for ${employee.name} on ${localDateStr} (${dayOfWeek})`,
+      data: updatedRecord,
+      debug: {
+        requestedDate: date,
+        parsedDate: localDateStr,
+        dayOfWeek: dayOfWeek,
+        timezone: timezone
+      }
+    });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ success: false, message: "Validation failed", errors: error.flatten().fieldErrors });
@@ -812,7 +888,7 @@ exports.adminMarkAbsentees = async (req, res, next) => {
 // @access  Private (Admin only)
 exports.adminMarkHoliday = async (req, res, next) => {
   const holidaySchema = z.object({
-    date: z.string().refine(val => !isNaN(Date.parse(val)), { message: "Invalid date format" }),
+    date: z.string().refine(val => isValidDateString(val), { message: "Invalid date format. Expected YYYY-MM-DD or ISO 8601 format" }),
     occasionName: z.string().min(1, "Occasion name is required").max(100),
   });
 
@@ -827,7 +903,18 @@ exports.adminMarkHoliday = async (req, res, next) => {
     if (!organization) return res.status(404).json({ success: false, message: "Organization not found." });
 
     const timezone = organization.timezone || 'Asia/Kolkata';
-    const holidayDate = getStartOfDayInOrgTZ(date, timezone);
+
+    // Use new robust date parser
+    let holidayDate;
+    try {
+      holidayDate = parseDateToOrgTZ(date, timezone);
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+        hint: "Please use format: YYYY-MM-DD (e.g., 2025-11-12)"
+      });
+    }
 
     // Prevent marking holiday on weekly off day
     const weeklyOffDay = organization.weeklyOffDay || 'Saturday';
