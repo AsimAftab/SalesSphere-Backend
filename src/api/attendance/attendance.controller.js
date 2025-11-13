@@ -172,6 +172,47 @@ exports.checkIn = async (req, res, next) => {
 
     const checkInTime = new Date();
 
+    // Validate check-in time window (2 hours before to 30 minutes after orgCheckInTime)
+    const orgCheckInTime = organization.checkInTime;
+    if (orgCheckInTime) {
+      try {
+        const { hours: checkInH, minutes: checkInM } = parseTimeString(orgCheckInTime);
+        const checkInDT = DateTime.fromJSDate(checkInTime).setZone(timezone);
+        const scheduledCheckInDT = checkInDT.set({ hour: checkInH, minute: checkInM, second: 0, millisecond: 0 });
+
+        // Earliest allowed: 2 hours before scheduled check-in
+        const earliestAllowedCheckIn = scheduledCheckInDT.minus({ hours: 2 });
+
+        // Latest allowed: 30 minutes after scheduled check-in (grace period)
+        const latestAllowedCheckIn = scheduledCheckInDT.plus({ minutes: 30 });
+
+        if (checkInDT < earliestAllowedCheckIn) {
+          const earliestTimeStr = earliestAllowedCheckIn.toFormat('HH:mm');
+          return res.status(400).json({
+            success: false,
+            message: `Check-in is not allowed yet. You can check in starting from ${earliestTimeStr} (2 hours before scheduled check-in time).`,
+            earliestAllowedCheckIn: earliestTimeStr,
+            scheduledCheckInTime: orgCheckInTime,
+            currentTime: checkInDT.toFormat('HH:mm')
+          });
+        }
+
+        if (checkInDT > latestAllowedCheckIn) {
+          const latestTimeStr = latestAllowedCheckIn.toFormat('HH:mm');
+          return res.status(400).json({
+            success: false,
+            message: `Check-in window has closed. Latest allowed check-in time was ${latestTimeStr} (30 minutes after scheduled check-in time). Please contact your administrator.`,
+            latestAllowedCheckIn: latestTimeStr,
+            scheduledCheckInTime: orgCheckInTime,
+            currentTime: checkInDT.toFormat('HH:mm')
+          });
+        }
+      } catch (err) {
+        // If parseTimeString fails, continue without validation (fallback)
+        console.error('Invalid check-in time format:', err);
+      }
+    }
+
     // Upsert attendance (create if not exists)
     const updatedRecord = await Attendance.findOneAndUpdate(
       {
@@ -290,6 +331,37 @@ exports.checkOut = async (req, res, next) => {
       const checkOutDT = DateTime.fromJSDate(checkOutTime).setZone(timezone);
       const expectedCheckOutDT = checkOutDT.set({ hour: expH, minute: expM, second: 0, millisecond: 0 });
       const earliestAllowedCheckout = expectedCheckOutDT.minus({ minutes: 30 });
+
+      // CRITICAL FIX: For half-day checkout, enforce UPPER LIMIT
+      // Users should NOT be able to checkout after halfDayCheckOutTime and claim it's a half-day
+      if (isHalfDay) {
+        // Add grace period of 15 minutes AFTER halfDayCheckOutTime
+        const latestAllowedHalfDayCheckout = expectedCheckOutDT.plus({ minutes: 15 });
+
+        if (checkOutDT > latestAllowedHalfDayCheckout) {
+          const latestTimeStr = latestAllowedHalfDayCheckout.toFormat('HH:mm');
+          const fullDayTime = organization.checkOutTime;
+
+          if (fullDayTime) {
+            return res.status(400).json({
+              success: false,
+              message: `Half-day checkout window has closed (latest allowed: ${latestTimeStr}). You can only checkout as full-day now. Please retry without the 'isHalfDay' flag.`,
+              halfDayCheckoutClosedAt: latestTimeStr,
+              scheduledHalfDayTime: expectedTime,
+              fullDayCheckoutTime: fullDayTime,
+              currentTime: checkOutDT.toFormat('HH:mm')
+            });
+          } else {
+            return res.status(400).json({
+              success: false,
+              message: `Half-day checkout window has closed (latest allowed: ${latestTimeStr}).`,
+              halfDayCheckoutClosedAt: latestTimeStr,
+              scheduledHalfDayTime: expectedTime,
+              currentTime: checkOutDT.toFormat('HH:mm')
+            });
+          }
+        }
+      }
 
       if (checkOutDT < earliestAllowedCheckout) {
         // Too early for requested checkout type.
