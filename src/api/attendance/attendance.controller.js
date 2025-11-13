@@ -693,7 +693,16 @@ exports.getAttendanceReport = async (req, res, next) => {
       report.push({ employee, records: dailyRecords, totalWorkingDays: summary[empId].workingDays });
     }
 
-    res.status(200).json({ success: true, data: { report, summary } });
+    res.status(200).json({
+      success: true,
+      data: {
+        month,
+        year,
+        weeklyOffDay,
+        report,
+        summary
+      }
+    });
 
   } catch (error) {
     if (error instanceof z.ZodError) {
