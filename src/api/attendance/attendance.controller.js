@@ -34,10 +34,27 @@ const parseDateToOrgTZ = (dateStr, timezone = 'Asia/Kolkata') => {
 
   const dateString = String(dateStr).trim();
 
-  // Try ISO date format first (YYYY-MM-DD)
+  // CRITICAL FIX: For date-only strings (YYYY-MM-DD), explicitly parse components
+  // and use fromObject to ensure correct timezone interpretation
+  const isoDateMatch = dateString.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoDateMatch) {
+    const year = parseInt(isoDateMatch[1], 10);
+    const month = parseInt(isoDateMatch[2], 10);
+    const day = parseInt(isoDateMatch[3], 10);
+
+    const dt = DateTime.fromObject({ year, month, day }, { zone: timezone });
+
+    if (dt.isValid) {
+      return dt.startOf('day').toUTC().toJSDate();
+    } else {
+      throw new Error(`Invalid date: ${dateString}. Please check the year, month, and day values.`);
+    }
+  }
+
+  // Try ISO date format with time (YYYY-MM-DDTHH:MM:SS)
   let dt = DateTime.fromISO(dateString, { zone: timezone });
 
-  // If that fails, try fromSQL format (also handles YYYY-MM-DD)
+  // If that fails, try fromSQL format
   if (!dt.isValid) {
     dt = DateTime.fromSQL(dateString, { zone: timezone });
   }
@@ -385,9 +402,25 @@ exports.checkOut = async (req, res, next) => {
             const { hours: halfH, minutes: halfM } = parseTimeString(halfDayTime);
             const halfDayDT = checkOutDT.set({ hour: halfH, minute: halfM, second: 0, millisecond: 0 });
             const earliestHalfAllowed = halfDayDT.minus({ minutes: 30 });
+            // Add grace period of 15 minutes AFTER halfDayCheckOutTime
+            const latestHalfAllowed = halfDayDT.plus({ minutes: 15 });
             const halfAllowedStr = earliestHalfAllowed.toFormat('HH:mm');
 
+            // Check if half-day window has passed (including grace period)
+            if (checkOutDT > latestHalfAllowed) {
+              // Half-day checkout window has closed - cannot use fallback
+              return res.status(400).json({
+                success: false,
+                message: `You can only check out after ${fullAllowedStr}. Full-day checkout is allowed 30 minutes before the scheduled time (${expectedTime}). Half-day checkout window has closed.`,
+                allowedFrom: fullAllowedStr,
+                scheduledCheckout: expectedTime,
+                checkoutType: 'full-day',
+                canUseHalfDayFallback: false
+              });
+            }
+
             if (checkOutDT >= earliestHalfAllowed) {
+              // Within half-day window - offer fallback
               return res.status(400).json({
                 success: false,
                 message: `Full-day checkout is not allowed yet (allowed from ${fullAllowedStr}). Half-day checkout is available from ${halfAllowedStr}. Would you like to checkout as half-day now?`,
@@ -399,6 +432,7 @@ exports.checkOut = async (req, res, next) => {
                 halfDayScheduledTime: halfDayTime
               });
             } else {
+              // Too early for both - but half-day will be available later
               return res.status(400).json({
                 success: false,
                 message: `You can only check out after ${fullAllowedStr}. Half-day checkout becomes available at ${halfAllowedStr}.`,
@@ -417,7 +451,8 @@ exports.checkOut = async (req, res, next) => {
               message: `You can only check out after ${allowedTimeStr}. Full-day checkout is allowed 30 minutes before the scheduled time (${expectedTime}).`,
               allowedFrom: allowedTimeStr,
               scheduledCheckout: expectedTime,
-              checkoutType: 'full-day'
+              checkoutType: 'full-day',
+              canUseHalfDayFallback: false
             });
           }
         } else {
@@ -427,7 +462,8 @@ exports.checkOut = async (req, res, next) => {
             message: `You can only check out after ${allowedTimeStr}. Full-day checkout is allowed 30 minutes before the scheduled time (${expectedTime}).`,
             allowedFrom: allowedTimeStr,
             scheduledCheckout: expectedTime,
-            checkoutType: 'full-day'
+            checkoutType: 'full-day',
+            canUseHalfDayFallback: false
           });
         }
       }
