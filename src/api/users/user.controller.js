@@ -572,7 +572,6 @@ exports.getEmployeeAttendanceSummary = async (req, res, next) => {
                 if (dayOfWeek === weeklyOffDayNumber) {
                     // Inferred weekly off - only increment weeklyOff, NOT workingDays
                     summary.weeklyOff += 1;
-                    summary.workingDays += 1; // Weekly off counts as working day
                 } else {
                     // Not marked - count as absent
                     summary.absent += 1;
@@ -609,4 +608,3 @@ exports.getEmployeeAttendanceSummary = async (req, res, next) => {
         next(error);
     }
 };
-
