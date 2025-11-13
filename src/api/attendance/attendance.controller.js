@@ -544,8 +544,8 @@ exports.getMyStatusToday = async (req, res, next) => {
     const { _id: userId, organizationId } = req.user;
     const orgObjectId = toObjectIdIfNeeded(organizationId);
 
-    // Fetch organization timezone
-    const organization = await Organization.findById(orgObjectId).select('timezone');
+    // Fetch organization timezone and time settings
+    const organization = await Organization.findById(orgObjectId).select('timezone checkInTime checkOutTime halfDayCheckOutTime');
     const timezone = organization?.timezone || 'Asia/Kolkata';
     const today = getStartOfTodayInOrgTZ(timezone);
 
@@ -559,13 +559,19 @@ exports.getMyStatusToday = async (req, res, next) => {
       success: true,
       data: null,
       message: 'Not marked',
-      organizationTimezone: timezone
+      organizationTimezone: timezone,
+      organizationCheckInTime: organization?.checkInTime || null,
+      organizationCheckOutTime: organization?.checkOutTime || null,
+      organizationHalfDayCheckOutTime: organization?.halfDayCheckOutTime || null
     });
 
     res.status(200).json({
       success: true,
       data: record,
-      organizationTimezone: timezone // For frontend to convert times to local timezone
+      organizationTimezone: timezone, // For frontend to convert times to local timezone
+      organizationCheckInTime: organization?.checkInTime || null,
+      organizationCheckOutTime: organization?.checkOutTime || null,
+      organizationHalfDayCheckOutTime: organization?.halfDayCheckOutTime || null
     });
   } catch (error) {
     next(error);
