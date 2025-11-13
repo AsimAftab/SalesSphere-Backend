@@ -538,14 +538,14 @@ exports.getEmployeeAttendanceSummary = async (req, res, next) => {
             totalDays: daysInMonth
         };
 
-        // Create a map of dates that have records
-        const recordsByDate = {};
+        // Build map of attendance records by date
+        const attendanceByDate = {};
         for (const record of attendanceRecords) {
-            const dateIso = DateTime.fromJSDate(record.date, { zone: timezone }).toISODate();
+            const dateIso = DateTime.fromJSDate(record.date, { zone: timezone }).toISODate(); // YYYY-MM-DD
             const day = parseInt(dateIso.split('-')[2]);
-            recordsByDate[day] = record.status;
+            attendanceByDate[day] = record.status;
 
-            // Update summary counts (leaves and weekly offs now count as working days)
+            // Update summary counts for existing records only
             if (record.status === 'P') {
                 summary.present += 1;
                 summary.workingDays += 1;
@@ -556,31 +556,32 @@ exports.getEmployeeAttendanceSummary = async (req, res, next) => {
                 summary.absent += 1;
             } else if (record.status === 'L') {
                 summary.leave += 1;
-                summary.workingDays += 1; // Leave counts as working day
+                summary.workingDays += 1;
             } else if (record.status === 'W') {
                 summary.weeklyOff += 1;
-                summary.workingDays += 1; // Weekly off counts as working day
+                summary.workingDays += 1;
             }
         }
 
-        // Check for days without records and calculate weekly offs
+        // Fill in days without records (weekly offs and not marked/absent)
         for (let day = 1; day <= daysInMonth; day++) {
-            if (!recordsByDate[day]) {
+            if (!attendanceByDate[day]) {
                 const dt = DateTime.fromObject({ year: currentYear, month: currentMonth, day }, { zone: timezone });
                 const dayOfWeek = dt.weekday % 7; // Convert 1..7 to 0..6 where 0=Sunday
 
                 if (dayOfWeek === weeklyOffDayNumber) {
+                    // Inferred weekly off - only increment weeklyOff, NOT workingDays
                     summary.weeklyOff += 1;
-                    summary.workingDays += 1; // Weekly off counts as working day
                 } else {
-                    // Count as absent if not marked
+                    // Not marked - count as absent
                     summary.absent += 1;
                 }
             }
         }
 
         // Calculate attendance percentage: working days / total days
-        // Working days includes everything except absents (present, half days, leaves, weekly offs)
+        // Working days only includes actual attendance records (P, H, L, W from database)
+        // Inferred weekly offs and absents do NOT count as working days
         const attendancePercentage = summary.totalDays > 0
             ? ((summary.workingDays / summary.totalDays) * 100).toFixed(2)
             : 0;
