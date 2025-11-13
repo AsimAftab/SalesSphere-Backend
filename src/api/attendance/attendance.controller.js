@@ -17,38 +17,48 @@ function toObjectIdIfNeeded(id) {
   return new mongoose.Types.ObjectId(String(id));
 }
 
-// Returns a JS Date (UTC instant) representing the start of `dateOrIso` in `timezone`
+// Returns a JS Date representing the start of day for storage
 // dateOrIso can be a Date object or an ISO date string. Defaults to now if not provided.
+// Returns: Date object at UTC midnight with LOCAL date components
 const getStartOfDayInOrgTZ = (dateOrIso = new Date(), timezone = 'Asia/Kolkata') => {
   const dt = (dateOrIso instanceof Date)
     ? DateTime.fromJSDate(dateOrIso, { zone: timezone })
     : DateTime.fromISO(String(dateOrIso), { zone: timezone });
-  return dt.startOf('day').toUTC().toJSDate();
+
+  // Extract date components in the org's timezone
+  const { year, month, day } = dt.startOf('day');
+
+  // Return as UTC midnight with those date components
+  return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
 };
 
-// Parse date string in various formats and return start of day in org timezone
+// Parse date string in various formats and return start of day
 // Accepts: "2025-11-12", "2025-11-12T10:30:00", ISO strings, etc.
-// Returns UTC instant representing start of that day in the org's timezone
+// Returns: Date object representing the local date at UTC midnight (for storage)
+// NOTE: We store the LOCAL date as UTC midnight to work with the pre-save hook
 const parseDateToOrgTZ = (dateStr, timezone = 'Asia/Kolkata') => {
   if (!dateStr) throw new Error('Date is required');
 
   const dateString = String(dateStr).trim();
 
   // CRITICAL FIX: For date-only strings (YYYY-MM-DD), explicitly parse components
-  // and use fromObject to ensure correct timezone interpretation
+  // and create a Date at UTC midnight with those exact date components
   const isoDateMatch = dateString.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (isoDateMatch) {
     const year = parseInt(isoDateMatch[1], 10);
     const month = parseInt(isoDateMatch[2], 10);
     const day = parseInt(isoDateMatch[3], 10);
 
+    // Validate the date is valid in the org's timezone
     const dt = DateTime.fromObject({ year, month, day }, { zone: timezone });
 
-    if (dt.isValid) {
-      return dt.startOf('day').toUTC().toJSDate();
-    } else {
+    if (!dt.isValid) {
       throw new Error(`Invalid date: ${dateString}. Please check the year, month, and day values.`);
     }
+
+    // Return a Date object at UTC midnight with the LOCAL date components
+    // This prevents the pre-save hook from changing the date
+    return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
   }
 
   // Try ISO date format with time (YYYY-MM-DDTHH:MM:SS)
@@ -72,7 +82,9 @@ const parseDateToOrgTZ = (dateStr, timezone = 'Asia/Kolkata') => {
     throw new Error(`Invalid date: ${dateString}`);
   }
 
-  return dt.startOf('day').toUTC().toJSDate();
+  // Extract date components and return as UTC midnight
+  const { year, month, day } = dt;
+  return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
 };
 
 // Validate date string format using Luxon
@@ -82,15 +94,23 @@ const isValidDateString = (dateStr) => {
   return dt.isValid || DateTime.fromSQL(String(dateStr)).isValid || !isNaN(Date.parse(String(dateStr)));
 };
 
-// Returns start of today in organization's timezone as JS Date (UTC instant)
+// Returns start of today in organization's timezone for storage
 const getStartOfTodayInOrgTZ = (timezone = 'Asia/Kolkata') => {
-  return DateTime.now().setZone(timezone).startOf('day').toUTC().toJSDate();
+  const dt = DateTime.now().setZone(timezone).startOf('day');
+  const { year, month, day } = dt;
+  return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
 };
 
-// Returns start and end of a month in the org timezone as JS Dates (UTC instants)
+// Returns start and end of a month in the org timezone for date range queries
 const getMonthRangeInOrgTZ = (year, month, timezone = 'Asia/Kolkata') => {
-  const start = DateTime.fromObject({ year, month, day: 1 }, { zone: timezone }).startOf('day').toUTC().toJSDate();
-  const end = DateTime.fromObject({ year, month, day: 1 }, { zone: timezone }).endOf('month').endOf('day').toUTC().toJSDate();
+  // Start of month: first day at UTC midnight
+  const startDt = DateTime.fromObject({ year, month, day: 1 }, { zone: timezone });
+  const start = new Date(Date.UTC(startDt.year, startDt.month - 1, startDt.day, 0, 0, 0, 0));
+
+  // End of month: last day at UTC 23:59:59.999
+  const endDt = DateTime.fromObject({ year, month, day: 1 }, { zone: timezone }).endOf('month');
+  const end = new Date(Date.UTC(endDt.year, endDt.month - 1, endDt.day, 23, 59, 59, 999));
+
   return { start, end };
 };
 
@@ -178,7 +198,8 @@ exports.checkIn = async (req, res, next) => {
     };
     const weeklyOffDayNumber = dayNameToNumber[weeklyOffDay];
     // Luxon weekday: 1 = Monday ... 7 = Sunday; convert to 0..6 where 0=Sunday
-    const todayDayOfWeek = DateTime.fromJSDate(today).setZone(timezone).weekday % 7;
+    // Use UTC zone since date is stored as UTC midnight with local date components
+    const todayDayOfWeek = DateTime.fromJSDate(today, { zone: 'UTC' }).weekday % 7;
     if (todayDayOfWeek === weeklyOffDayNumber) {
       return res.status(400).json({
         success: false,
@@ -265,7 +286,8 @@ exports.checkIn = async (req, res, next) => {
       success: true,
       data: updatedRecord,
       isLate,
-      expectedCheckInTime: organization?.checkInTime || null
+      expectedCheckInTime: organization?.checkInTime || null,
+      organizationTimezone: timezone // For frontend to convert times to local timezone
     });
 
   } catch (error) {
@@ -500,7 +522,8 @@ exports.checkOut = async (req, res, next) => {
       isEarly,
       expectedCheckOutTime: expectedTime,
       checkoutType,
-      canUseHalfDayFallback: false
+      canUseHalfDayFallback: false,
+      organizationTimezone: timezone // For frontend to convert times to local timezone
     });
 
   } catch (error) {
@@ -532,9 +555,18 @@ exports.getMyStatusToday = async (req, res, next) => {
       organizationId: orgObjectId,
     });
 
-    if (!record) return res.status(200).json({ success: true, data: null, message: 'Not marked' });
+    if (!record) return res.status(200).json({
+      success: true,
+      data: null,
+      message: 'Not marked',
+      organizationTimezone: timezone
+    });
 
-    res.status(200).json({ success: true, data: record });
+    res.status(200).json({
+      success: true,
+      data: record,
+      organizationTimezone: timezone // For frontend to convert times to local timezone
+    });
   } catch (error) {
     next(error);
   }
@@ -590,8 +622,8 @@ exports.getMyMonthlyReport = async (req, res, next) => {
     };
 
     for (const record of records) {
-      // Convert record.date (UTC) into org-local day-of-month
-      const localDate = DateTime.fromJSDate(record.date, { zone: timezone }).toISODate(); // YYYY-MM-DD
+      // Extract date from UTC (date is stored as UTC midnight with local date components)
+      const localDate = DateTime.fromJSDate(record.date, { zone: 'UTC' }).toISODate(); // YYYY-MM-DD
       const day = Number(localDate.split('-')[2]);
       attendanceByDate[day] = {
         status: record.status,
@@ -607,7 +639,7 @@ exports.getMyMonthlyReport = async (req, res, next) => {
     }
 
     // Fill in weekly offs and not marked
-    const daysInMonth = DateTime.fromJSDate(endDate, { zone: timezone }).day;
+    const daysInMonth = DateTime.fromJSDate(endDate, { zone: 'UTC' }).day;
     for (let day = 1; day <= daysInMonth; day++) {
       if (!attendanceByDate[day]) {
         const dt = DateTime.fromObject({ year, month, day }, { zone: timezone });
@@ -627,7 +659,8 @@ exports.getMyMonthlyReport = async (req, res, next) => {
       success: true,
       data: {
         month, year, weeklyOffDay, attendance: attendanceByDate, summary
-      }
+      },
+      organizationTimezone: timezone // For frontend to convert times to local timezone
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -686,7 +719,8 @@ exports.getAttendanceReport = async (req, res, next) => {
     // Build attendanceMap keyed by employeeId-dateISO
     const attendanceMap = new Map();
     for (const record of records) {
-      const dateIso = DateTime.fromJSDate(record.date, { zone: timezone }).toISODate(); // YYYY-MM-DD
+      // Extract date from UTC (date is stored as UTC midnight with local date components)
+      const dateIso = DateTime.fromJSDate(record.date, { zone: 'UTC' }).toISODate(); // YYYY-MM-DD
       const key = `${record.employee.toString()}-${dateIso}`;
       attendanceMap.set(key, record);
     }
@@ -694,7 +728,7 @@ exports.getAttendanceReport = async (req, res, next) => {
     const report = [];
     const summary = {};
 
-    const daysInMonth = DateTime.fromJSDate(endDate, { zone: timezone }).day;
+    const daysInMonth = DateTime.fromJSDate(endDate, { zone: 'UTC' }).day;
 
     for (const employee of employees) {
       const empId = employee._id.toString();
@@ -737,7 +771,8 @@ exports.getAttendanceReport = async (req, res, next) => {
         weeklyOffDay,
         report,
         summary
-      }
+      },
+      organizationTimezone: timezone // For frontend to convert times to local timezone
     });
 
   } catch (error) {
@@ -889,7 +924,8 @@ exports.adminMarkAttendance = async (req, res, next) => {
     const dayNameToNumber = { 'Sunday': 0, 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4, 'Friday': 5, 'Saturday': 6 };
     const weeklyOffDay = organization.weeklyOffDay || 'Saturday';
     const weeklyOffDayNumber = dayNameToNumber[weeklyOffDay];
-    const recordDayOfWeek = DateTime.fromJSDate(recordDate).setZone(timezone).weekday % 7;
+    // Use UTC zone since date is stored as UTC midnight with local date components
+    const recordDayOfWeek = DateTime.fromJSDate(recordDate, { zone: 'UTC' }).weekday % 7;
     if (recordDayOfWeek === weeklyOffDayNumber && status !== 'W') {
       return res.status(400).json({
         success: false,
@@ -933,9 +969,9 @@ exports.adminMarkAttendance = async (req, res, next) => {
 
     const updatedRecord = newRecord;
 
-    // Format the response with helpful info
-    const localDateStr = DateTime.fromJSDate(recordDate, { zone: timezone }).toFormat('yyyy-MM-dd');
-    const dayOfWeek = DateTime.fromJSDate(recordDate, { zone: timezone }).toFormat('EEEE');
+    // Format the response with helpful info (extract from UTC since date is stored as UTC midnight)
+    const localDateStr = DateTime.fromJSDate(recordDate, { zone: 'UTC' }).toFormat('yyyy-MM-dd');
+    const dayOfWeek = DateTime.fromJSDate(recordDate, { zone: 'UTC' }).toFormat('EEEE');
 
     res.status(200).json({
       success: true,
@@ -1046,7 +1082,8 @@ exports.adminMarkHoliday = async (req, res, next) => {
     const weeklyOffDay = organization.weeklyOffDay || 'Saturday';
     const dayNameToNumber = { 'Sunday': 0, 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4, 'Friday': 5, 'Saturday': 6 };
     const weeklyOffDayNumber = dayNameToNumber[weeklyOffDay];
-    const holidayDayOfWeek = DateTime.fromJSDate(holidayDate).setZone(timezone).weekday % 7;
+    // Use UTC zone since date is stored as UTC midnight with local date components
+    const holidayDayOfWeek = DateTime.fromJSDate(holidayDate, { zone: 'UTC' }).weekday % 7;
     if (holidayDayOfWeek === weeklyOffDayNumber) {
       return res.status(400).json({
         success: false,
@@ -1113,3 +1150,249 @@ exports.adminMarkHoliday = async (req, res, next) => {
     next(error);
   }
 };
+
+// @desc    Search own attendance records with filters (status, location, date range)
+// @route   GET /api/v1/attendance/search
+// @access  Private (Admin, Manager, Salesperson) - users can only see their own data
+exports.searchAttendance = async (req, res, next) => {
+  const searchSchema = z.object({
+    // Status filter - can be single status or comma-separated list
+    status: z.string().optional(),
+
+    // Date range filters - can use either month/year OR startDate/endDate
+    month: z.coerce.number().int().min(1).max(12).optional(),
+    year: z.coerce.number().int().min(2020).max(2100).optional(),
+    startDate: z.string().optional(),
+    endDate: z.string().optional(),
+
+    // Employee filter
+    employeeId: z.string().optional(),
+    employeeName: z.string().optional(),
+
+    // Location filter (requires all three: latitude, longitude, radius in km)
+    latitude: z.coerce.number().optional(),
+    longitude: z.coerce.number().optional(),
+    radius: z.coerce.number().positive().optional().default(5), // radius in kilometers
+
+    // Pagination
+    page: z.coerce.number().int().positive().optional().default(1),
+    limit: z.coerce.number().int().positive().max(100).optional().default(20),
+
+    // Sort
+    sortBy: z.enum(['date', 'checkInTime', 'checkOutTime', 'status']).optional().default('date'),
+    sortOrder: z.enum(['asc', 'desc']).optional().default('desc'),
+  });
+
+  try {
+    if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+    const { organizationId, _id: userId, role: userRole } = req.user;
+    const orgObjectId = toObjectIdIfNeeded(organizationId);
+
+    const params = searchSchema.parse(req.query);
+    const {
+      status, month, year, startDate, endDate,
+      employeeId, employeeName,
+      latitude, longitude, radius,
+      page, limit, sortBy, sortOrder
+    } = params;
+
+    // Fetch organization timezone
+    const organization = await Organization.findById(orgObjectId).select('timezone');
+    const timezone = organization?.timezone || 'Asia/Kolkata';
+
+    // Build query
+    const query = { organizationId: orgObjectId };
+
+    // IMPORTANT: All users (salesperson, manager, admin) can only see their own attendance
+    // This endpoint is for the mobile app where everyone tracks their own attendance
+    query.employee = userId;
+
+    // 1. Status filter
+    if (status) {
+      const statuses = status.split(',').map(s => s.trim().toUpperCase());
+      const validStatuses = statuses.filter(s => ['P', 'A', 'W', 'L', 'H'].includes(s));
+      if (validStatuses.length > 0) {
+        query.status = validStatuses.length === 1 ? validStatuses[0] : { $in: validStatuses };
+      }
+    }
+
+    // 2. Date range filter
+    let dateStart, dateEnd;
+
+    if (month && year) {
+      // Use month/year range
+      const range = getMonthRangeInOrgTZ(year, month, timezone);
+      dateStart = range.start;
+      dateEnd = range.end;
+    } else if (startDate || endDate) {
+      // Use custom date range
+      try {
+        if (startDate) {
+          dateStart = parseDateToOrgTZ(startDate, timezone);
+        }
+        if (endDate) {
+          dateEnd = parseDateToOrgTZ(endDate, timezone);
+          // Set to end of day (using UTC since date is stored as UTC midnight)
+          const dt = DateTime.fromJSDate(dateEnd, { zone: 'UTC' });
+          dateEnd = new Date(Date.UTC(dt.year, dt.month - 1, dt.day, 23, 59, 59, 999));
+        }
+      } catch (error) {
+        return res.status(400).json({
+          success: false,
+          message: error.message,
+          hint: "Please use format: YYYY-MM-DD (e.g., 2025-11-12)"
+        });
+      }
+    }
+
+    if (dateStart || dateEnd) {
+      query.date = {};
+      if (dateStart) query.date.$gte = dateStart;
+      if (dateEnd) query.date.$lte = dateEnd;
+    }
+
+    // 4. Location filter (if latitude and longitude are provided)
+    // Note: This requires geospatial data. We'll filter in-memory after query
+    // For better performance, consider adding a 2dsphere index on checkInLocation
+    const hasLocationFilter = latitude !== undefined && longitude !== undefined;
+
+    // Execute base query
+    const skip = (page - 1) * limit;
+    const sortObj = {};
+    sortObj[sortBy] = sortOrder === 'asc' ? 1 : -1;
+
+    // Query attendance records
+    let records = await Attendance.find(query)
+      .populate('employee', 'name email role avatarUrl phone')
+      .populate('markedBy', 'name email role')
+      .sort(sortObj)
+      .lean();
+
+    // Apply location filter if needed
+    if (hasLocationFilter && records.length > 0) {
+      records = records.filter(record => {
+        if (!record.checkInLocation ||
+            record.checkInLocation.latitude === undefined ||
+            record.checkInLocation.longitude === undefined) {
+          return false;
+        }
+
+        // Calculate distance using Haversine formula
+        const distance = calculateDistance(
+          latitude,
+          longitude,
+          record.checkInLocation.latitude,
+          record.checkInLocation.longitude
+        );
+
+        return distance <= radius;
+      });
+    }
+
+    // Calculate total before pagination
+    const total = records.length;
+
+    // Apply pagination
+    const paginatedRecords = records.slice(skip, skip + limit);
+
+    // Format response with human-readable data
+    const formattedRecords = paginatedRecords.map(record => {
+      // Extract date from UTC (date is stored as UTC midnight with local date components)
+      const recordDate = DateTime.fromJSDate(record.date, { zone: 'UTC' });
+
+      // Calculate hours worked if both check-in and check-out exist
+      let hoursWorked = null;
+      if (record.checkInTime && record.checkOutTime) {
+        const diffMs = new Date(record.checkOutTime) - new Date(record.checkInTime);
+        hoursWorked = Math.round((diffMs / (1000 * 60 * 60)) * 10) / 10; // Round to 1 decimal
+      }
+
+      return {
+        _id: record._id,
+        employee: record.employee,
+        date: recordDate.toISODate(), // YYYY-MM-DD
+        dayOfWeek: recordDate.toFormat('EEEE'), // Monday, Tuesday, etc.
+        status: record.status,
+        statusText: getStatusText(record.status),
+        checkInTime: record.checkInTime,
+        checkOutTime: record.checkOutTime,
+        hoursWorked,
+        checkInLocation: record.checkInLocation,
+        checkOutLocation: record.checkOutLocation,
+        checkInAddress: record.checkInAddress,
+        checkOutAddress: record.checkOutAddress,
+        notes: record.notes,
+        markedBy: record.markedBy,
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt
+      };
+    });
+
+    const totalPages = Math.ceil(total / limit);
+
+    res.status(200).json({
+      success: true,
+      data: formattedRecords,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1
+      },
+      filters: {
+        status: status ? status.split(',') : 'all',
+        dateRange: dateStart && dateEnd ? {
+          start: DateTime.fromJSDate(dateStart, { zone: 'UTC' }).toISODate(),
+          end: DateTime.fromJSDate(dateEnd, { zone: 'UTC' }).toISODate()
+        } : null,
+        location: hasLocationFilter ? { latitude, longitude, radius } : null
+      },
+      organizationTimezone: timezone // For frontend to convert times to local timezone
+    });
+
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: error.flatten().fieldErrors
+      });
+    }
+    next(error);
+  }
+};
+
+// Helper function to calculate distance between two coordinates using Haversine formula
+// Returns distance in kilometers
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371; // Earth's radius in kilometers
+  const dLat = toRadians(lat2 - lat1);
+  const dLon = toRadians(lon2 - lon1);
+
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const distance = R * c;
+
+  return distance;
+}
+
+function toRadians(degrees) {
+  return degrees * (Math.PI / 180);
+}
+
+// Helper function to convert status code to readable text
+function getStatusText(status) {
+  const statusMap = {
+    'P': 'Present',
+    'A': 'Absent',
+    'W': 'Weekly Off',
+    'L': 'Leave',
+    'H': 'Half Day'
+  };
+  return statusMap[status] || status;
+}

@@ -8,7 +8,8 @@ const {
     getEmployeeAttendanceByDate, // <-- NEW
     adminMarkAttendance,
     adminMarkAbsentees, // <-- NEW
-    adminMarkHoliday // <-- NEW
+    adminMarkHoliday, // <-- NEW
+    searchAttendance // <-- NEW
 } = require('./attendance.controller');
 const { protect, restrictTo } = require('../../middlewares/auth.middleware');
 
@@ -47,7 +48,15 @@ router.get(
     getMyMonthlyReport
 );
 
-// --- Admin/Manager ("Web") Routes ---
+// --- Admin/Manager/Salesperson Routes ---
+
+// Search attendance records with filters (status, location, date range)
+// All users can only see their own attendance data (for mobile app usage)
+router.get(
+    '/search',
+    restrictTo('admin', 'manager', 'salesperson'),
+    searchAttendance
+);
 
 // Get the full monthly report for the dashboard
 router.get(
