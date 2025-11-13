@@ -863,30 +863,39 @@ exports.adminMarkAttendance = async (req, res, next) => {
       });
     }
 
-    const update = {
-      $set: {
-        status,
-        markedBy: adminUserId,
-        orgCheckInTime: organization.checkInTime,
-        orgCheckOutTime: organization.checkOutTime,
-        orgHalfDayCheckOutTime: organization.halfDayCheckOutTime,
-        orgWeeklyOffDay: organization.weeklyOffDay,
-        // Clear check-in/out times since admin marking overrides
-        checkInTime: null,
-        checkOutTime: null,
-        checkInLocation: null,
-        checkOutLocation: null,
-        checkInAddress: null,
-        checkOutAddress: null,
-      }
-    };
-    if (notes) update.$set.notes = notes;
+    // CRITICAL FIX: Handle duplicate records caused by timezone inconsistencies
+    // Delete ALL existing records for this employee on this date (to handle duplicates)
+    // Search within the entire day range, not just exact UTC instant
+    const endOfRecordDate = DateTime.fromJSDate(recordDate, { zone: timezone })
+      .endOf('day').toUTC().toJSDate();
 
-    const updatedRecord = await Attendance.findOneAndUpdate(
-      { employee: employeeId, date: recordDate, organizationId: orgObjectId },
-      update,
-      { new: true, upsert: true, runValidators: true }
-    );
+    await Attendance.deleteMany({
+      employee: employeeId,
+      organizationId: orgObjectId,
+      date: { $gte: recordDate, $lte: endOfRecordDate }
+    });
+
+    // Now create a fresh record with consistent date
+    const newRecord = await Attendance.create({
+      employee: employeeId,
+      date: recordDate,
+      organizationId: orgObjectId,
+      status,
+      markedBy: adminUserId,
+      notes: notes || undefined,
+      orgCheckInTime: organization.checkInTime,
+      orgCheckOutTime: organization.checkOutTime,
+      orgHalfDayCheckOutTime: organization.halfDayCheckOutTime,
+      orgWeeklyOffDay: organization.weeklyOffDay,
+      checkInTime: null,
+      checkOutTime: null,
+      checkInLocation: null,
+      checkOutLocation: null,
+      checkInAddress: null,
+      checkOutAddress: null,
+    });
+
+    const updatedRecord = newRecord;
 
     // Format the response with helpful info
     const localDateStr = DateTime.fromJSDate(recordDate, { zone: timezone }).toFormat('yyyy-MM-dd');
