@@ -454,14 +454,14 @@ exports.checkOut = async (req, res, next) => {
                 halfDayScheduledTime: halfDayTime
               });
             } else {
-              // Too early for both - but half-day will be available later
+              // Too early for both - half-day will be available later but not now
               return res.status(400).json({
                 success: false,
                 message: `You can only check out after ${fullAllowedStr}. Half-day checkout becomes available at ${halfAllowedStr}.`,
                 allowedFrom: fullAllowedStr,
                 scheduledCheckout: expectedTime,
                 checkoutType: 'full-day',
-                canUseHalfDayFallback: true,
+                canUseHalfDayFallback: false,
                 halfDayAllowedFrom: halfAllowedStr,
                 halfDayScheduledTime: halfDayTime
               });
