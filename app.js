@@ -23,6 +23,7 @@ const attendanceRoutes = require('./src/api/attendance/attendance.route.js');
 const organizationRoutes = require('./src/api/organizations/organization.route.js');
 const territoryMapRoutes = require('./src/api/live-tracking/map-territory-view/map.route.js');
 const analyticsRoutes = require('./src/api/analytics/analytics.route.js');
+const beatPlanRoutes = require('./src/api/beat-plans/beat-plan.route.js');
 
 dotenv.config();
 
@@ -246,6 +247,7 @@ app.use('/api/v1/attendance', authLimiter, attendanceRoutes);
 app.use('/api/v1/organizations', authLimiter, organizationRoutes);
 app.use('/api/v1/map', authLimiter, territoryMapRoutes);
 app.use('/api/v1/analytics', authLimiter, analyticsRoutes);
+app.use('/api/v1/beat-plans', authLimiter, beatPlanRoutes);
 
 // Test Route
 app.get("/", (req, res) => {
