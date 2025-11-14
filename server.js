@@ -12,7 +12,7 @@ const server = http.createServer(app);
 // Note: CORS is already handled by Express middleware in app.js
 // Socket.IO needs minimal CORS since it upgrades from HTTP requests
 const io = new Server(server, {
-  path: '/live/tracking', // Socket.IO will use /api/tracking instead of default /socket.io
+  path: '/api/tracking', // Socket.IO will use /api/tracking instead of default /socket.io
   cors: {
     origin: true, // Allow all origins (Express CORS already validates HTTP requests)
     credentials: true,
