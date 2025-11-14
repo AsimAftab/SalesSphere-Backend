@@ -331,7 +331,7 @@ exports.login = async (req, res) => {
         const isMobileClient = req.headers['x-client-type'] === 'mobile';
 
         // Restrict web access to specific roles
-        const allowedWebRoles = ['admin', 'superadmin', 'manager'];
+        const allowedWebRoles = ['admin', 'superadmin', 'manager','developer'];
         // Restrict mobile access - deny admin on mobile
         const deniedMobileRoles = ['admin'];
 
