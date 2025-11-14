@@ -17,7 +17,7 @@ router.use(protect);
 router.get('/my-organization', restrictTo('admin', 'manager','superadmin'), getMyOrganization);
 
 // Get specific organization details by ID (superadmin only)
-router.get('/:id', restrictTo('superadmin','superadmin'), getOrganizationById);
+router.get('/:id', restrictTo('superadmin','developer'), getOrganizationById);
 
 // Update organization details (superadmin only)
 router.put('/:id', restrictTo('superadmin','developer'), updateMyOrganization);
