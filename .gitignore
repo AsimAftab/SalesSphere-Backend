@@ -97,3 +97,4 @@ data/
 
 # MongoDB Atlas Triggers (deployed to Atlas, not run locally)
 mongodb-triggers/
+TRACKING_README.md
