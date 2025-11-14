@@ -11,7 +11,9 @@ const {
     markPartyVisited,
     getMyBeatPlans,
     startBeatPlan,
-    getBeatPlanDetails
+    getBeatPlanDetails,
+    calculateDistanceToParty,
+    optimizeBeatPlanRoute
 } = require('./beat-plan.controller');
 const { protect, restrictTo } = require('../../middlewares/auth.middleware');
 
@@ -47,6 +49,12 @@ router.get(
     getMyBeatPlans
 );
 
+// Calculate distance from current location to a party - Available to all authenticated users
+router.post(
+    '/calculate-distance',
+    calculateDistanceToParty
+);
+
 // Create a beat plan - Admin and Manager
 router.post(
     '/',
@@ -64,6 +72,12 @@ router.get(
 router.get(
     '/:id/details',
     getBeatPlanDetails
+);
+
+// Optimize beatplan route using nearest neighbor algorithm (MUST come before /:id)
+router.post(
+    '/:id/optimize-route',
+    optimizeBeatPlanRoute
 );
 
 // Start a beat plan (activate) - Salesperson assigned to the beat plan (MUST come before /:id)

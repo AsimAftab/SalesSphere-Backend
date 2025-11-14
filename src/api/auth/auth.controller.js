@@ -4,16 +4,22 @@ const User = require('../users/user.model');
 const Organization = require('../organizations/organization.model');
 const { sendEmail, sendWelcomeEmail } = require('../../utils/emailSender'); // <-- IMPORTED email utilities
 
-// Function to sign a JWT
+// Function to sign an access token (short-lived)
 const signToken = (id) => {
     return jwt.sign({ id }, process.env.JWT_SECRET, {
-        expiresIn: process.env.JWT_EXPIRES_IN || '90d',
+        expiresIn: process.env.JWT_EXPIRES_IN || '15m', // Short-lived: 15 minutes
     });
 };
 
-// Helper to send token as both cookie (for web) AND in response (for mobile)
-// Helper to send token as both cookie (for web) AND in response (for mobile)
-const sendTokenResponse = (
+// Function to sign a refresh token (long-lived)
+const signRefreshToken = (id) => {
+    return jwt.sign({ id }, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET, {
+        expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d', // Long-lived: 7 days
+    });
+};
+
+// Helper to send tokens (access + refresh) as both cookie AND in response
+const sendTokenResponse = async (
   user,
   statusCode,
   res,
@@ -21,14 +27,18 @@ const sendTokenResponse = (
   options = {}
 ) => {
   const { setCookie = true } = options; // default true for login flows
-  const token = signToken(user._id);
+  const accessToken = signToken(user._id);
+  const refreshToken = signRefreshToken(user._id);
 
-  // Only set cookie when explicitly permitted
+  // Save refresh token to database
+  user.refreshToken = refreshToken;
+  user.refreshTokenExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+  await user.save({ validateBeforeSave: false });
+
+  // Set access token cookie
   if (setCookie) {
-    const cookieOptions = {
-      expires: new Date(
-        Date.now() + (process.env.JWT_COOKIE_EXPIRES_IN || 90) * 24 * 60 * 60 * 1000
-      ),
+    const accessTokenCookieOptions = {
+      expires: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging',
       sameSite:
@@ -38,19 +48,37 @@ const sendTokenResponse = (
           ? 'none'
           : 'lax',
     };
-    res.cookie('token', token, cookieOptions);
+    res.cookie('token', accessToken, accessTokenCookieOptions);
+
+    // Set refresh token cookie (longer expiry, httpOnly)
+    const refreshTokenCookieOptions = {
+      expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging',
+      sameSite:
+        process.env.NODE_ENV === 'production'
+          ? 'strict'
+          : process.env.NODE_ENV === 'staging'
+          ? 'none'
+          : 'lax',
+    };
+    res.cookie('refreshToken', refreshToken, refreshTokenCookieOptions);
   }
 
-  // Remove password from the user object before sending
+  // Remove sensitive fields from the user object before sending
   user.password = undefined;
+  user.refreshToken = undefined;
+  user.refreshTokenExpiry = undefined;
 
   const response = {
     status: 'success',
     data: { user },
   };
 
+  // For mobile clients, include tokens in response
   if (includeTokenInResponse) {
-    response.token = token;
+    response.accessToken = accessToken;
+    response.refreshToken = refreshToken;
   }
 
   res.status(statusCode).json(response);
@@ -662,25 +690,54 @@ exports.scheduleDemo = async (req, res) => {
 };
 
 
-// @desc    Logout user by clearing cookie
+// @desc    Logout user by clearing cookies and invalidating refresh token
 // @route   POST /api/v1/auth/logout
-exports.logout = (req, res) => {
-    res.cookie('token', 'loggedout', {
-        expires: new Date(Date.now() + 10 * 1000), // Expires in 10 seconds
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging',
-        sameSite: process.env.NODE_ENV === 'production' 
-            ? 'strict' 
-            : process.env.NODE_ENV === 'staging' 
-                ? 'none' 
-                : 'lax',
-    });
+exports.logout = async (req, res) => {
+    try {
+        // Invalidate refresh token in database if user is authenticated
+        if (req.user) {
+            await User.findByIdAndUpdate(req.user._id, {
+                refreshToken: null,
+                refreshTokenExpiry: null
+            });
+        }
 
-    
-    res.status(200).json({
-        status: 'success',
-        message: 'Logged out successfully'
-    });
+        // Clear access token cookie
+        res.cookie('token', 'loggedout', {
+            expires: new Date(Date.now() + 10 * 1000), // Expires in 10 seconds
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging',
+            sameSite: process.env.NODE_ENV === 'production'
+                ? 'strict'
+                : process.env.NODE_ENV === 'staging'
+                ? 'none'
+                : 'lax',
+        });
+
+        // Clear refresh token cookie
+        res.cookie('refreshToken', 'loggedout', {
+            expires: new Date(Date.now() + 10 * 1000), // Expires in 10 seconds
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging',
+            sameSite: process.env.NODE_ENV === 'production'
+                ? 'strict'
+                : process.env.NODE_ENV === 'staging'
+                ? 'none'
+                : 'lax',
+        });
+
+        res.status(200).json({
+            status: 'success',
+            message: 'Logged out successfully'
+        });
+    } catch (error) {
+        console.error('❌ Logout error:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Server Error',
+            error: error.message
+        });
+    }
 };
 
 // @desc    Check if user's JWT is valid
@@ -699,4 +756,133 @@ exports.checkAuthStatus = (req, res) => {
             user: req.user // Return user data from protect middleware
         }
     });
+};
+
+// @desc    Refresh access token using refresh token
+// @route   POST /api/v1/auth/refresh
+exports.refreshToken = async (req, res) => {
+    try {
+        // Get refresh token from cookie or request body
+        const refreshToken = req.cookies.refreshToken || req.body.refreshToken;
+
+        if (!refreshToken) {
+            return res.status(401).json({
+                status: 'error',
+                message: 'No refresh token provided'
+            });
+        }
+
+        // Verify the refresh token
+        let decoded;
+        try {
+            decoded = jwt.verify(
+                refreshToken,
+                process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET
+            );
+        } catch (error) {
+            return res.status(401).json({
+                status: 'error',
+                message: 'Invalid or expired refresh token'
+            });
+        }
+
+        // Find user and check if refresh token matches
+        const user = await User.findById(decoded.id).select('+refreshToken +refreshTokenExpiry');
+
+        if (!user) {
+            return res.status(401).json({
+                status: 'error',
+                message: 'User not found'
+            });
+        }
+
+        // Check if refresh token matches the one stored in database
+        if (user.refreshToken !== refreshToken) {
+            return res.status(401).json({
+                status: 'error',
+                message: 'Invalid refresh token'
+            });
+        }
+
+        // Check if refresh token has expired
+        if (!user.refreshTokenExpiry || user.refreshTokenExpiry < Date.now()) {
+            return res.status(401).json({
+                status: 'error',
+                message: 'Refresh token has expired. Please login again.'
+            });
+        }
+
+        // Check if user is active
+        if (user.isActive === false) {
+            return res.status(403).json({
+                status: 'error',
+                message: 'Your account is inactive. Please contact the administrator.'
+            });
+        }
+
+        // Generate new access token
+        const newAccessToken = signToken(user._id);
+
+        // Optionally, rotate refresh token (generate new one)
+        const newRefreshToken = signRefreshToken(user._id);
+        user.refreshToken = newRefreshToken;
+        user.refreshTokenExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+        await user.save({ validateBeforeSave: false });
+
+        // Set new cookies
+        const accessTokenCookieOptions = {
+            expires: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging',
+            sameSite:
+                process.env.NODE_ENV === 'production'
+                    ? 'strict'
+                    : process.env.NODE_ENV === 'staging'
+                    ? 'none'
+                    : 'lax',
+        };
+        res.cookie('token', newAccessToken, accessTokenCookieOptions);
+
+        const refreshTokenCookieOptions = {
+            expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging',
+            sameSite:
+                process.env.NODE_ENV === 'production'
+                    ? 'strict'
+                    : process.env.NODE_ENV === 'staging'
+                    ? 'none'
+                    : 'lax',
+        };
+        res.cookie('refreshToken', newRefreshToken, refreshTokenCookieOptions);
+
+        // Remove sensitive fields
+        user.password = undefined;
+        user.refreshToken = undefined;
+        user.refreshTokenExpiry = undefined;
+
+        // Check if mobile client
+        const isMobileClient = req.headers['x-client-type'] === 'mobile';
+
+        const response = {
+            status: 'success',
+            message: 'Access token refreshed successfully',
+            data: { user }
+        };
+
+        // For mobile clients, include tokens in response
+        if (isMobileClient) {
+            response.accessToken = newAccessToken;
+            response.refreshToken = newRefreshToken;
+        }
+
+        res.status(200).json(response);
+    } catch (error) {
+        console.error('❌ Refresh token error:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Server Error',
+            error: error.message
+        });
+    }
 };

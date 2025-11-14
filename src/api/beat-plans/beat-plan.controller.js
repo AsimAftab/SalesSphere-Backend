@@ -2,6 +2,7 @@ const BeatPlan = require('./beat-plan.model');
 const Party = require('../parties/party.model');
 const User = require('../users/user.model');
 const { z } = require('zod');
+const { calculateDistance, calculateRouteDistance, optimizeRoute } = require('../../utils/distanceCalculator');
 
 // --- Zod Validation Schemas ---
 // Simple validation for UI create beat plan
@@ -189,11 +190,18 @@ exports.createBeatPlan = async (req, res, next) => {
             });
         }
 
+        // Optimize party order if autoOptimize flag is set
+        let partyIds = validatedData.parties;
+        if (req.body.autoOptimize === true) {
+            const optimization = optimizeRoute(parties);
+            partyIds = optimization.optimizedParties.map(p => p._id);
+        }
+
         // Create the beat plan
         const assignedDate = new Date(validatedData.assignedDate);
 
         // Initialize visits array with all parties as pending
-        const visits = validatedData.parties.map(partyId => ({
+        const visits = partyIds.map(partyId => ({
             partyId: partyId,
             status: 'pending'
         }));
@@ -201,7 +209,7 @@ exports.createBeatPlan = async (req, res, next) => {
         const newBeatPlan = await BeatPlan.create({
             name: validatedData.name,
             employees: [validatedData.employeeId], // Store as array for model compatibility
-            parties: validatedData.parties,
+            parties: partyIds, // Use optimized party order if auto-optimize is enabled
             visits: visits, // Initialize visit tracking
             schedule: {
                 startDate: assignedDate,
@@ -209,7 +217,7 @@ exports.createBeatPlan = async (req, res, next) => {
             },
             status: 'pending', // Start as pending
             progress: {
-                totalParties: validatedData.parties.length,
+                totalParties: partyIds.length,
                 visitedParties: 0,
                 percentage: 0,
             },
@@ -570,10 +578,25 @@ exports.getBeatPlanDetails = async (req, res, next) => {
             select: 'partyName ownerName contact location panVatNumber'
         });
 
-        // Create a detailed party list with visit status
-        const partiesWithStatus = beatPlan.parties.map(party => {
+        // Create a detailed party list with visit status and distance calculations
+        const partiesWithStatus = beatPlan.parties.map((party, index) => {
             // Find the corresponding visit record
             const visitRecord = beatPlan.visits.find(v => v.partyId.toString() === party._id.toString());
+
+            // Calculate distance to next party
+            let distanceToNext = null;
+            if (index < beatPlan.parties.length - 1) {
+                const nextParty = beatPlan.parties[index + 1];
+                if (party.location?.latitude && party.location?.longitude &&
+                    nextParty.location?.latitude && nextParty.location?.longitude) {
+                    distanceToNext = calculateDistance(
+                        party.location.latitude,
+                        party.location.longitude,
+                        nextParty.location.latitude,
+                        nextParty.location.longitude
+                    );
+                }
+            }
 
             return {
                 _id: party._id,
@@ -582,6 +605,7 @@ exports.getBeatPlanDetails = async (req, res, next) => {
                 contact: party.contact,
                 location: party.location,
                 panVatNumber: party.panVatNumber,
+                distanceToNext: distanceToNext, // Distance to next party in km
                 visitStatus: {
                     status: visitRecord?.status || 'pending',
                     visitedAt: visitRecord?.visitedAt || null,
@@ -589,6 +613,15 @@ exports.getBeatPlanDetails = async (req, res, next) => {
                 }
             };
         });
+
+        // Calculate total route distance
+        const coordinates = beatPlan.parties
+            .filter(p => p.location?.latitude && p.location?.longitude)
+            .map(p => ({
+                latitude: p.location.latitude,
+                longitude: p.location.longitude
+            }));
+        const totalRouteDistance = calculateRouteDistance(coordinates);
 
         // Prepare response
         const response = {
@@ -599,6 +632,7 @@ exports.getBeatPlanDetails = async (req, res, next) => {
             progress: beatPlan.progress,
             startedAt: beatPlan.startedAt || null,
             completedAt: beatPlan.completedAt || null,
+            totalRouteDistance: totalRouteDistance, // Total distance in km
             employees: beatPlan.employees,
             createdBy: beatPlan.createdBy,
             parties: partiesWithStatus,
@@ -685,6 +719,192 @@ exports.startBeatPlan = async (req, res, next) => {
         res.status(500).json({
             success: false,
             message: 'Failed to start beat plan',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Optimize beatplan route using nearest neighbor algorithm
+// @route   POST /api/v1/beat-plans/:id/optimize-route
+// @access  Protected (Admin, Manager, or assigned Salesperson)
+exports.optimizeBeatPlanRoute = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId, _id: userId, role } = req.user;
+
+        const { startLatitude, startLongitude } = req.body;
+
+        // Find the beat plan
+        const beatPlan = await BeatPlan.findOne({
+            _id: req.params.id,
+            organizationId
+        }).populate({
+            path: 'parties',
+            select: 'partyName ownerName contact location panVatNumber'
+        });
+
+        if (!beatPlan) {
+            return res.status(404).json({ success: false, message: 'Beat plan not found' });
+        }
+
+        // Check access - either assigned salesperson or admin/manager
+        const isAssigned = beatPlan.employees.some(emp => emp._id.toString() === userId.toString());
+        const isAdminOrManager = ['admin', 'manager'].includes(role);
+
+        if (!isAssigned && !isAdminOrManager) {
+            return res.status(403).json({
+                success: false,
+                message: 'You do not have access to this beat plan'
+            });
+        }
+
+        // Prepare starting location if provided
+        let startLocation = null;
+        if (startLatitude && startLongitude) {
+            startLocation = {
+                latitude: parseFloat(startLatitude),
+                longitude: parseFloat(startLongitude)
+            };
+        }
+
+        // Optimize the route
+        const optimization = optimizeRoute(beatPlan.parties, startLocation);
+
+        // Update the beatplan with optimized party order
+        const optimizedPartyIds = optimization.optimizedParties.map(p => p._id);
+        beatPlan.parties = optimizedPartyIds;
+
+        // Update visits array to match new order
+        const newVisits = optimizedPartyIds.map(partyId => {
+            // Find existing visit record or create new one
+            const existingVisit = beatPlan.visits.find(v => v.partyId.toString() === partyId.toString());
+            return existingVisit || {
+                partyId: partyId,
+                status: 'pending'
+            };
+        });
+        beatPlan.visits = newVisits;
+
+        await beatPlan.save();
+
+        // Prepare response with distance information
+        const partiesWithDistances = optimization.optimizedParties.map((party, index) => {
+            let distanceToNext = null;
+            if (index < optimization.optimizedParties.length - 1) {
+                const nextParty = optimization.optimizedParties[index + 1];
+                if (party.location?.latitude && party.location?.longitude &&
+                    nextParty.location?.latitude && nextParty.location?.longitude) {
+                    distanceToNext = calculateDistance(
+                        party.location.latitude,
+                        party.location.longitude,
+                        nextParty.location.latitude,
+                        nextParty.location.longitude
+                    );
+                }
+            }
+
+            return {
+                _id: party._id,
+                partyName: party.partyName,
+                ownerName: party.ownerName,
+                location: party.location,
+                distanceToNext: distanceToNext
+            };
+        });
+
+        res.status(200).json({
+            success: true,
+            message: 'Route optimized successfully',
+            data: {
+                beatPlanId: beatPlan._id,
+                beatPlanName: beatPlan.name,
+                optimizedRoute: partiesWithDistances,
+                optimization: {
+                    originalDistance: optimization.originalDistance,
+                    optimizedDistance: optimization.totalDistance,
+                    distanceSaved: optimization.distanceSaved,
+                    percentageSaved: optimization.originalDistance > 0
+                        ? Math.round((optimization.distanceSaved / optimization.originalDistance) * 100)
+                        : 0
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Error optimizing beat plan route:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to optimize route',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Calculate distance from current location to a party
+// @route   POST /api/v1/beat-plans/calculate-distance
+// @access  Protected
+exports.calculateDistanceToParty = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+
+        const { currentLatitude, currentLongitude, partyId } = req.body;
+
+        // Validate inputs
+        if (!currentLatitude || !currentLongitude || !partyId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Current location (latitude, longitude) and party ID are required'
+            });
+        }
+
+        // Find the party
+        const party = await Party.findOne({
+            _id: partyId,
+            organizationId
+        }).select('partyName location');
+
+        if (!party) {
+            return res.status(404).json({
+                success: false,
+                message: 'Party not found'
+            });
+        }
+
+        // Check if party has location
+        if (!party.location?.latitude || !party.location?.longitude) {
+            return res.status(400).json({
+                success: false,
+                message: 'Party does not have location coordinates'
+            });
+        }
+
+        // Calculate distance
+        const distance = calculateDistance(
+            currentLatitude,
+            currentLongitude,
+            party.location.latitude,
+            party.location.longitude
+        );
+
+        res.status(200).json({
+            success: true,
+            data: {
+                partyId: party._id,
+                partyName: party.partyName,
+                partyLocation: party.location,
+                currentLocation: {
+                    latitude: currentLatitude,
+                    longitude: currentLongitude
+                },
+                distance: distance, // in kilometers
+                distanceInMeters: Math.round(distance * 1000)
+            }
+        });
+    } catch (error) {
+        console.error('Error calculating distance:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to calculate distance',
             error: error.message
         });
     }
