@@ -18,25 +18,35 @@ const initializeTrackingSocket = (io) => {
     // Middleware: Authenticate socket connections
     trackingNamespace.use(async (socket, next) => {
         try {
+            console.log('🔌 New WebSocket connection attempt from:', socket.handshake.address);
+            console.log('🔧 Transport:', socket.conn.transport.name);
+            console.log('🌐 Origin:', socket.handshake.headers.origin);
+
             const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.split(' ')[1];
 
             if (!token) {
+                console.log('❌ No token provided in connection');
                 return next(new Error('Authentication token required'));
             }
+
+            console.log('🔐 Token found, verifying...');
 
             // Verify JWT token
             const decoded = jwt.verify(token, process.env.JWT_SECRET);
             const user = await User.findById(decoded.id).select('-password');
 
             if (!user) {
+                console.log('❌ User not found for decoded token ID:', decoded.id);
                 return next(new Error('User not found'));
             }
+
+            console.log('✅ User authenticated:', user.name, user.email);
 
             // Attach user to socket
             socket.user = user;
             next();
         } catch (error) {
-            console.error('Socket authentication error:', error.message);
+            console.error('❌ Socket authentication error:', error.message);
             next(new Error('Invalid or expired token'));
         }
     });

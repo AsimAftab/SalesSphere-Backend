@@ -66,21 +66,6 @@ router.put(
 );
 // --- END System User Management ---
 
-// --- SUPERADMIN ONLY: System User Management ---
-router.post(
-    '/system-user',
-    restrictTo('superadmin'),
-    imageUpload.single('avatar'),
-    userController.addSystemUser
-);
-
-router.get(
-    '/system-users',
-    restrictTo('superadmin'),
-    userController.getAllSystemUsers
-);
-// --- END System User Management ---
-
 // --- NEW: Routes for the logged-in user ('/me') ---
 // These do NOT need restrictTo, as users manage their own profile
 router.route('/me')
