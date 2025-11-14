@@ -99,6 +99,172 @@ exports.createUser = async (req, res, next) => {
     }
 };
 
+// @desc    Create a system user (superadmin or developer)
+// @route   POST /api/v1/users/system-user
+// @access  Protected (Superadmin only)
+exports.addSystemUser = async (req, res, next) => {
+    let tempAvatarPath = req.file ? req.file.path : null;
+    let newUser = null;
+
+    try {
+        // Only superadmin can create system users
+        if (req.user.role !== 'superadmin') {
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied. Only superadmin can create system users.'
+            });
+        }
+
+        let {
+            name, email, role, phone, address, gender, dateOfBirth,
+            citizenshipNumber
+        } = req.body;
+
+        // Trim ALL string fields to remove leading/trailing spaces
+        name = name?.trim();
+        email = email?.trim();
+        role = role?.trim().toLowerCase();
+        phone = phone?.trim();
+        address = address?.trim();
+        gender = gender?.trim();
+        dateOfBirth = dateOfBirth?.trim();
+        citizenshipNumber = citizenshipNumber?.trim();
+
+        // Validate required fields
+        if (!name || !email || !role || !phone || !address || !gender || !dateOfBirth || !citizenshipNumber) {
+            cleanupTempFile(tempAvatarPath);
+            return res.status(400).json({
+                success: false,
+                message: 'All fields are required except avatar: name, email, role, phone, address, gender, dateOfBirth, citizenshipNumber'
+            });
+        }
+
+        // Validate role (only superadmin or developer allowed)
+        if (!['superadmin', 'developer'].includes(role)) {
+            cleanupTempFile(tempAvatarPath);
+            return res.status(400).json({
+                success: false,
+                message: `Invalid role: "${role}". System users can only be superadmin or developer.`
+            });
+        }
+
+        // Check superadmin limit (maximum 2 superadmins)
+        if (role === 'superadmin') {
+            const superadminCount = await User.countDocuments({ role: 'superadmin', isActive: true });
+            if (superadminCount >= 2) {
+                cleanupTempFile(tempAvatarPath);
+                return res.status(400).json({
+                    success: false,
+                    message: 'Maximum limit of 2 superadmins reached. Cannot create more superadmin accounts.'
+                });
+            }
+        }
+
+        // Generate temporary password
+        const temporaryPassword = crypto.randomBytes(8).toString('hex');
+
+        // Create user (system users don't have organizationId)
+        newUser = await User.create({
+            name,
+            email,
+            role,
+            phone,
+            address,
+            gender,
+            dateOfBirth: new Date(dateOfBirth),
+            citizenshipNumber,
+            password: temporaryPassword,
+            dateJoined: new Date(),
+            // No organizationId for system users
+        });
+
+        let avatarUrl = newUser.avatarUrl;
+
+        // Handle optional avatar upload
+        if (req.file && req.file.fieldname === 'avatar') {
+            try {
+                const result = await cloudinary.uploader.upload(req.file.path, {
+                    folder: `sales-sphere/system-users/avatars`,
+                    public_id: `${newUser._id}_avatar`,
+                    overwrite: true,
+                    transformation: [
+                        { width: 250, height: 250, gravity: "face", crop: "thumb" },
+                        { fetch_format: "auto", quality: "auto" }
+                    ]
+                });
+                avatarUrl = result.secure_url;
+                cleanupTempFile(tempAvatarPath);
+                tempAvatarPath = null;
+
+                newUser.avatarUrl = avatarUrl;
+                await newUser.save({ validateBeforeSave: false });
+
+            } catch (uploadError) {
+                console.error("Avatar upload failed during system user creation:", uploadError);
+            }
+        }
+
+        // Send welcome email with temporary password
+        await sendWelcomeEmail(newUser.email, temporaryPassword);
+
+        // Prepare response
+        const responseData = newUser.toObject();
+        delete responseData.password;
+
+        res.status(201).json({
+            success: true,
+            message: `${role === 'superadmin' ? 'Superadmin' : 'Developer'} created successfully. Temporary password sent via email.`,
+            data: responseData
+        });
+
+    } catch (error) {
+        cleanupTempFile(tempAvatarPath);
+
+        if (error.code === 11000) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email already exists.'
+            });
+        }
+        if (error.name === 'ValidationError') {
+            return res.status(400).json({
+                success: false,
+                message: error.message
+            });
+        }
+        next(error);
+    }
+};
+
+// @desc    Get all system users (superadmin and developers)
+// @route   GET /api/v1/users/system-users
+// @access  Protected (Superadmin only)
+exports.getAllSystemUsers = async (req, res, next) => {
+    try {
+        // Only superadmin can view system users
+        if (req.user.role !== 'superadmin') {
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied. Only superadmin can view system users.'
+            });
+        }
+
+        const systemUsers = await User.find({
+            role: { $in: ['superadmin', 'developer'] },
+            isActive: true
+        }).select('-password -refreshToken -refreshTokenExpiry -sessionExpiresAt')
+          .sort({ createdAt: -1 });
+
+        res.status(200).json({
+            success: true,
+            count: systemUsers.length,
+            data: systemUsers
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
 // Get all users WITHIN the same organization
 exports.getAllUsers = async (req, res, next) => {
     try {

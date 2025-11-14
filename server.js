@@ -11,12 +11,25 @@ const server = http.createServer(app);
 // Initialize Socket.IO
 const io = new Server(server, {
   cors: {
-    origin: process.env.ALLOWED_ORIGINS?.split(',') || [
-      'http://localhost:5173',
-      'http://127.0.0.1:5173',
-      'https://salessphere360.com',
-      'https://www.salessphere360.com'
-    ],
+    // Allow mobile apps and web clients
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, Postman, etc.)
+      if (!origin) return callback(null, true);
+
+      const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
+        'https://salessphere360.com',
+        'https://www.salessphere360.com'
+      ];
+
+      // Allow all origins in development, or whitelisted origins in production
+      if (process.env.NODE_ENV === 'local_development' || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
     methods: ['GET', 'POST'],
   },
