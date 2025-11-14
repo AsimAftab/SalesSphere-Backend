@@ -12,8 +12,8 @@ const activeSessions = new Map(); // beatPlanId -> { userId, socketId, organizat
  * @param {SocketIO.Server} io - Socket.IO server instance
  */
 const initializeTrackingSocket = (io) => {
-    // Create a namespace for beat plan tracking
-    const trackingNamespace = io.of('/tracking');
+    // Use the default namespace (/) since the path is already /api/tracking
+    const trackingNamespace = io;
 
     // Middleware: Authenticate socket connections
     trackingNamespace.use(async (socket, next) => {

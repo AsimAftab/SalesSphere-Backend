@@ -28,11 +28,11 @@ exports.getMyOrganization = async (req, res) => {
 // Update the details of the currently logged-in user's organization
 exports.updateMyOrganization = async (req, res) => {
     try {
-        // Only superadmin can update organization
-        if (req.user.role !== 'superadmin') {
+        // Only superadmin and developer can update organization
+        if (req.user.role !== 'superadmin' && req.user.role !== 'developer') {
             return res.status(403).json({
                 success: false,
-                message: 'Only superadmin can update organization details'
+                message: 'Only superadmin and developer can update organization details'
             });
         }
 
