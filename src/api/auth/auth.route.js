@@ -9,6 +9,7 @@ const {
   contactAdmin,
   scheduleDemo,
   checkAuthStatus,
+  refreshToken,
 } = require('./auth.controller');
 const { protect, restrictTo } = require('../../middlewares/auth.middleware');
 const router = express.Router();
@@ -17,14 +18,15 @@ const router = express.Router();
 router.post('/register', protect, restrictTo('superadmin'), register);
 router.post('/register/superadmin', registerSuperAdmin);
 router.post('/login', login);
-router.post('/logout', logout);
+router.post('/logout', protect, logout);
+router.post('/refresh', refreshToken); // Refresh access token
 
 // Password Management Routes
 router.post('/forgotpassword', forgotPassword);
 router.patch('/resetpassword/:token', resetPassword);
 
 // Admin Contact Route
-router.post('/contact-admin', contactAdmin); 
+router.post('/contact-admin', contactAdmin);
 // Demo Scheduling Route
 router.post('/schedule-demo', scheduleDemo);
 

@@ -83,6 +83,17 @@ const userSchema = new mongoose.Schema({
     passwordResetExpires: Date,
     // ----------------------------------------
 
+    // --- 3. ADDED: Fields for Refresh Token ---
+    refreshToken: {
+        type: String,
+        select: false, // Don't send refresh token in query results
+    },
+    refreshTokenExpiry: {
+        type: Date,
+        select: false,
+    },
+    // ----------------------------------------
+
 }, { timestamps: true });
 
 // Middleware to hash password before saving
