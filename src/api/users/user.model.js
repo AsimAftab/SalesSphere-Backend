@@ -92,6 +92,11 @@ const userSchema = new mongoose.Schema({
         type: Date,
         select: false,
     },
+    // Absolute session timeout - user must re-login after this date (regardless of refresh)
+    sessionExpiresAt: {
+        type: Date,
+        select: false,
+    },
     // ----------------------------------------
 
 }, { timestamps: true });

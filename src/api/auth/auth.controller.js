@@ -32,7 +32,14 @@ const sendTokenResponse = async (
 
   // Save refresh token to database
   user.refreshToken = refreshToken;
-  user.refreshTokenExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+  user.refreshTokenExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days (sliding)
+
+  // Set absolute session expiry from environment variable (default 30 days) - only if not already set
+  if (!user.sessionExpiresAt) {
+    const maxSessionDays = parseInt(process.env.MAX_SESSION_DURATION_DAYS) || 30;
+    user.sessionExpiresAt = new Date(Date.now() + maxSessionDays * 24 * 60 * 60 * 1000);
+  }
+
   await user.save({ validateBeforeSave: false });
 
   // Set access token cookie
@@ -698,7 +705,8 @@ exports.logout = async (req, res) => {
         if (req.user) {
             await User.findByIdAndUpdate(req.user._id, {
                 refreshToken: null,
-                refreshTokenExpiry: null
+                refreshTokenExpiry: null,
+                sessionExpiresAt: null
             });
         }
 
@@ -787,7 +795,7 @@ exports.refreshToken = async (req, res) => {
         }
 
         // Find user and check if refresh token matches
-        const user = await User.findById(decoded.id).select('+refreshToken +refreshTokenExpiry');
+        const user = await User.findById(decoded.id).select('+refreshToken +refreshTokenExpiry +sessionExpiresAt');
 
         if (!user) {
             return res.status(401).json({
@@ -804,11 +812,25 @@ exports.refreshToken = async (req, res) => {
             });
         }
 
-        // Check if refresh token has expired
+        // Check if refresh token has expired (sliding expiration)
         if (!user.refreshTokenExpiry || user.refreshTokenExpiry < Date.now()) {
             return res.status(401).json({
                 status: 'error',
                 message: 'Refresh token has expired. Please login again.'
+            });
+        }
+
+        // Check absolute session expiration (maximum session length)
+        if (user.sessionExpiresAt && user.sessionExpiresAt < Date.now()) {
+            // Clear tokens
+            user.refreshToken = null;
+            user.refreshTokenExpiry = null;
+            user.sessionExpiresAt = null;
+            await user.save({ validateBeforeSave: false });
+
+            return res.status(401).json({
+                status: 'error',
+                message: 'Session has expired. Please login again for security.'
             });
         }
 
@@ -823,10 +845,11 @@ exports.refreshToken = async (req, res) => {
         // Generate new access token
         const newAccessToken = signToken(user._id);
 
-        // Optionally, rotate refresh token (generate new one)
+        // Rotate refresh token (generate new one) - sliding expiration
         const newRefreshToken = signRefreshToken(user._id);
         user.refreshToken = newRefreshToken;
-        user.refreshTokenExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+        user.refreshTokenExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days sliding
+        // Note: sessionExpiresAt is NOT updated - it stays at the original 30 days from first login
         await user.save({ validateBeforeSave: false });
 
         // Set new cookies
