@@ -1,7 +1,7 @@
 const express = require('express');
 const {
     getSalespersons,
-    getAvailableParties,
+    getAvailableDirectories,
     getBeatPlanData,
     createBeatPlan,
     getAllBeatPlans,
@@ -29,11 +29,11 @@ router.get(
     getSalespersons
 );
 
-// Get available parties for beat plan assignment - Available to Admin and Manager
+// Get available directories (parties, sites, prospects) for beat plan assignment - Available to Admin and Manager
 router.get(
-    '/available-parties',
+    '/available-directories',
     restrictTo('admin', 'manager'),
-    getAvailableParties
+    getAvailableDirectories
 );
 
 // Get beat plan data/analytics - Available to Admin and Manager

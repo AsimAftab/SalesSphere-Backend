@@ -16,11 +16,25 @@ const beatPlanSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Party',
     }],
-    // Visit tracking for each party
+    // Sites included in this beat plan
+    sites: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Site',
+    }],
+    // Prospects included in this beat plan
+    prospects: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Prospect',
+    }],
+    // Visit tracking for each directory (party, site, or prospect)
     visits: [{
-        partyId: {
+        directoryId: {
             type: mongoose.Schema.Types.ObjectId,
-            ref: 'Party',
+            required: true,
+        },
+        directoryType: {
+            type: String,
+            enum: ['party', 'site', 'prospect'],
             required: true,
         },
         status: {
@@ -76,15 +90,28 @@ const beatPlanSchema = new mongoose.Schema({
     },
     // Progress tracking
     progress: {
-        totalParties: {
+        totalDirectories: {
             type: Number,
             default: 0,
         },
-        visitedParties: {
+        visitedDirectories: {
             type: Number,
             default: 0,
         },
         percentage: {
+            type: Number,
+            default: 0,
+        },
+        // Breakdown by type
+        totalParties: {
+            type: Number,
+            default: 0,
+        },
+        totalSites: {
+            type: Number,
+            default: 0,
+        },
+        totalProspects: {
             type: Number,
             default: 0,
         },

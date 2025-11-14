@@ -1,5 +1,7 @@
 const BeatPlan = require('./beat-plan.model');
 const Party = require('../parties/party.model');
+const Site = require('../sites/sites.model');
+const Prospect = require('../prospect/prospect.model');
 const User = require('../users/user.model');
 const { z } = require('zod');
 const { calculateDistance, calculateRouteDistance, optimizeRoute } = require('../../utils/distanceCalculator');
@@ -10,7 +12,14 @@ const createBeatPlanValidation = z.object({
     employeeId: z.string({ required_error: "Employee is required" }).min(1, "Employee is required"),
     name: z.string({ required_error: "Beat plan name is required" }).min(1, "Beat plan name is required"),
     assignedDate: z.string({ required_error: "Date is required" }).refine(val => !isNaN(Date.parse(val)), { message: "Invalid date format" }),
-    parties: z.array(z.string()).min(1, "At least one party must be added to the route"),
+    parties: z.array(z.string()).optional().default([]),
+    sites: z.array(z.string()).optional().default([]),
+    prospects: z.array(z.string()).optional().default([]),
+}).refine(data => {
+    const totalDirectories = (data.parties?.length || 0) + (data.sites?.length || 0) + (data.prospects?.length || 0);
+    return totalDirectories >= 1;
+}, {
+    message: "At least one directory (party, site, or prospect) must be added to the route"
 });
 
 // Update validation schema for beat plan management
@@ -18,7 +27,9 @@ const updateBeatPlanValidation = z.object({
     name: z.string().min(1, "Beat plan name is required").optional(),
     employeeId: z.string().min(1, "Employee is required").optional(),
     assignedDate: z.string().refine(val => !isNaN(Date.parse(val)), { message: "Invalid date format" }).optional(),
-    parties: z.array(z.string()).min(1, "At least one party must be added to the route").optional(),
+    parties: z.array(z.string()).optional(),
+    sites: z.array(z.string()).optional(),
+    prospects: z.array(z.string()).optional(),
 });
 
 // @desc    Get salespersons for employee dropdown
@@ -51,10 +62,10 @@ exports.getSalespersons = async (req, res, next) => {
     }
 };
 
-// @desc    Get available parties for beat plan assignment
-// @route   GET /api/v1/beat-plans/available-parties
+// @desc    Get available directories (parties, sites, prospects) for beat plan assignment
+// @route   GET /api/v1/beat-plans/available-directories
 // @access  Protected
-exports.getAvailableParties = async (req, res, next) => {
+exports.getAvailableDirectories = async (req, res, next) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId } = req.user;
@@ -64,29 +75,64 @@ exports.getAvailableParties = async (req, res, next) => {
         // Build filter
         const filter = { organizationId };
 
-        // Add search functionality for party name or owner name
+        // Add search functionality for all directory types
+        let partyFilter = { ...filter };
+        let siteFilter = { ...filter };
+        let prospectFilter = { ...filter };
+
         if (search) {
-            filter.$or = [
+            partyFilter.$or = [
                 { partyName: { $regex: search, $options: 'i' } },
+                { ownerName: { $regex: search, $options: 'i' } },
+                { 'location.address': { $regex: search, $options: 'i' } }
+            ];
+            siteFilter.$or = [
+                { siteName: { $regex: search, $options: 'i' } },
+                { ownerName: { $regex: search, $options: 'i' } },
+                { 'location.address': { $regex: search, $options: 'i' } }
+            ];
+            prospectFilter.$or = [
+                { prospectName: { $regex: search, $options: 'i' } },
                 { ownerName: { $regex: search, $options: 'i' } },
                 { 'location.address': { $regex: search, $options: 'i' } }
             ];
         }
 
-        // Fetch parties with relevant fields
-        const parties = await Party.find(filter)
-            .select('partyName ownerName location.address location.latitude location.longitude contact.phone')
-            .sort({ partyName: 1 });
+        // Fetch all directory types with relevant fields
+        const parties = await Party.find(partyFilter)
+            .select('partyName ownerName location.address location.latitude location.longitude contact.phone panVatNumber')
+            .sort({ partyName: 1 })
+            .lean();
+
+        const sites = await Site.find(siteFilter)
+            .select('siteName ownerName location.address location.latitude location.longitude contact.phone')
+            .sort({ siteName: 1 })
+            .lean();
+
+        const prospects = await Prospect.find(prospectFilter)
+            .select('prospectName ownerName location.address location.latitude location.longitude contact.phone panVatNumber')
+            .sort({ prospectName: 1 })
+            .lean();
+
+        // Add type field to each directory for frontend differentiation
+        const partiesWithType = parties.map(party => ({ ...party, type: 'party', name: party.partyName }));
+        const sitesWithType = sites.map(site => ({ ...site, type: 'site', name: site.siteName }));
+        const prospectsWithType = prospects.map(prospect => ({ ...prospect, type: 'prospect', name: prospect.prospectName }));
 
         res.status(200).json({
             success: true,
-            data: parties
+            data: {
+                parties: partiesWithType,
+                sites: sitesWithType,
+                prospects: prospectsWithType,
+                all: [...partiesWithType, ...sitesWithType, ...prospectsWithType]
+            }
         });
     } catch (error) {
-        console.error('Error fetching available parties:', error);
+        console.error('Error fetching available directories:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to fetch available parties',
+            message: 'Failed to fetch available directories',
             error: error.message
         });
     }
@@ -100,8 +146,11 @@ exports.getBeatPlanData = async (req, res, next) => {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId } = req.user;
 
-        // 1. Get total parties (shops) in the organization
-        const totalShops = await Party.countDocuments({ organizationId });
+        // 1. Get total directories (parties, sites, prospects) in the organization
+        const totalParties = await Party.countDocuments({ organizationId });
+        const totalSites = await Site.countDocuments({ organizationId });
+        const totalProspects = await Prospect.countDocuments({ organizationId });
+        const totalDirectories = totalParties + totalSites + totalProspects;
 
         // 2. Get total beat plans created
         const totalBeatPlans = await BeatPlan.countDocuments({ organizationId });
@@ -134,7 +183,10 @@ exports.getBeatPlanData = async (req, res, next) => {
         res.status(200).json({
             success: true,
             data: {
-                totalShops,
+                totalDirectories,
+                totalParties,
+                totalSites,
+                totalProspects,
                 totalBeatPlans,
                 activeBeatPlans,
                 assignedEmployeesCount: assignedEmployees.length,
@@ -177,39 +229,74 @@ exports.createBeatPlan = async (req, res, next) => {
             });
         }
 
-        // Verify all parties belong to the organization
-        const parties = await Party.find({
-            _id: { $in: validatedData.parties },
-            organizationId
-        });
+        // Verify all parties, sites, and prospects belong to the organization
+        const partyIds = validatedData.parties || [];
+        const siteIds = validatedData.sites || [];
+        const prospectIds = validatedData.prospects || [];
 
-        if (parties.length !== validatedData.parties.length) {
-            return res.status(400).json({
-                success: false,
-                message: 'Some parties do not belong to your organization'
+        // Verify parties
+        if (partyIds.length > 0) {
+            const parties = await Party.find({
+                _id: { $in: partyIds },
+                organizationId
             });
+            if (parties.length !== partyIds.length) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Some parties do not belong to your organization'
+                });
+            }
         }
 
-        // Optimize party order if autoOptimize flag is set
-        let partyIds = validatedData.parties;
-        if (req.body.autoOptimize === true) {
-            const optimization = optimizeRoute(parties);
-            partyIds = optimization.optimizedParties.map(p => p._id);
+        // Verify sites
+        if (siteIds.length > 0) {
+            const sites = await Site.find({
+                _id: { $in: siteIds },
+                organizationId
+            });
+            if (sites.length !== siteIds.length) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Some sites do not belong to your organization'
+                });
+            }
         }
+
+        // Verify prospects
+        if (prospectIds.length > 0) {
+            const prospects = await Prospect.find({
+                _id: { $in: prospectIds },
+                organizationId
+            });
+            if (prospects.length !== prospectIds.length) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Some prospects do not belong to your organization'
+                });
+            }
+        }
+
+        // TODO: Implement optimization for mixed directory types if needed
+        // For now, we'll use the order provided by the user
 
         // Create the beat plan
         const assignedDate = new Date(validatedData.assignedDate);
 
-        // Initialize visits array with all parties as pending
-        const visits = partyIds.map(partyId => ({
-            partyId: partyId,
-            status: 'pending'
-        }));
+        // Initialize visits array with all directories as pending
+        const visits = [
+            ...partyIds.map(id => ({ directoryId: id, directoryType: 'party', status: 'pending' })),
+            ...siteIds.map(id => ({ directoryId: id, directoryType: 'site', status: 'pending' })),
+            ...prospectIds.map(id => ({ directoryId: id, directoryType: 'prospect', status: 'pending' }))
+        ];
+
+        const totalDirectories = partyIds.length + siteIds.length + prospectIds.length;
 
         const newBeatPlan = await BeatPlan.create({
             name: validatedData.name,
             employees: [validatedData.employeeId], // Store as array for model compatibility
-            parties: partyIds, // Use optimized party order if auto-optimize is enabled
+            parties: partyIds,
+            sites: siteIds,
+            prospects: prospectIds,
             visits: visits, // Initialize visit tracking
             schedule: {
                 startDate: assignedDate,
@@ -217,9 +304,12 @@ exports.createBeatPlan = async (req, res, next) => {
             },
             status: 'pending', // Start as pending
             progress: {
-                totalParties: partyIds.length,
-                visitedParties: 0,
+                totalDirectories,
+                visitedDirectories: 0,
                 percentage: 0,
+                totalParties: partyIds.length,
+                totalSites: siteIds.length,
+                totalProspects: prospectIds.length,
             },
             organizationId,
             createdBy: userId,
@@ -229,6 +319,8 @@ exports.createBeatPlan = async (req, res, next) => {
         await newBeatPlan.populate([
             { path: 'employees', select: 'name email role avatarUrl phone' },
             { path: 'parties', select: 'partyName ownerName contact location' },
+            { path: 'sites', select: 'siteName ownerName contact location' },
+            { path: 'prospects', select: 'prospectName ownerName contact location' },
             { path: 'createdBy', select: 'name email' }
         ]);
 
@@ -271,6 +363,8 @@ exports.getAllBeatPlans = async (req, res, next) => {
         const beatPlans = await BeatPlan.find(filter)
             .populate('employees', 'name email role avatarUrl')
             .populate('parties', 'partyName ownerName contact location')
+            .populate('sites', 'siteName ownerName contact location')
+            .populate('prospects', 'prospectName ownerName contact location')
             .populate('createdBy', 'name email')
             .sort({ createdAt: -1 })
             .skip(skip)
@@ -312,6 +406,8 @@ exports.getBeatPlanById = async (req, res, next) => {
         })
             .populate('employees', 'name email role avatarUrl phone')
             .populate('parties', 'partyName ownerName contact location panVatNumber')
+            .populate('sites', 'siteName ownerName contact location')
+            .populate('prospects', 'prospectName ownerName contact location panVatNumber')
             .populate('createdBy', 'name email');
 
         if (!beatPlan) {
@@ -369,32 +465,83 @@ exports.updateBeatPlan = async (req, res, next) => {
             beatPlan.employees = [validatedData.employeeId];
         }
 
+        // Verify and update directories if provided
+        let partyIds = beatPlan.parties || [];
+        let siteIds = beatPlan.sites || [];
+        let prospectIds = beatPlan.prospects || [];
+
         // Verify parties if provided
-        if (validatedData.parties && validatedData.parties.length > 0) {
-            const parties = await Party.find({
-                _id: { $in: validatedData.parties },
-                organizationId
-            });
-
-            if (parties.length !== validatedData.parties.length) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Some parties do not belong to your organization'
+        if (validatedData.parties !== undefined) {
+            partyIds = validatedData.parties;
+            if (partyIds.length > 0) {
+                const parties = await Party.find({
+                    _id: { $in: partyIds },
+                    organizationId
                 });
+                if (parties.length !== partyIds.length) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Some parties do not belong to your organization'
+                    });
+                }
             }
+            beatPlan.parties = partyIds;
+        }
 
-            // Reset visits array with new parties
-            beatPlan.parties = validatedData.parties;
-            beatPlan.visits = validatedData.parties.map(partyId => ({
-                partyId: partyId,
-                status: 'pending'
-            }));
+        // Verify sites if provided
+        if (validatedData.sites !== undefined) {
+            siteIds = validatedData.sites;
+            if (siteIds.length > 0) {
+                const sites = await Site.find({
+                    _id: { $in: siteIds },
+                    organizationId
+                });
+                if (sites.length !== siteIds.length) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Some sites do not belong to your organization'
+                    });
+                }
+            }
+            beatPlan.sites = siteIds;
+        }
+
+        // Verify prospects if provided
+        if (validatedData.prospects !== undefined) {
+            prospectIds = validatedData.prospects;
+            if (prospectIds.length > 0) {
+                const prospects = await Prospect.find({
+                    _id: { $in: prospectIds },
+                    organizationId
+                });
+                if (prospects.length !== prospectIds.length) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Some prospects do not belong to your organization'
+                    });
+                }
+            }
+            beatPlan.prospects = prospectIds;
+        }
+
+        // Reset visits array if any directories were updated
+        if (validatedData.parties !== undefined || validatedData.sites !== undefined || validatedData.prospects !== undefined) {
+            beatPlan.visits = [
+                ...partyIds.map(id => ({ directoryId: id, directoryType: 'party', status: 'pending' })),
+                ...siteIds.map(id => ({ directoryId: id, directoryType: 'site', status: 'pending' })),
+                ...prospectIds.map(id => ({ directoryId: id, directoryType: 'prospect', status: 'pending' }))
+            ];
+
+            const totalDirectories = partyIds.length + siteIds.length + prospectIds.length;
 
             // Reset progress
             beatPlan.progress = {
-                totalParties: validatedData.parties.length,
-                visitedParties: 0,
-                percentage: 0
+                totalDirectories,
+                visitedDirectories: 0,
+                percentage: 0,
+                totalParties: partyIds.length,
+                totalSites: siteIds.length,
+                totalProspects: prospectIds.length,
             };
         }
 
@@ -419,6 +566,8 @@ exports.updateBeatPlan = async (req, res, next) => {
         await beatPlan.populate([
             { path: 'employees', select: 'name email role avatarUrl phone' },
             { path: 'parties', select: 'partyName ownerName contact location' },
+            { path: 'sites', select: 'siteName ownerName contact location' },
+            { path: 'prospects', select: 'prospectName ownerName contact location' },
             { path: 'createdBy', select: 'name email' }
         ]);
 
@@ -513,10 +662,14 @@ exports.getMyBeatPlans = async (req, res, next) => {
             assignedDate: plan.schedule?.startDate || null,
             startedAt: plan.startedAt || null,
             completedAt: plan.completedAt || null,
+            totalDirectories: plan.progress?.totalDirectories || 0,
+            visitedDirectories: plan.progress?.visitedDirectories || 0,
+            unvisitedDirectories: (plan.progress?.totalDirectories || 0) - (plan.progress?.visitedDirectories || 0),
+            progressPercentage: plan.progress?.percentage || 0,
+            // Breakdown by type
             totalParties: plan.progress?.totalParties || 0,
-            visitedParties: plan.progress?.visitedParties || 0,
-            unvisitedParties: (plan.progress?.totalParties || 0) - (plan.progress?.visitedParties || 0),
-            progressPercentage: plan.progress?.percentage || 0
+            totalSites: plan.progress?.totalSites || 0,
+            totalProspects: plan.progress?.totalProspects || 0,
         }));
 
         const total = await BeatPlan.countDocuments(filter);
@@ -572,54 +725,71 @@ exports.getBeatPlanDetails = async (req, res, next) => {
             });
         }
 
-        // Populate parties with full details
-        await beatPlan.populate({
-            path: 'parties',
-            select: 'partyName ownerName contact location panVatNumber'
-        });
+        // Populate all directory types with full details
+        await beatPlan.populate([
+            { path: 'parties', select: 'partyName ownerName contact location panVatNumber' },
+            { path: 'sites', select: 'siteName ownerName contact location' },
+            { path: 'prospects', select: 'prospectName ownerName contact location panVatNumber' }
+        ]);
 
-        // Create a detailed party list with visit status and distance calculations
-        const partiesWithStatus = beatPlan.parties.map((party, index) => {
-            // Find the corresponding visit record
-            const visitRecord = beatPlan.visits.find(v => v.partyId.toString() === party._id.toString());
+        // Create a combined list of all directories with type and name
+        const allDirectories = [
+            ...beatPlan.parties.map(p => ({ ...p.toObject(), directoryType: 'party', name: p.partyName })),
+            ...beatPlan.sites.map(s => ({ ...s.toObject(), directoryType: 'site', name: s.siteName })),
+            ...beatPlan.prospects.map(pr => ({ ...pr.toObject(), directoryType: 'prospect', name: pr.prospectName }))
+        ];
 
-            // Calculate distance to next party
+        // Sort directories to match the order in visits array
+        const sortedDirectories = beatPlan.visits.map(visit => {
+            const directory = allDirectories.find(d =>
+                d._id.toString() === visit.directoryId.toString() &&
+                d.directoryType === visit.directoryType
+            );
+            return { directory, visit };
+        }).filter(item => item.directory); // Filter out any missing directories
+
+        // Create detailed directory list with visit status and distance calculations
+        const directoriesWithStatus = sortedDirectories.map((item, index) => {
+            const { directory, visit } = item;
+
+            // Calculate distance to next directory
             let distanceToNext = null;
-            if (index < beatPlan.parties.length - 1) {
-                const nextParty = beatPlan.parties[index + 1];
-                if (party.location?.latitude && party.location?.longitude &&
-                    nextParty.location?.latitude && nextParty.location?.longitude) {
+            if (index < sortedDirectories.length - 1) {
+                const nextDirectory = sortedDirectories[index + 1].directory;
+                if (directory.location?.latitude && directory.location?.longitude &&
+                    nextDirectory.location?.latitude && nextDirectory.location?.longitude) {
                     distanceToNext = calculateDistance(
-                        party.location.latitude,
-                        party.location.longitude,
-                        nextParty.location.latitude,
-                        nextParty.location.longitude
+                        directory.location.latitude,
+                        directory.location.longitude,
+                        nextDirectory.location.latitude,
+                        nextDirectory.location.longitude
                     );
                 }
             }
 
             return {
-                _id: party._id,
-                partyName: party.partyName,
-                ownerName: party.ownerName,
-                contact: party.contact,
-                location: party.location,
-                panVatNumber: party.panVatNumber,
-                distanceToNext: distanceToNext, // Distance to next party in km
+                _id: directory._id,
+                name: directory.name,
+                type: directory.directoryType,
+                ownerName: directory.ownerName,
+                contact: directory.contact,
+                location: directory.location,
+                panVatNumber: directory.panVatNumber || null,
+                distanceToNext: distanceToNext, // Distance to next directory in km
                 visitStatus: {
-                    status: visitRecord?.status || 'pending',
-                    visitedAt: visitRecord?.visitedAt || null,
-                    visitLocation: visitRecord?.visitLocation || null
+                    status: visit.status || 'pending',
+                    visitedAt: visit.visitedAt || null,
+                    visitLocation: visit.visitLocation || null
                 }
             };
         });
 
         // Calculate total route distance
-        const coordinates = beatPlan.parties
-            .filter(p => p.location?.latitude && p.location?.longitude)
-            .map(p => ({
-                latitude: p.location.latitude,
-                longitude: p.location.longitude
+        const coordinates = directoriesWithStatus
+            .filter(d => d.location?.latitude && d.location?.longitude)
+            .map(d => ({
+                latitude: d.location.latitude,
+                longitude: d.location.longitude
             }));
         const totalRouteDistance = calculateRouteDistance(coordinates);
 
@@ -635,7 +805,11 @@ exports.getBeatPlanDetails = async (req, res, next) => {
             totalRouteDistance: totalRouteDistance, // Total distance in km
             employees: beatPlan.employees,
             createdBy: beatPlan.createdBy,
-            parties: partiesWithStatus,
+            directories: directoriesWithStatus, // Combined list of all directories
+            // Also provide separate arrays for backward compatibility
+            parties: directoriesWithStatus.filter(d => d.type === 'party'),
+            sites: directoriesWithStatus.filter(d => d.type === 'site'),
+            prospects: directoriesWithStatus.filter(d => d.type === 'prospect'),
             createdAt: beatPlan.createdAt,
             updatedAt: beatPlan.updatedAt
         };
@@ -705,8 +879,9 @@ exports.startBeatPlan = async (req, res, next) => {
         await beatPlan.populate([
             { path: 'employees', select: 'name email role avatarUrl phone' },
             { path: 'parties', select: 'partyName ownerName contact location panVatNumber' },
-            { path: 'createdBy', select: 'name email' },
-            { path: 'visits.partyId', select: 'partyName ownerName contact location' }
+            { path: 'sites', select: 'siteName ownerName contact location' },
+            { path: 'prospects', select: 'prospectName ownerName contact location panVatNumber' },
+            { path: 'createdBy', select: 'name email' }
         ]);
 
         res.status(200).json({
@@ -910,7 +1085,7 @@ exports.calculateDistanceToParty = async (req, res, next) => {
     }
 };
 
-// @desc    Mark a party as visited in beat plan
+// @desc    Mark a directory (party/site/prospect) as visited in beat plan
 // @route   POST /api/v1/beat-plans/:id/visit
 // @access  Protected (Salesperson)
 exports.markPartyVisited = async (req, res, next) => {
@@ -918,13 +1093,24 @@ exports.markPartyVisited = async (req, res, next) => {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId, _id: userId } = req.user;
 
-        const { partyId, latitude, longitude } = req.body;
+        const { directoryId, directoryType, latitude, longitude, partyId } = req.body;
+
+        // Support backward compatibility - if partyId is provided, use it as directoryId with type 'party'
+        const actualDirectoryId = directoryId || partyId;
+        const actualDirectoryType = directoryType || 'party';
 
         // Validate required fields
-        if (!partyId) {
+        if (!actualDirectoryId) {
             return res.status(400).json({
                 success: false,
-                message: 'Party ID is required'
+                message: 'Directory ID (or partyId for backward compatibility) is required'
+            });
+        }
+
+        if (!['party', 'site', 'prospect'].includes(actualDirectoryType)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid directory type. Must be party, site, or prospect'
             });
         }
 
@@ -938,17 +1124,20 @@ exports.markPartyVisited = async (req, res, next) => {
             return res.status(404).json({ success: false, message: 'Beat plan not found' });
         }
 
-        // Check if the party is in the beat plan
-        const partyIndex = beatPlan.parties.findIndex(p => p.toString() === partyId);
-        if (partyIndex === -1) {
+        // Check if the directory is in the beat plan
+        const directoryField = `${actualDirectoryType === 'party' ? 'parties' : actualDirectoryType === 'site' ? 'sites' : 'prospects'}`;
+        const directoryIndex = beatPlan[directoryField].findIndex(d => d.toString() === actualDirectoryId);
+        if (directoryIndex === -1) {
             return res.status(400).json({
                 success: false,
-                message: 'Party not found in this beat plan'
+                message: `${actualDirectoryType.charAt(0).toUpperCase() + actualDirectoryType.slice(1)} not found in this beat plan`
             });
         }
 
         // Find the visit record
-        const visitIndex = beatPlan.visits.findIndex(v => v.partyId.toString() === partyId);
+        const visitIndex = beatPlan.visits.findIndex(v =>
+            v.directoryId.toString() === actualDirectoryId && v.directoryType === actualDirectoryType
+        );
         if (visitIndex === -1) {
             return res.status(400).json({
                 success: false,
@@ -960,7 +1149,7 @@ exports.markPartyVisited = async (req, res, next) => {
         if (beatPlan.visits[visitIndex].status === 'visited') {
             return res.status(400).json({
                 success: false,
-                message: 'Party already marked as visited'
+                message: `${actualDirectoryType.charAt(0).toUpperCase() + actualDirectoryType.slice(1)} already marked as visited`
             });
         }
 
@@ -977,11 +1166,11 @@ exports.markPartyVisited = async (req, res, next) => {
 
         // Update progress
         const visitedCount = beatPlan.visits.filter(v => v.status === 'visited').length;
-        beatPlan.progress.visitedParties = visitedCount;
-        beatPlan.progress.percentage = Math.round((visitedCount / beatPlan.progress.totalParties) * 100);
+        beatPlan.progress.visitedDirectories = visitedCount;
+        beatPlan.progress.percentage = Math.round((visitedCount / beatPlan.progress.totalDirectories) * 100);
 
-        // Update beat plan status to completed when all parties are visited
-        if (visitedCount === beatPlan.progress.totalParties) {
+        // Update beat plan status to completed when all directories are visited
+        if (visitedCount === beatPlan.progress.totalDirectories) {
             beatPlan.status = 'completed';
             beatPlan.completedAt = new Date();
         }
@@ -992,19 +1181,20 @@ exports.markPartyVisited = async (req, res, next) => {
         await beatPlan.populate([
             { path: 'employees', select: 'name email role avatarUrl phone' },
             { path: 'parties', select: 'partyName ownerName contact location' },
-            { path: 'visits.partyId', select: 'partyName ownerName location' }
+            { path: 'sites', select: 'siteName ownerName contact location' },
+            { path: 'prospects', select: 'prospectName ownerName contact location' }
         ]);
 
         res.status(200).json({
             success: true,
-            message: 'Party marked as visited successfully',
+            message: `${actualDirectoryType.charAt(0).toUpperCase() + actualDirectoryType.slice(1)} marked as visited successfully`,
             data: beatPlan
         });
     } catch (error) {
-        console.error('Error marking party as visited:', error);
+        console.error('Error marking directory as visited:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to mark party as visited',
+            message: 'Failed to mark directory as visited',
             error: error.message
         });
     }
