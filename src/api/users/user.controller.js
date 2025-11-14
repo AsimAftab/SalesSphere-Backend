@@ -570,8 +570,9 @@ exports.getEmployeeAttendanceSummary = async (req, res, next) => {
                 const dayOfWeek = dt.weekday % 7; // Convert 1..7 to 0..6 where 0=Sunday
 
                 if (dayOfWeek === weeklyOffDayNumber) {
-                    // Inferred weekly off - only increment weeklyOff, NOT workingDays
+                    // Inferred weekly off - increment both weeklyOff and workingDays
                     summary.weeklyOff += 1;
+                    summary.workingDays += 1;
                 } else {
                     // Not marked - count as absent
                     summary.absent += 1;
@@ -580,8 +581,8 @@ exports.getEmployeeAttendanceSummary = async (req, res, next) => {
         }
 
         // Calculate attendance percentage: working days / total days
-        // Working days only includes actual attendance records (P, H, L, W from database)
-        // Inferred weekly offs and absents do NOT count as working days
+        // Working days includes: Present (P), Leave (L), Half-day (H), and Weekly Off (W)
+        // Only absents do NOT count as working days
         const attendancePercentage = summary.totalDays > 0
             ? ((summary.workingDays / summary.totalDays) * 100).toFixed(2)
             : 0;

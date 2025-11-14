@@ -66,6 +66,14 @@ const beatPlanSchema = new mongoose.Schema({
         enum: ['pending', 'active', 'completed'],
         default: 'pending',
     },
+    // Timestamp when beat plan was started (status changed to active)
+    startedAt: {
+        type: Date,
+    },
+    // Timestamp when beat plan was completed
+    completedAt: {
+        type: Date,
+    },
     // Progress tracking
     progress: {
         totalParties: {
