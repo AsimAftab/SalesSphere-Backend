@@ -321,14 +321,37 @@ exports.login = async (req, res) => {
             return res.status(401).json({ message: 'Incorrect email or password' });
         }
          if (user.isActive === false) {
-            return res.status(403).json({ 
+            return res.status(403).json({
                 status: 'error',
-                message: 'Your account is inactive. Please contact the administrator to reactivate your account.' 
+                message: 'Your account is inactive. Please contact the administrator to reactivate your account.'
+            });
+        }
+
+        // Check if this is a mobile client
+        const isMobileClient = req.headers['x-client-type'] === 'mobile';
+
+        // Restrict web access to specific roles
+        const allowedWebRoles = ['admin', 'superadmin', 'manager'];
+        // Restrict mobile access - deny admin on mobile
+        const deniedMobileRoles = ['admin'];
+
+        // If this is a web login (NOT mobile) AND the user's role is NOT allowed on web
+        if (!isMobileClient && !allowedWebRoles.includes(user.role)) {
+            return res.status(403).json({
+                status: 'error',
+                message: 'Access denied. Please use the mobile application.'
+            });
+        }
+
+        // If this is a mobile login AND the user's role is NOT allowed on mobile
+        if (isMobileClient && deniedMobileRoles.includes(user.role)) {
+            return res.status(403).json({
+                status: 'error',
+                message: 'Access denied. Please use the web application.'
             });
         }
 
         // Send token response (cookie for web, JSON for mobile if X-Client-Type header present)
-        const isMobileClient = req.headers['x-client-type'] === 'mobile';
         sendTokenResponse(user, 200, res, isMobileClient);
     } catch (error) {
         res.status(500).json({ message: 'Server Error', error: error.message });
