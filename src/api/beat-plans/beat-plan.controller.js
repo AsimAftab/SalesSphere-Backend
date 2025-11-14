@@ -400,8 +400,10 @@ exports.updateBeatPlan = async (req, res, next) => {
             beatPlan.schedule.startDate = new Date(validatedData.assignedDate);
         }
 
-        // Reset status to pending (reusable beat plan)
+        // Reset status to pending (reusable beat plan) and clear timestamps
         beatPlan.status = 'pending';
+        beatPlan.startedAt = null;
+        beatPlan.completedAt = null;
 
         await beatPlan.save();
 
@@ -460,6 +462,229 @@ exports.deleteBeatPlan = async (req, res, next) => {
         res.status(500).json({
             success: false,
             message: 'Failed to delete beat plan',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Get salesperson's assigned beat plans (minimal data for list view)
+// @route   GET /api/v1/beat-plans/my-beatplans
+// @access  Protected (Salesperson)
+exports.getMyBeatPlans = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId, _id: userId } = req.user;
+
+        const { status, page = 1, limit = 10 } = req.query;
+
+        // Build filter - find beat plans where this user is in the employees array
+        const filter = {
+            organizationId,
+            employees: userId
+        };
+
+        // Optionally filter by status
+        if (status) {
+            filter.status = status;
+        }
+
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+
+        const beatPlans = await BeatPlan.find(filter)
+            .select('name status schedule.startDate progress startedAt completedAt')
+            .sort({ 'schedule.startDate': -1, createdAt: -1 })
+            .skip(skip)
+            .limit(parseInt(limit))
+            .lean();
+
+        // Transform to minimal response format
+        const minimalBeatPlans = beatPlans.map(plan => ({
+            _id: plan._id,
+            name: plan.name,
+            status: plan.status,
+            assignedDate: plan.schedule?.startDate || null,
+            startedAt: plan.startedAt || null,
+            completedAt: plan.completedAt || null,
+            totalParties: plan.progress?.totalParties || 0,
+            visitedParties: plan.progress?.visitedParties || 0,
+            unvisitedParties: (plan.progress?.totalParties || 0) - (plan.progress?.visitedParties || 0),
+            progressPercentage: plan.progress?.percentage || 0
+        }));
+
+        const total = await BeatPlan.countDocuments(filter);
+
+        res.status(200).json({
+            success: true,
+            data: minimalBeatPlans,
+            pagination: {
+                total,
+                page: parseInt(page),
+                limit: parseInt(limit),
+                pages: Math.ceil(total / parseInt(limit))
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching my beat plans:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch beat plans',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Get detailed beatplan information with all parties and visit status
+// @route   GET /api/v1/beat-plans/:id/details
+// @access  Protected (Salesperson assigned to this beat plan or Admin/Manager)
+exports.getBeatPlanDetails = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId, _id: userId, role } = req.user;
+
+        // Find the beat plan
+        const beatPlan = await BeatPlan.findOne({
+            _id: req.params.id,
+            organizationId
+        })
+            .populate('employees', 'name email role avatarUrl phone')
+            .populate('createdBy', 'name email');
+
+        if (!beatPlan) {
+            return res.status(404).json({ success: false, message: 'Beat plan not found' });
+        }
+
+        // Check access - either assigned salesperson or admin/manager
+        const isAssigned = beatPlan.employees.some(emp => emp._id.toString() === userId.toString());
+        const isAdminOrManager = ['admin', 'manager'].includes(role);
+
+        if (!isAssigned && !isAdminOrManager) {
+            return res.status(403).json({
+                success: false,
+                message: 'You do not have access to this beat plan'
+            });
+        }
+
+        // Populate parties with full details
+        await beatPlan.populate({
+            path: 'parties',
+            select: 'partyName ownerName contact location panVatNumber'
+        });
+
+        // Create a detailed party list with visit status
+        const partiesWithStatus = beatPlan.parties.map(party => {
+            // Find the corresponding visit record
+            const visitRecord = beatPlan.visits.find(v => v.partyId.toString() === party._id.toString());
+
+            return {
+                _id: party._id,
+                partyName: party.partyName,
+                ownerName: party.ownerName,
+                contact: party.contact,
+                location: party.location,
+                panVatNumber: party.panVatNumber,
+                visitStatus: {
+                    status: visitRecord?.status || 'pending',
+                    visitedAt: visitRecord?.visitedAt || null,
+                    visitLocation: visitRecord?.visitLocation || null
+                }
+            };
+        });
+
+        // Prepare response
+        const response = {
+            _id: beatPlan._id,
+            name: beatPlan.name,
+            status: beatPlan.status,
+            schedule: beatPlan.schedule,
+            progress: beatPlan.progress,
+            startedAt: beatPlan.startedAt || null,
+            completedAt: beatPlan.completedAt || null,
+            employees: beatPlan.employees,
+            createdBy: beatPlan.createdBy,
+            parties: partiesWithStatus,
+            createdAt: beatPlan.createdAt,
+            updatedAt: beatPlan.updatedAt
+        };
+
+        res.status(200).json({
+            success: true,
+            data: response
+        });
+    } catch (error) {
+        console.error('Error fetching beat plan details:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch beat plan details',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Start a beat plan (change status to active)
+// @route   POST /api/v1/beat-plans/:id/start
+// @access  Protected (Salesperson assigned to this beat plan)
+exports.startBeatPlan = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId, _id: userId } = req.user;
+
+        // Find the beat plan
+        const beatPlan = await BeatPlan.findOne({
+            _id: req.params.id,
+            organizationId
+        });
+
+        if (!beatPlan) {
+            return res.status(404).json({ success: false, message: 'Beat plan not found' });
+        }
+
+        // Verify that the authenticated user is assigned to this beat plan
+        const isAssigned = beatPlan.employees.some(empId => empId.toString() === userId.toString());
+        if (!isAssigned) {
+            return res.status(403).json({
+                success: false,
+                message: 'You are not assigned to this beat plan'
+            });
+        }
+
+        // Check if already active or completed
+        if (beatPlan.status === 'active') {
+            return res.status(400).json({
+                success: false,
+                message: 'Beat plan is already active'
+            });
+        }
+
+        if (beatPlan.status === 'completed') {
+            return res.status(400).json({
+                success: false,
+                message: 'Beat plan is already completed'
+            });
+        }
+
+        // Change status to active and set startedAt timestamp
+        beatPlan.status = 'active';
+        beatPlan.startedAt = new Date();
+        await beatPlan.save();
+
+        // Populate and return
+        await beatPlan.populate([
+            { path: 'employees', select: 'name email role avatarUrl phone' },
+            { path: 'parties', select: 'partyName ownerName contact location panVatNumber' },
+            { path: 'createdBy', select: 'name email' },
+            { path: 'visits.partyId', select: 'partyName ownerName contact location' }
+        ]);
+
+        res.status(200).json({
+            success: true,
+            message: 'Beat plan started successfully',
+            data: beatPlan
+        });
+    } catch (error) {
+        console.error('Error starting beat plan:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to start beat plan',
             error: error.message
         });
     }
@@ -535,13 +760,10 @@ exports.markPartyVisited = async (req, res, next) => {
         beatPlan.progress.visitedParties = visitedCount;
         beatPlan.progress.percentage = Math.round((visitedCount / beatPlan.progress.totalParties) * 100);
 
-        // Update beat plan status
-        if (visitedCount === 1 && beatPlan.status === 'pending') {
-            // First party visited - change to active
-            beatPlan.status = 'active';
-        } else if (visitedCount === beatPlan.progress.totalParties) {
-            // All parties visited - change to completed
+        // Update beat plan status to completed when all parties are visited
+        if (visitedCount === beatPlan.progress.totalParties) {
             beatPlan.status = 'completed';
+            beatPlan.completedAt = new Date();
         }
 
         await beatPlan.save();

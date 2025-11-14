@@ -8,7 +8,10 @@ const {
     getBeatPlanById,
     updateBeatPlan,
     deleteBeatPlan,
-    markPartyVisited
+    markPartyVisited,
+    getMyBeatPlans,
+    startBeatPlan,
+    getBeatPlanDetails
 } = require('./beat-plan.controller');
 const { protect, restrictTo } = require('../../middlewares/auth.middleware');
 
@@ -38,6 +41,12 @@ router.get(
     getBeatPlanData
 );
 
+// Get salesperson's assigned beat plans - Available to salesperson (MUST come before /:id)
+router.get(
+    '/my-beatplans',
+    getMyBeatPlans
+);
+
 // Create a beat plan - Admin and Manager
 router.post(
     '/',
@@ -51,13 +60,19 @@ router.get(
     getAllBeatPlans
 );
 
-// Get single beat plan (detail view) - Available to all roles
+// Get detailed beatplan information with all parties and visit status (MUST come before /:id)
 router.get(
-    '/:id',
-    getBeatPlanById
+    '/:id/details',
+    getBeatPlanDetails
 );
 
-// Mark a party as visited in beat plan - Salesperson can mark visits
+// Start a beat plan (activate) - Salesperson assigned to the beat plan (MUST come before /:id)
+router.post(
+    '/:id/start',
+    startBeatPlan
+);
+
+// Mark a party as visited in beat plan - Salesperson can mark visits (MUST come before /:id)
 router.post(
     '/:id/visit',
     markPartyVisited
@@ -75,6 +90,12 @@ router.delete(
     '/:id',
     restrictTo('admin', 'manager'),
     deleteBeatPlan
+);
+
+// Get single beat plan (detail view) - Available to all roles (MUST come LAST)
+router.get(
+    '/:id',
+    getBeatPlanById
 );
 
 module.exports = router;
