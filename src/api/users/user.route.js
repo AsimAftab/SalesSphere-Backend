@@ -66,6 +66,15 @@ router.put(
 );
 // --- END System User Management ---
 
+// --- SUPERADMIN/DEVELOPER: Create user in any organization ---
+router.post(
+    '/org-user',
+    restrictTo('superadmin', 'developer'),
+    imageUpload.single('avatar'),
+    userController.createOrgUser
+);
+// --- END Organization User Management ---
+
 // --- NEW: Routes for the logged-in user ('/me') ---
 // These do NOT need restrictTo, as users manage their own profile
 router.route('/me')

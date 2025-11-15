@@ -236,6 +236,147 @@ exports.addSystemUser = async (req, res, next) => {
     }
 };
 
+// @desc    Create a new user in any organization (for system users: superadmin/developer)
+// @route   POST /api/v1/users/org-user
+// @access  Protected (Superadmin, Developer only)
+exports.createOrgUser = async (req, res, next) => {
+    let tempAvatarPath = req.file ? req.file.path : null;
+    let newUser = null;
+
+    try {
+        // Only superadmin and developer can create users in any organization
+        if (req.user.role !== 'superadmin' && req.user.role !== 'developer') {
+            cleanupTempFile(tempAvatarPath);
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied. Only superadmin and developer can create users in organizations.'
+            });
+        }
+
+        let {
+            name, email, role, phone, address, gender, dateOfBirth,
+            panNumber, citizenshipNumber, dateJoined, organizationId
+        } = req.body;
+
+        // Trim all string fields
+        name = name?.trim();
+        email = email?.trim();
+        role = role?.trim().toLowerCase();
+        phone = phone?.trim();
+        address = address?.trim();
+        gender = gender?.trim();
+        dateOfBirth = dateOfBirth?.trim();
+        panNumber = panNumber?.trim();
+        citizenshipNumber = citizenshipNumber?.trim();
+        organizationId = organizationId?.trim();
+
+        // Validate required fields
+        if (!name || !email || !role || !organizationId) {
+            cleanupTempFile(tempAvatarPath);
+            return res.status(400).json({
+                success: false,
+                message: 'Required fields: name, email, role, organizationId'
+            });
+        }
+
+        // Validate organization exists
+        const Organization = require('../organizations/organization.model');
+        const organization = await Organization.findById(organizationId);
+        if (!organization) {
+            cleanupTempFile(tempAvatarPath);
+            return res.status(404).json({
+                success: false,
+                message: 'Organization not found'
+            });
+        }
+
+        // Role validation - cannot create superadmin or admin via this route
+        const allowedRoles = ['manager', 'salesperson', 'user'];
+        if (!allowedRoles.includes(role)) {
+            cleanupTempFile(tempAvatarPath);
+            return res.status(400).json({
+                success: false,
+                message: `Invalid role: "${role}". Allowed roles: ${allowedRoles.join(', ')}`
+            });
+        }
+
+        // Generate temporary password
+        const temporaryPassword = crypto.randomBytes(8).toString('hex');
+
+        // Create user
+        newUser = await User.create({
+            name,
+            email,
+            role,
+            phone,
+            address,
+            gender,
+            dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
+            panNumber,
+            citizenshipNumber,
+            dateJoined: dateJoined ? new Date(dateJoined) : new Date(),
+            password: temporaryPassword,
+            organizationId
+        });
+
+        let avatarUrl = newUser.avatarUrl;
+
+        // Handle optional avatar upload
+        if (req.file && req.file.fieldname === 'avatar') {
+            try {
+                const result = await cloudinary.uploader.upload(req.file.path, {
+                    folder: `sales-sphere/avatars`,
+                    public_id: `${newUser._id}_avatar`,
+                    overwrite: true,
+                    transformation: [
+                        { width: 250, height: 250, gravity: "face", crop: "thumb" },
+                        { fetch_format: "auto", quality: "auto" }
+                    ]
+                });
+                avatarUrl = result.secure_url;
+                cleanupTempFile(tempAvatarPath);
+                tempAvatarPath = null;
+
+                newUser.avatarUrl = avatarUrl;
+                await newUser.save({ validateBeforeSave: false });
+
+            } catch (uploadError) {
+                console.error("Avatar upload failed during org user creation:", uploadError);
+            }
+        }
+
+        // Send welcome email with temporary password
+        await sendWelcomeEmail(newUser.email, temporaryPassword);
+
+        // Prepare response
+        const responseData = newUser.toObject();
+        delete responseData.password;
+
+        res.status(201).json({
+            success: true,
+            message: 'User created successfully in organization. Temporary password sent via email.',
+            data: responseData
+        });
+
+    } catch (error) {
+        cleanupTempFile(tempAvatarPath);
+
+        if (error.code === 11000) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email already exists.'
+            });
+        }
+        if (error.name === 'ValidationError') {
+            return res.status(400).json({
+                success: false,
+                message: error.message
+            });
+        }
+        next(error);
+    }
+};
+
 // @desc    Get all system users (superadmin and developers)
 // @route   GET /api/v1/users/system-users
 // @access  Protected (Superadmin only)

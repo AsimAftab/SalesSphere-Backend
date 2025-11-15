@@ -4,7 +4,8 @@ const {
     getOrganizationById,
     updateMyOrganization,
     deactivateOrganization,
-    reactivateOrganization
+    reactivateOrganization,
+    extendSubscription
 } = require('./organization.controller');
 const { protect, restrictTo } = require('../../middlewares/auth.middleware');
 
@@ -27,5 +28,8 @@ router.put('/:id/deactivate', restrictTo('superadmin','developer'), deactivateOr
 
 // Superadmin: Reactivate an organization
 router.put('/:id/reactivate', restrictTo('superadmin','developer'), reactivateOrganization);
+
+// Superadmin, Developer: Extend organization subscription
+router.post('/:id/extend-subscription', restrictTo('superadmin','developer'), extendSubscription);
 
 module.exports = router;
