@@ -155,7 +155,7 @@ const initializeTrackingSocket = (io) => {
         // Event: Update location in real-time
         socket.on('update-location', async (data) => {
             try {
-                const { beatPlanId, latitude, longitude, accuracy, speed, heading } = data;
+                const { beatPlanId, latitude, longitude, accuracy, speed, heading, address } = data;
                 const userId = socket.user._id;
 
                 // Validate location data
@@ -226,6 +226,19 @@ const initializeTrackingSocket = (io) => {
                     timestamp: new Date(),
                 };
 
+                // Add address if provided by mobile app
+                if (address) {
+                    locationEntry.address = {
+                        formattedAddress: address.formattedAddress || null,
+                        street: address.street || null,
+                        city: address.city || null,
+                        state: address.state || null,
+                        country: address.country || null,
+                        postalCode: address.postalCode || null,
+                        locality: address.locality || null,
+                    };
+                }
+
                 if (nearestDirectory) {
                     locationEntry.nearestDirectory = {
                         directoryId: nearestDirectory.directoryId,
@@ -245,6 +258,19 @@ const initializeTrackingSocket = (io) => {
                     timestamp: new Date(),
                 };
 
+                // Add address to current location if provided
+                if (address) {
+                    trackingSession.currentLocation.address = {
+                        formattedAddress: address.formattedAddress || null,
+                        street: address.street || null,
+                        city: address.city || null,
+                        state: address.state || null,
+                        country: address.country || null,
+                        postalCode: address.postalCode || null,
+                        locality: address.locality || null,
+                    };
+                }
+
                 await trackingSession.save();
 
                 // Broadcast location update to all clients watching this beat plan
@@ -259,6 +285,7 @@ const initializeTrackingSocket = (io) => {
                         speed,
                         heading,
                         timestamp: new Date(),
+                        address: address || null, // Include address for web clients
                     },
                     nearestDirectory: nearestDirectory ? {
                         id: nearestDirectory.directoryId,
@@ -268,7 +295,7 @@ const initializeTrackingSocket = (io) => {
                     } : null,
                 });
 
-                console.log(`📍 Location updated for BeatPlan ${beatPlanId}: ${latitude}, ${longitude}`);
+                console.log(`📍 Location updated for BeatPlan ${beatPlanId}: ${latitude}, ${longitude}${address ? ` - ${address.formattedAddress}` : ''}`);
             } catch (error) {
                 console.error('Error updating location:', error);
                 socket.emit('tracking-error', {
