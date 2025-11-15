@@ -3,6 +3,7 @@ const User = require('../../users/user.model');
 const LocationTracking = require('./tracking.model');
 const BeatPlan = require('../beat-plan.model');
 const { calculateDistance } = require('../../../utils/distanceCalculator');
+const cookie = require('cookie'); // For parsing cookies from web clients
 
 // Store active tracking sessions
 const activeSessions = new Map(); // beatPlanId -> { userId, socketId, organizationId }
@@ -22,14 +23,33 @@ const initializeTrackingSocket = (io) => {
             console.log('🔧 Transport:', socket.conn.transport.name);
             console.log('🌐 Origin:', socket.handshake.headers.origin);
 
-            const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.split(' ')[1];
+            let token = null;
+
+            // 1. Check for auth payload (for mobile apps)
+            if (socket.handshake.auth.token) {
+                token = socket.handshake.auth.token;
+                console.log('🔐 Token found in auth payload (mobile client)');
+            }
+            // 2. Check for Authorization header (alternative mobile method)
+            else if (socket.handshake.headers.authorization) {
+                token = socket.handshake.headers.authorization.split(' ')[1];
+                console.log('🔐 Token found in Authorization header');
+            }
+            // 3. Check for httpOnly cookie (for web app)
+            else if (socket.handshake.headers.cookie) {
+                const cookies = cookie.parse(socket.handshake.headers.cookie);
+                token = cookies.token; // Your auth cookie name
+                if (token) {
+                    console.log('🍪 Token found in cookies (web client)');
+                }
+            }
 
             if (!token) {
-                console.log('❌ No token provided in connection');
+                console.log('❌ No token found in auth payload, headers, or cookies');
                 return next(new Error('Authentication token required'));
             }
 
-            console.log('🔐 Token found, verifying...');
+            console.log('🔐 Verifying token...');
 
             // Verify JWT token
             const decoded = jwt.verify(token, process.env.JWT_SECRET);
@@ -210,6 +230,7 @@ const initializeTrackingSocket = (io) => {
                     locationEntry.nearestDirectory = {
                         directoryId: nearestDirectory.directoryId,
                         directoryType: nearestDirectory.directoryType,
+                        name: nearestDirectory.name,
                         distance: nearestDirectory.distance,
                     };
                 }

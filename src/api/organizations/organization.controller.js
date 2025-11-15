@@ -203,3 +203,112 @@ exports.getOrganizationById = async (req, res) => {
         });
     }
 };
+
+// @desc    Extend organization subscription
+// @route   POST /api/v1/organizations/:id/extend-subscription
+// @access  Private (Superadmin, Developer)
+exports.extendSubscription = async (req, res) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+        const { id } = req.params;
+        const { extensionDuration } = req.body;
+
+        // Validate MongoDB ObjectId
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid organization ID'
+            });
+        }
+
+        // Validate extensionDuration
+        if (!extensionDuration || !['6months', '12months'].includes(extensionDuration)) {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(400).json({
+                success: false,
+                message: 'Extension duration must be either "6months" or "12months"'
+            });
+        }
+
+        // Find the organization
+        const organization = await Organization.findById(id).session(session);
+
+        if (!organization) {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(404).json({
+                success: false,
+                message: 'Organization not found'
+            });
+        }
+
+        // Store the previous end date
+        const previousEndDate = organization.subscriptionEndDate || new Date();
+
+        // Calculate new end date based on extension duration
+        const monthsToAdd = extensionDuration === '12months' ? 12 : 6;
+        const newEndDate = new Date(previousEndDate);
+        newEndDate.setMonth(newEndDate.getMonth() + monthsToAdd);
+
+        // Add to subscription history
+        const subscriptionHistoryEntry = {
+            extendedBy: req.user._id,
+            extensionDate: new Date(),
+            previousEndDate: previousEndDate,
+            newEndDate: newEndDate,
+            extensionDuration: extensionDuration
+        };
+
+        // Update organization
+        organization.subscriptionEndDate = newEndDate;
+        organization.subscriptionType = extensionDuration;
+        organization.subscriptionHistory.push(subscriptionHistoryEntry);
+
+        await organization.save({ session });
+
+        // Commit the transaction
+        await session.commitTransaction();
+        session.endSession();
+
+        // Populate extendedBy field for response
+        const updatedOrganization = await Organization.findById(id)
+            .populate({
+                path: 'subscriptionHistory.extendedBy',
+                select: 'name email role'
+            });
+
+        res.status(200).json({
+            success: true,
+            message: `Subscription extended successfully by ${monthsToAdd} months`,
+            data: {
+                organization: updatedOrganization,
+                extensionDetails: {
+                    previousEndDate: previousEndDate,
+                    newEndDate: newEndDate,
+                    extensionDuration: extensionDuration,
+                    extendedBy: {
+                        _id: req.user._id,
+                        name: req.user.name,
+                        email: req.user.email,
+                        role: req.user.role
+                    },
+                    extensionDate: subscriptionHistoryEntry.extensionDate
+                }
+            }
+        });
+    } catch (error) {
+        // If any error occurs, abort the transaction
+        await session.abortTransaction();
+        session.endSession();
+        res.status(500).json({
+            success: false,
+            message: 'Server Error',
+            error: error.message
+        });
+    }
+};
