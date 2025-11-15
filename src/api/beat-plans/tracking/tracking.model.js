@@ -61,6 +61,16 @@ const locationTrackingSchema = new mongoose.Schema({
             required: true,
             default: Date.now,
         },
+        // Reverse geocoded address for breadcrumbs
+        address: {
+            formattedAddress: String, // Full address string
+            street: String,
+            city: String,
+            state: String,
+            country: String,
+            postalCode: String,
+            locality: String, // Neighborhood/area name
+        },
         // Optional: which directory was nearest at this point
         nearestDirectory: {
             directoryId: mongoose.Schema.Types.ObjectId,
@@ -68,7 +78,8 @@ const locationTrackingSchema = new mongoose.Schema({
                 type: String,
                 enum: ['party', 'site', 'prospect'],
             },
-            distance: Number, // Distance in km
+            name: String, // Directory name
+            distance: Number, // Distance in meters
         },
     }],
     // Current location (last recorded)
@@ -77,6 +88,15 @@ const locationTrackingSchema = new mongoose.Schema({
         longitude: Number,
         accuracy: Number,
         timestamp: Date,
+        address: {
+            formattedAddress: String,
+            street: String,
+            city: String,
+            state: String,
+            country: String,
+            postalCode: String,
+            locality: String,
+        },
     },
     // Summary statistics
     summary: {
