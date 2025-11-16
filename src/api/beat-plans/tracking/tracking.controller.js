@@ -267,8 +267,14 @@ exports.getActiveTrackingSessions = async (req, res) => {
             .populate('beatPlanId', 'name status schedule')
             .sort({ sessionStartedAt: -1 });
 
+        // Filter out sessions where beat plan is completed
+        // This prevents showing "active" sessions for completed beat plans
+        const validSessions = activeSessions.filter(session => {
+            return session.beatPlanId && session.beatPlanId.status === 'active';
+        });
+
         // Add current location to each session
-        const sessionsWithLocation = activeSessions.map(session => ({
+        const sessionsWithLocation = validSessions.map(session => ({
             sessionId: session._id,
             beatPlan: session.beatPlanId,
             user: session.userId,
@@ -325,5 +331,70 @@ exports.deleteTrackingSession = async (req, res) => {
             message: 'Failed to delete tracking session',
             error: error.message,
         });
+    }
+};
+
+// @desc    Utility function to close all active tracking sessions for a beat plan
+// @access  Internal use (called when beat plan is completed)
+exports.closeTrackingSessionsForBeatPlan = async (beatPlanId, io = null) => {
+    try {
+        console.log(`🔒 Closing all active tracking sessions for beat plan: ${beatPlanId}`);
+
+        // Find all active or paused tracking sessions for this beat plan
+        const activeSessions = await LocationTracking.find({
+            beatPlanId,
+            status: { $in: ['active', 'paused'] },
+        });
+
+        if (activeSessions.length === 0) {
+            console.log(`✅ No active tracking sessions found for beat plan: ${beatPlanId}`);
+            return { closed: 0 };
+        }
+
+        const closedSessionIds = [];
+
+        // Close each session
+        for (const session of activeSessions) {
+            session.status = 'completed';
+            session.sessionEndedAt = new Date();
+
+            // Calculate summary statistics
+            const totalDistance = session.calculateTotalDistance();
+            const durationMs = session.sessionEndedAt - session.sessionStartedAt;
+            const durationMinutes = durationMs / (1000 * 60);
+            const averageSpeed = durationMinutes > 0 ? (totalDistance / durationMinutes) * 60 : 0;
+
+            session.summary.totalDistance = totalDistance;
+            session.summary.totalDuration = durationMinutes;
+            session.summary.averageSpeed = averageSpeed;
+
+            await session.save();
+            closedSessionIds.push(session._id);
+
+            console.log(`✅ Closed tracking session: ${session._id} for user: ${session.userId}`);
+
+            // Emit socket event to notify clients if io is provided
+            if (io) {
+                const roomName = `beatplan-${beatPlanId}`;
+                io.to(roomName).emit('tracking-force-stopped', {
+                    beatPlanId,
+                    userId: session.userId,
+                    trackingSessionId: session._id,
+                    reason: 'beat_plan_completed',
+                    message: 'Beat plan has been completed. Tracking session has been automatically closed.',
+                    summary: session.summary,
+                });
+            }
+        }
+
+        console.log(`🎉 Successfully closed ${closedSessionIds.length} tracking session(s) for beat plan: ${beatPlanId}`);
+
+        return {
+            closed: closedSessionIds.length,
+            sessionIds: closedSessionIds,
+        };
+    } catch (error) {
+        console.error('❌ Error closing tracking sessions:', error);
+        throw error;
     }
 };

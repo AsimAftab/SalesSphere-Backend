@@ -5,6 +5,7 @@ const Prospect = require('../prospect/prospect.model');
 const User = require('../users/user.model');
 const { z } = require('zod');
 const { calculateDistance, calculateRouteDistance, optimizeRoute } = require('../../utils/distanceCalculator');
+const { closeTrackingSessionsForBeatPlan } = require('./tracking/tracking.controller');
 
 // --- Zod Validation Schemas ---
 // Simple validation for UI create beat plan
@@ -1176,6 +1177,19 @@ exports.markPartyVisited = async (req, res, next) => {
         }
 
         await beatPlan.save();
+
+        // Graceful shutdown: Close all active tracking sessions when beat plan is completed
+        if (beatPlan.status === 'completed') {
+            try {
+                // Get io instance from req.app if available (for socket notifications)
+                const io = req.app?.get('io');
+                const result = await closeTrackingSessionsForBeatPlan(beatPlan._id, io);
+                console.log(`📊 Closed ${result.closed} tracking session(s) for completed beat plan: ${beatPlan._id}`);
+            } catch (error) {
+                // Log error but don't fail the request
+                console.error('⚠️ Error closing tracking sessions, but beat plan was marked as completed:', error);
+            }
+        }
 
         // Populate and return
         await beatPlan.populate([

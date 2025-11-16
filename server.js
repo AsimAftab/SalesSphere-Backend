@@ -29,6 +29,9 @@ const io = new Server(server, {
 // Initialize beat plan tracking WebSocket
 initializeTrackingSocket(io);
 
+// Make io accessible to controllers via req.app.get('io')
+app.set('io', io);
+
 // Start server
 server.listen(port, '0.0.0.0', () => {
   console.log(`🚀 Server running on http://localhost:${port}`);
