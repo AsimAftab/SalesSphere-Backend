@@ -18,7 +18,7 @@ const itemSchema = z.object({
 const invoiceSchemaValidation = z.object({
     partyId: z.string().refine(val => mongoose.Types.ObjectId.isValid(val), "Invalid party ID"),
     expectedDeliveryDate: z.string().refine(val => !isNaN(Date.parse(val)), "Invalid delivery date"),
-    discount: z.coerce.number().min(0, "Discount cannot be negative").optional().default(0),
+    discount: z.coerce.number().min(0, "Discount cannot be negative").max(100, "Discount cannot exceed 100%").optional().default(0),
     items: z.array(itemSchema).min(1, "At least one item is required"),
 });
 
@@ -140,7 +140,10 @@ exports.createInvoice = async (req, res, next) => {
                 });
             }
 
-            const totalAmount = subtotal - discount;
+            // Calculate discount amount from percentage
+            const discountAmount = (subtotal * discount) / 100;
+            const totalAmount = subtotal - discountAmount;
+
             if (totalAmount < 0) {
                 throw new Error('Total amount cannot be negative after discount.');
             }
