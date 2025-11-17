@@ -90,6 +90,7 @@ const invoiceSchema = new mongoose.Schema({
         type: Number,
         default: 0,
         min: 0,
+        max: 100, // Discount percentage (0-100)
     },
     totalAmount: {
         type: Number,
