@@ -64,9 +64,9 @@ exports.getAllParties = async (req, res, next) => {
         const { organizationId } = req.user;
 
         const parties = await Party.find({ organizationId: organizationId })
-            .select('_id partyName ownerName location.address') // Re-ordered for clarity
+            .select('_id partyName ownerName location.address createdAt')
             .sort({ createdAt: -1 })
-            .lean(); // <-- ADD .LEAN() TO RETURN PLAIN JAVASCRIPT OBJECTS
+            .lean();
 
         res.status(200).json({ success: true, count: parties.length, data: parties });
     } catch (error) {

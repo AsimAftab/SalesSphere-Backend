@@ -97,3 +97,9 @@ data/
 
 # MongoDB Atlas Triggers (deployed to Atlas, not run locally)
 mongodb-triggers/
+TRACKING_README.md
+
+# Deployment and testing files
+DEPLOYMENT-WEBSOCKET.md
+nginx-salessphere360.conf
+test-socket.js

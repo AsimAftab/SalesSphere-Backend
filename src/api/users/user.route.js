@@ -36,7 +36,44 @@ const imageUpload = multer({
 router.use(protect);
 
 // --- SUPERADMIN ONLY: System Overview ---
-router.get('/system-overview', restrictTo('superadmin'), userController.getSystemOverview);
+router.get('/system-overview', restrictTo('superadmin','developer'), userController.getSystemOverview);
+
+// --- SUPERADMIN ONLY: System User Management ---
+router.post(
+    '/system-user',
+    restrictTo('superadmin'),
+    imageUpload.single('avatar'),
+    userController.addSystemUser
+);
+
+router.get(
+    '/system-users',
+    restrictTo('superadmin'),
+    userController.getAllSystemUsers
+);
+
+router.get(
+    '/system-user/:id',
+    restrictTo('superadmin'),
+    userController.getSystemUserById
+);
+
+router.put(
+    '/system-user/:id',
+    restrictTo('superadmin'),
+    imageUpload.single('avatar'),
+    userController.updateSystemUser
+);
+// --- END System User Management ---
+
+// --- SUPERADMIN/DEVELOPER: Create user in any organization ---
+router.post(
+    '/org-user',
+    restrictTo('superadmin', 'developer'),
+    imageUpload.single('avatar'),
+    userController.createOrgUser
+);
+// --- END Organization User Management ---
 
 // --- NEW: Routes for the logged-in user ('/me') ---
 // These do NOT need restrictTo, as users manage their own profile
@@ -61,7 +98,7 @@ router.route('/')
     .get(restrictTo('admin', 'manager'), userController.getAllUsers);
 
 router.route('/:id')
-    .get(restrictTo('admin', 'manager'), userController.getUserById)
+    .get(restrictTo('admin', 'manager','superadmin'), userController.getUserById)
     .put(restrictTo('admin', 'manager'), imageUpload.single('avatar'), userController.updateUser) 
     .delete(restrictTo('admin', 'manager'), userController.deleteUser);
 

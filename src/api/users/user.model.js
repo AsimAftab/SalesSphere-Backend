@@ -27,10 +27,12 @@ const userSchema = new mongoose.Schema({
     organizationId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Organization',
-        // Organization is required for everyone except the superadmin
+        // Organization is required for everyone except superadmin and developer (system users)
         required: [
-            function() { return this.role !== 'superadmin'; },
-            'Organization ID is required for non-superadmin users'
+            function() {
+                return this.role !== 'superadmin' && this.role !== 'developer';
+            },
+            'Organization ID is required for non-system users'
         ]
     },
     isActive: {
@@ -81,6 +83,22 @@ const userSchema = new mongoose.Schema({
     // --- 2. ADDED: Fields for Password Reset ---
     passwordResetToken: String,
     passwordResetExpires: Date,
+    // ----------------------------------------
+
+    // --- 3. ADDED: Fields for Refresh Token ---
+    refreshToken: {
+        type: String,
+        select: false, // Don't send refresh token in query results
+    },
+    refreshTokenExpiry: {
+        type: Date,
+        select: false,
+    },
+    // Absolute session timeout - user must re-login after this date (regardless of refresh)
+    sessionExpiresAt: {
+        type: Date,
+        select: false,
+    },
     // ----------------------------------------
 
 }, { timestamps: true });

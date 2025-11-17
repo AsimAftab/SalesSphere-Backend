@@ -113,7 +113,32 @@ const organizationSchema = new mongoose.Schema({
     isActive: {
         type: Boolean,
         default: true,
-    }
+    },
+    subscriptionHistory: [{
+        extendedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+            required: true
+        },
+        extensionDate: {
+            type: Date,
+            default: Date.now,
+            required: true
+        },
+        previousEndDate: {
+            type: Date,
+            required: true
+        },
+        newEndDate: {
+            type: Date,
+            required: true
+        },
+        extensionDuration: {
+            type: String,
+            enum: ['6months', '12months'],
+            required: true
+        }
+    }]
 }, { timestamps: true });
 
 // Pre-save middleware to calculate subscription end date
