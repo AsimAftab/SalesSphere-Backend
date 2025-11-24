@@ -238,7 +238,8 @@ exports.getAllInvoices = async (req, res, next) => {
         }
 
         const invoices = await Invoice.find(query)
-            .select('invoiceNumber partyName totalAmount status createdAt expectedDeliveryDate')
+            .select('invoiceNumber partyName totalAmount status createdAt expectedDeliveryDate createdBy')
+            .populate('createdBy', 'name email')
             .sort({ createdAt: -1 });
 
         res.status(200).json({ success: true, count: invoices.length, data: invoices });

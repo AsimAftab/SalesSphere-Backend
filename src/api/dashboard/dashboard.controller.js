@@ -168,12 +168,84 @@ exports.getTeamPerformance = async (req, res) => {
 // =============================
 exports.getAttendanceSummary = async (req, res) => {
   try {
+    const { organizationId } = req.user;
+    if (!organizationId) return res.status(400).json({ success: false, message: 'organizationId missing' });
+
+    const orgObjectId = toObjectIdIfNeeded(organizationId);
+
+    const Attendance = require('../attendance/attendance.model');
+    const Organization = require('../organizations/organization.model');
+
+    // Get org timezone
+    const orgData = await Organization.findById(orgObjectId).select('timezone');
+    const timezone = orgData?.timezone || 'UTC';
+
+    // Get UTC range for today in org timezone
+    const { startUTC: today, endUTC: tomorrow } = getUTCRangeForDateInTimeZone(new Date(), timezone);
+
+    // Get total team strength (active employees in organization, excluding admin/superadmin/developer)
+    const teamStrength = await User.countDocuments({
+      organizationId: orgObjectId,
+      isActive: true,
+      role: { $nin: ['superadmin', 'developer', 'admin'] }
+    });
+
+    // Get today's attendance records
+    const attendanceRecords = await Attendance.aggregate([
+      {
+        $match: {
+          organizationId: orgObjectId,
+          date: { $gte: today, $lt: tomorrow }
+        }
+      },
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    // Process attendance counts
+    let present = 0;
+    let absent = 0;
+    let onLeave = 0;
+    let halfDay = 0;
+    let weeklyOff = 0;
+
+    attendanceRecords.forEach(record => {
+      switch (record._id) {
+        case 'P':
+          present = record.count;
+          break;
+        case 'A':
+          absent = record.count;
+          break;
+        case 'L':
+          onLeave = record.count;
+          break;
+        case 'H':
+          halfDay = record.count;
+          break;
+        case 'W':
+          weeklyOff = record.count;
+          break;
+      }
+    });
+
+    // Calculate attendance rate (present + half day / team strength * 100)
+    const attendanceRate = teamStrength > 0 
+      ? ((present + halfDay * 0.5) / teamStrength * 100).toFixed(2)
+      : 0;
+
     const summary = {
-      teamStrength: 35,
-      present: 28,
-      absent: 4,
-      onLeave: 3,
-      attendanceRate: 80.0,
+      teamStrength,
+      present,
+      absent,
+      onLeave,
+      halfDay,
+      weeklyOff,
+      attendanceRate: parseFloat(attendanceRate),
     };
 
     return res.status(200).json({ success: true, data: summary });
