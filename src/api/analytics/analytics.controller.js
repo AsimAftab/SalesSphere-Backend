@@ -83,44 +83,66 @@ exports.getSalesTrend = async (req, res) => {
 
         const monthInt = parseInt(month);
         const yearInt = parseInt(year);
-        
+
         const monthStart = new Date(yearInt, monthInt - 1, 1);
         const monthEnd = new Date(yearInt, monthInt, 1);
 
-        // Get sales data aggregated by week
-        const salesData = await Invoice.aggregate([
-            {
-                $match: {
-                    organizationId: organizationId,
-                    createdAt: { $gte: monthStart, $lt: monthEnd },
-                    status: { $ne: 'rejected' }
-                }
-            },
-            {
-                $group: {
-                    _id: { $week: '$createdAt' },
-                    weekStart: { $min: '$createdAt' },
-                    totalSales: { $sum: '$totalAmount' }
-                }
-            },
-            {
-                $sort: { weekStart: 1 }
-            },
-            {
-                $project: {
-                    _id: 0,
-                    week: '$_id',
-                    weekStart: 1,
-                    totalSales: 1
-                }
+        // Calculate week boundaries for the month
+        const weeks = [];
+        let weekStart = new Date(monthStart);
+        let weekNumber = 1;
+
+        while (weekStart < monthEnd) {
+            // Calculate week end (7 days from start or end of month, whichever is earlier)
+            let weekEnd = new Date(weekStart);
+            weekEnd.setDate(weekEnd.getDate() + 7);
+
+            if (weekEnd > monthEnd) {
+                weekEnd = new Date(monthEnd);
             }
+
+            weeks.push({
+                weekNumber,
+                start: new Date(weekStart),
+                end: new Date(weekEnd)
+            });
+
+            weekStart = weekEnd;
+            weekNumber++;
+        }
+
+        // Get sales data for each week using $facet for parallel execution
+        const facetStages = {};
+        weeks.forEach((week) => {
+            facetStages[`week${week.weekNumber}`] = [
+                {
+                    $match: {
+                        organizationId: organizationId,
+                        createdAt: { $gte: week.start, $lt: week.end },
+                        status: { $ne: 'rejected' }
+                    }
+                },
+                {
+                    $group: {
+                        _id: null,
+                        totalSales: { $sum: '$totalAmount' }
+                    }
+                }
+            ];
+        });
+
+        const salesData = await Invoice.aggregate([
+            { $facet: facetStages }
         ]);
 
-        // Create week labels (Week 1, Week 2, etc.)
-        const formattedData = salesData.map((item, index) => ({
-            week: `Week ${index + 1}`,
-            sales: item.totalSales
-        }));
+        // Format the response
+        const formattedData = weeks.map((week) => {
+            const weekData = salesData[0][`week${week.weekNumber}`];
+            return {
+                week: `Week ${week.weekNumber}`,
+                sales: weekData.length > 0 ? weekData[0].totalSales : 0
+            };
+        });
 
         res.status(200).json({
             success: true,
@@ -128,10 +150,10 @@ exports.getSalesTrend = async (req, res) => {
         });
     } catch (error) {
         console.error('Error fetching sales trend:', error);
-        res.status(500).json({ 
+        res.status(500).json({
             success: false,
-            message: 'Server Error', 
-            error: error.message 
+            message: 'Server Error',
+            error: error.message
         });
     }
 };

@@ -16,6 +16,19 @@ const productSchemaValidation = z.object({
     // --- END NEW FIELD ---
 });
 
+// --- Bulk Import Validation Schema ---
+const bulkProductSchema = z.object({
+    productName: z.string({ required_error: "Product name is required" }).min(1, "Product name is required"),
+    category: z.string({ required_error: "Category is required" }).min(1, "Category is required"),
+    price: z.coerce.number({ required_error: "Price is required" }).min(0, "Price cannot be negative"),
+    qty: z.coerce.number({ required_error: "Quantity is required" }).min(0, "Quantity cannot be negative"),
+    serialNo: z.string().optional().nullable(),
+}).passthrough(); // Allow extra fields like 'sno' from Excel export
+
+const bulkImportSchema = z.object({
+    products: z.array(bulkProductSchema).min(1, "At least one product is required").max(500, "Maximum 500 products per import"),
+});
+
 // --- HELPER FUNCTIONS ---
 
 // Find or create a category
@@ -297,6 +310,146 @@ exports.deleteProduct = async (req, res, next) => {
 
         res.status(200).json({ success: true, message: 'Product deleted successfully' });
     } catch (error) {
+        next(error);
+    }
+};
+
+// @desc    Bulk import products
+// @route   POST /api/v1/products/bulk-import
+// @access  Private (Admin, Manager)
+exports.bulkImportProducts = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId, _id: userId } = req.user;
+
+        // 1. Validate request body
+        const validatedData = bulkImportSchema.parse(req.body);
+        const { products } = validatedData;
+
+        // 2. Extract unique category names from products
+        const categoryNames = [...new Set(products.map(p => p.category.trim()))];
+
+        // 3. Find existing categories for this organization (case-insensitive)
+        const existingCategories = await Category.find({
+            organizationId: organizationId,
+            name: { $in: categoryNames.map(name => new RegExp(`^${name}$`, 'i')) }
+        });
+
+        // Create a map of category name (lowercase) to category document
+        const categoryMap = new Map();
+        existingCategories.forEach(cat => {
+            categoryMap.set(cat.name.toLowerCase(), cat);
+        });
+
+        // 4. Find categories that need to be created
+        const categoriesToCreate = categoryNames.filter(
+            name => !categoryMap.has(name.toLowerCase())
+        );
+
+        // 5. Bulk create missing categories
+        if (categoriesToCreate.length > 0) {
+            const newCategories = await Category.insertMany(
+                categoriesToCreate.map(name => ({
+                    name: name,
+                    organizationId: organizationId
+                })),
+                { ordered: false }
+            );
+            // Add new categories to the map
+            newCategories.forEach(cat => {
+                categoryMap.set(cat.name.toLowerCase(), cat);
+            });
+        }
+
+        // 6. Check for existing product names in the organization
+        const productNames = products.map(p => p.productName.trim());
+        const existingProducts = await Product.find({
+            organizationId: organizationId,
+            productName: { $in: productNames.map(name => new RegExp(`^${name}$`, 'i')) }
+        }).select('productName');
+
+        const existingProductNames = new Set(
+            existingProducts.map(p => p.productName.toLowerCase())
+        );
+
+        // 7. Separate products into duplicates and new products
+        const duplicates = [];
+        const newProducts = [];
+
+        products.forEach((product, index) => {
+            const productNameLower = product.productName.trim().toLowerCase();
+            if (existingProductNames.has(productNameLower)) {
+                duplicates.push({
+                    row: index + 1,
+                    productName: product.productName,
+                    reason: 'Product name already exists'
+                });
+            } else {
+                // Check for duplicates within the import itself
+                const isDuplicateInBatch = newProducts.some(
+                    p => p.productName.toLowerCase() === productNameLower
+                );
+                if (isDuplicateInBatch) {
+                    duplicates.push({
+                        row: index + 1,
+                        productName: product.productName,
+                        reason: 'Duplicate product name in import batch'
+                    });
+                } else {
+                    newProducts.push(product);
+                }
+            }
+        });
+
+        // 8. Prepare products for bulk insert
+        const productsToInsert = newProducts.map(product => {
+            const category = categoryMap.get(product.category.trim().toLowerCase());
+            return {
+                productName: product.productName.trim(),
+                serialNo: product.serialNo || null,
+                price: product.price,
+                qty: product.qty,
+                category: category._id,
+                organizationId: organizationId,
+                createdBy: userId,
+                isActive: true
+            };
+        });
+
+        // 9. Bulk insert products
+        let insertedProducts = [];
+        if (productsToInsert.length > 0) {
+            insertedProducts = await Product.insertMany(productsToInsert, { ordered: false });
+        }
+
+        // 10. Prepare response
+        const response = {
+            success: true,
+            message: `Bulk import completed`,
+            data: {
+                totalReceived: products.length,
+                successfullyImported: insertedProducts.length,
+                duplicatesSkipped: duplicates.length,
+                categoriesCreated: categoriesToCreate.length,
+            }
+        };
+
+        // Include duplicates info if any
+        if (duplicates.length > 0) {
+            response.data.duplicates = duplicates;
+        }
+
+        res.status(201).json(response);
+
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({
+                success: false,
+                message: "Validation failed",
+                errors: error.flatten().fieldErrors
+            });
+        }
+        console.error("Error in bulk import:", error);
         next(error);
     }
 };
