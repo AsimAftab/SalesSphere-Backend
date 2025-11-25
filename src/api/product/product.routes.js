@@ -5,7 +5,8 @@ const {
     getAllProducts,
     getProductById,
     updateProduct,
-    deleteProduct
+    deleteProduct,
+    bulkImportProducts
 } = require('./product.controller');
 const { protect, restrictTo } = require('../../middlewares/auth.middleware');
 
@@ -29,6 +30,13 @@ const imageUpload = multer({
 router.use(protect);
 
 // --- Product CRUD Routes ---
+
+// Bulk import products (must be before /:id route)
+router.post(
+    '/bulk-import',
+    restrictTo('admin', 'manager'),
+    bulkImportProducts
+);
 
 // Create a product
 // Now uses multer to handle image upload
