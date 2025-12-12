@@ -36,7 +36,7 @@ const imageUpload = multer({
 router.use(protect);
 
 // --- SUPERADMIN ONLY: System Overview ---
-router.get('/system-overview', restrictTo('superadmin','developer'), userController.getSystemOverview);
+router.get('/system-overview', restrictTo('superadmin', 'developer'), userController.getSystemOverview);
 
 // --- SUPERADMIN ONLY: System User Management ---
 router.post(
@@ -94,12 +94,12 @@ router.put(
 // --- Routes for managing OTHER users (Admin/Manager only) ---
 router.route('/')
     .post(restrictTo('admin', 'manager'), imageUpload.single('avatar'), userController.createUser)
-    
+
     .get(restrictTo('admin', 'manager'), userController.getAllUsers);
 
 router.route('/:id')
-    .get(restrictTo('admin', 'manager','superadmin'), userController.getUserById)
-    .put(restrictTo('admin', 'manager'), imageUpload.single('avatar'), userController.updateUser) 
+    .get(restrictTo('admin', 'manager', 'superadmin'), userController.getUserById)
+    .put(restrictTo('admin', 'manager'), imageUpload.single('avatar'), userController.updateUser)
     .delete(restrictTo('admin', 'manager'), userController.deleteUser);
 
 // --- Attendance Summary for Specific Employee ---
@@ -113,6 +113,12 @@ router.post(
     userController.uploadUserDocuments
 );
 // --- END Admin/Manager Routes ---
+
+router.delete(
+    '/:id/documents/:documentId',
+    restrictTo('admin', 'manager'),
+    userController.deleteUserDocument
+);
 
 module.exports = router;
 

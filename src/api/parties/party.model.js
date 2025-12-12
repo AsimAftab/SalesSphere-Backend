@@ -62,6 +62,10 @@ const partySchema = new mongoose.Schema({
         ref: 'User',
         required: true,
     },
+    image: {
+        type: String,
+        default: null,
+    },
     // --- REMOVED isActive ---
     // isActive: {
     //   type: Boolean,

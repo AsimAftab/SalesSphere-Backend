@@ -1,5 +1,8 @@
 const Party = require('./party.model');
+const Organization = require('../organizations/organization.model');
 const { z } = require('zod');
+const cloudinary = require('../../config/cloudinary');
+const fs = require('fs');
 
 // --- Zod Validation Schema ---
 const partySchemaValidation = z.object({
@@ -74,6 +77,37 @@ exports.getAllParties = async (req, res, next) => {
     }
 };
 
+// @desc    Get all parties for logged-in user's organization
+// @route   GET /api/parties/details
+// @access  Private
+exports.getAllPartiesDetails = async (req, res, next) => {
+    try {
+        if (!req.user) {
+            return res.status(401).json({
+                success: false,
+                message: 'Not authenticated'
+            });
+        }
+
+        const { organizationId } = req.user;
+
+        // Fetch all parties belonging to the organization
+        const parties = await Party.find({ organizationId })
+            .sort({ createdAt: -1 })
+            .lean(); // Optional: returns plain JSON, faster
+
+        return res.status(200).json({
+            success: true,
+            count: parties.length,
+            data: parties
+
+        });
+
+    } catch (error) {
+        next(error);
+    }
+};
+
 // @desc    Get a single party by ID (no longer filters by isActive)
 exports.getPartyById = async (req, res, next) => {
     try {
@@ -84,10 +118,10 @@ exports.getPartyById = async (req, res, next) => {
             _id: req.params.id,
             organizationId: organizationId
         })
-        .select(
-            '_id partyName ownerName panVatNumber dateJoined description organizationId createdBy contact location createdAt updatedAt'
-        ) // Explicitly setting field order
-        .lean(); // <-- ADD .LEAN() TO RETURN A PLAIN JAVASCRIPT OBJECT
+            .select(
+                '_id partyName ownerName panVatNumber dateJoined description organizationId createdBy contact location createdAt updatedAt'
+            ) // Explicitly setting field order
+            .lean(); // <-- ADD .LEAN() TO RETURN A PLAIN JAVASCRIPT OBJECT
 
         if (!party) {
             return res.status(404).json({ success: false, message: 'Party not found' }); // Message simplified
@@ -151,6 +185,122 @@ exports.deleteParty = async (req, res, next) => { // Renamed function
         res.status(200).json({ success: true, message: 'Party deleted permanently' }); // Updated message
     } catch (error) {
         next(error);
+    }
+};
+
+
+// Helper function to safely delete a file
+const cleanupTempFile = (filePath) => {
+    if (filePath) {
+        fs.unlink(filePath, (err) => {
+            if (err) console.error(`Error removing temp file ${filePath}:`, err);
+        });
+    }
+};
+
+// @desc    Upload or update a party image
+// @route   POST /api/parties/:id/image
+// @access  Private (Admin, Manager, Salesperson)
+exports.uploadPartyImage = async (req, res, next) => {
+    let tempFilePath = req.file ? req.file.path : null;
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId, _id: userId } = req.user;
+        const { id } = req.params;
+
+        // Validate image file
+        if (!req.file) {
+            return res.status(400).json({ success: false, message: 'Please upload an image file' });
+        }
+
+        // Check if party exists and belongs to organization
+        const party = await Party.findOne({ _id: id, organizationId });
+        if (!party) {
+            cleanupTempFile(tempFilePath);
+            return res.status(404).json({ success: false, message: 'Party not found' });
+        }
+
+        // Fetch organization to get the name for folder structure
+        const organization = await Organization.findById(organizationId);
+        if (!organization) {
+            cleanupTempFile(tempFilePath);
+            return res.status(404).json({ success: false, message: 'Organization not found' });
+        }
+
+        // Upload to Cloudinary
+        const result = await cloudinary.uploader.upload(req.file.path, {
+            folder: `sales-sphere/${organization.name}/partiesImage/${party.partyName}/${id}`,
+            public_id: `${id}_image`,
+            overwrite: true,
+            transformation: [
+                { width: 1200, height: 800, crop: "limit" },
+                { fetch_format: "auto", quality: "auto" }
+            ]
+        });
+
+        cleanupTempFile(tempFilePath);
+        tempFilePath = null;
+
+        // Update party with new image URL
+        party.image = result.secure_url;
+        await party.save();
+
+        return res.status(200).json({
+            success: true,
+            message: 'Image uploaded successfully',
+            data: {
+                imageUrl: result.secure_url
+            }
+        });
+    } catch (error) {
+        cleanupTempFile(tempFilePath);
+        console.error('Error uploading party image:', error);
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+// @desc    Delete a party image
+// @route   DELETE /api/parties/:id/image
+// @access  Private (Admin, Manager)
+exports.deletePartyImage = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+        const { id } = req.params;
+
+        // Check if party exists
+        const party = await Party.findOne({ _id: id, organizationId });
+        if (!party) {
+            return res.status(404).json({ success: false, message: 'Party not found' });
+        }
+
+        if (!party.image) {
+            return res.status(400).json({ success: false, message: 'No image to delete' });
+        }
+
+        // Remove image field
+        party.image = null;
+        await party.save();
+
+        // Fetch organization name for cloudinary path reconstruction
+        const organization = await Organization.findById(organizationId);
+        if (organization) {
+            // Delete from Cloudinary
+            try {
+                await cloudinary.uploader.destroy(`sales-sphere/${organization.name}/partiesImage/${party.partyName}/${id}/${id}_image`);
+            } catch (cloudinaryError) {
+                console.error('Error deleting from Cloudinary:', cloudinaryError);
+                // Continue even if Cloudinary delete fails
+            }
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: 'Image deleted successfully'
+        });
+    } catch (error) {
+        console.error('Error deleting party image:', error);
+        return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
 // --- END MODIFICATION ---
