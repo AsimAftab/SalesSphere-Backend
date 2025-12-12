@@ -74,6 +74,38 @@ exports.getAllSites = async (req, res, next) => {
     }
 };
 
+// @desc    Get all sites for logged-in user's organization
+// @route   GET /api/sites/details
+// @access  Private
+exports.getAllSitesDetails = async (req, res, next) => {
+    try {
+        if (!req.user) {
+            return res.status(401).json({
+                success: false,
+                message: 'Not authenticated'
+            });
+        }
+
+        const { organizationId } = req.user;
+
+        // Fetch all sites belonging to the organization
+        const sites = await Site.find({ organizationId })
+            .sort({ createdAt: -1 })
+            .lean(); // Optional: returns plain JSON, faster
+
+        return res.status(200).json({
+            success: true,
+            count: sites.length,
+            data: sites
+
+        });
+
+    } catch (error) {
+        next(error);
+    }
+};
+
+
 // @desc    Get a single site by ID
 exports.getSiteById = async (req, res, next) => {
     try {

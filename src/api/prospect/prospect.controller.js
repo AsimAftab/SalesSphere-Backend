@@ -68,6 +68,37 @@ exports.getAllProspects = async (req, res, next) => {
     }
 };
 
+// @desc    Get all prospects for logged-in user's organization
+// @route   GET /api/prospects/details
+// @access  Private
+exports.getAllProspectsDetails = async (req, res, next) => {
+    try {
+        if (!req.user) {
+            return res.status(401).json({
+                success: false,
+                message: 'Not authenticated'
+            });
+        }
+
+        const { organizationId } = req.user;
+
+        // Fetch all prospects belonging to the organization
+        const prospects = await Prospect.find({ organizationId })
+            .sort({ createdAt: -1 })
+            .lean(); // Optional: returns plain JSON, faster
+
+        return res.status(200).json({
+            success: true,
+            count: prospects.length,
+            data: prospects
+        });
+
+    } catch (error) {
+        next(error);
+    }
+};
+
+
 // @desc    Get a single prospect by ID
 exports.getProspectById = async (req, res, next) => {
     try {

@@ -46,16 +46,16 @@ exports.createUser = async (req, res, next) => {
 
         // --- Step 2: Handle avatar upload AFTER getting newUser._id ---
         if (req.file && req.file.fieldname === 'avatar') {
-             try {
+            try {
                 const result = await cloudinary.uploader.upload(req.file.path, {
                     folder: `sales-sphere/avatars`,
                     // --- FIX: Use newUser._id for public_id ---
-                    public_id: `${newUser._id}_avatar`, 
+                    public_id: `${newUser._id}_avatar`,
                     // --- END FIX ---
                     overwrite: true,
                     transformation: [
-                         { width: 250, height: 250, gravity: "face", crop: "thumb" },
-                         { fetch_format: "auto", quality: "auto" }
+                        { width: 250, height: 250, gravity: "face", crop: "thumb" },
+                        { fetch_format: "auto", quality: "auto" }
                     ]
                 });
                 avatarUrl = result.secure_url;
@@ -65,26 +65,26 @@ exports.createUser = async (req, res, next) => {
                 // --- Step 3: Update the newly created user with the avatarUrl ---
                 newUser.avatarUrl = avatarUrl;
                 await newUser.save({ validateBeforeSave: false }); // Save the updated URL
-                
-             } catch (uploadError) {
-                 console.error("Avatar upload failed during user creation:", uploadError);
-                 // Keep tempAvatarPath for cleanup in final catch
-                 // User is created, but without the avatar. Might want to log this.
-             }
+
+            } catch (uploadError) {
+                console.error("Avatar upload failed during user creation:", uploadError);
+                // Keep tempAvatarPath for cleanup in final catch
+                // User is created, but without the avatar. Might want to log this.
+            }
         }
 
         // --- Step 4: Send Email ---
         await sendWelcomeEmail(newUser.email, temporaryPassword);
-        
+
         // Prepare response data (ensure password isn't included)
         const responseData = newUser.toObject(); // Convert to plain object if needed
-        delete responseData.password; 
+        delete responseData.password;
 
-        res.status(201).json({ 
-            success: true, 
+        res.status(201).json({
+            success: true,
             message: 'User created successfully. Temporary password sent via email.',
             data: responseData // Send the user data including avatarUrl if uploaded
-         });
+        });
 
     } catch (error) {
         cleanupTempFile(tempAvatarPath); // Clean up temp file if any error occurred
@@ -394,7 +394,7 @@ exports.getAllSystemUsers = async (req, res, next) => {
             role: { $in: ['superadmin', 'developer'] },
             isActive: true
         }).select('-password -refreshToken -refreshTokenExpiry -sessionExpiresAt')
-          .sort({ createdAt: -1 });
+            .sort({ createdAt: -1 });
 
         res.status(200).json({
             success: true,
@@ -592,7 +592,7 @@ exports.updateUser = async (req, res, next) => {
         // --- End Permission Checks ---
 
         // Whitelist fields & Validate Types
-        const allowedUpdates = [ 'name', 'email', 'phone', 'address', 'gender', 'dateOfBirth', 'panNumber', 'citizenshipNumber' ];
+        const allowedUpdates = ['name', 'email', 'phone', 'address', 'gender', 'dateOfBirth', 'panNumber', 'citizenshipNumber'];
         const updateData = {};
         for (const field of allowedUpdates) {
             if (Object.prototype.hasOwnProperty.call(req.body, field)) {
@@ -616,7 +616,7 @@ exports.updateUser = async (req, res, next) => {
             if (req.body.role === 'superadmin' || req.body.role === 'admin') return res.status(403).json({ success: false, message: 'Cannot assign admin or superadmin role.' });
             if (req.body.role === 'manager' && req.user.role !== 'admin') return res.status(403).json({ success: false, message: 'Only admins can assign the manager role.' });
             if (!User.schema.path('role').enumValues.includes(req.body.role)) return res.status(400).json({ success: false, message: 'Invalid role specified.' });
-            if(userToUpdate.role === 'admin') return res.status(403).json({ success: false, message: 'Cannot change the role of an admin account.' });
+            if (userToUpdate.role === 'admin') return res.status(403).json({ success: false, message: 'Cannot change the role of an admin account.' });
             updateData.role = req.body.role;
         }
 
@@ -628,17 +628,17 @@ exports.updateUser = async (req, res, next) => {
                     public_id: `${userIdToUpdate}_avatar`, // Use the target user's ID
                     overwrite: true,
                     transformation: [
-                         { width: 250, height: 250, gravity: "face", crop: "thumb" },
-                         { fetch_format: "auto", quality: "auto" }
+                        { width: 250, height: 250, gravity: "face", crop: "thumb" },
+                        { fetch_format: "auto", quality: "auto" }
                     ]
                 });
                 updateData.avatarUrl = result.secure_url; // Add avatar URL to the update data
                 cleanupTempFile(tempAvatarPath);
                 tempAvatarPath = null;
             } catch (uploadError) {
-                 console.error(`Avatar upload failed during update for user ${userIdToUpdate}:`, uploadError);
-                 // Decide: Fail the whole update or just skip avatar? Skipping for now.
-                 // Keep tempAvatarPath for cleanup in final catch
+                console.error(`Avatar upload failed during update for user ${userIdToUpdate}:`, uploadError);
+                // Decide: Fail the whole update or just skip avatar? Skipping for now.
+                // Keep tempAvatarPath for cleanup in final catch
             }
         }
         // --- End Avatar Update ---
@@ -650,8 +650,8 @@ exports.updateUser = async (req, res, next) => {
 
         res.status(200).json({ success: true, data: user });
     } catch (error) {
-         cleanupTempFile(tempAvatarPath); // Clean up avatar temp file on any error
-         if (error.code === 11000) return res.status(400).json({ success: false, message: 'Email already in use.' });
+        cleanupTempFile(tempAvatarPath); // Clean up avatar temp file on any error
+        if (error.code === 11000) return res.status(400).json({ success: false, message: 'Email already in use.' });
         next(error);
     }
 };
@@ -690,13 +690,13 @@ exports.updateMyProfileImage = async (req, res, next) => { // Added next for err
         tempFilePath = null;
 
         const user = await User.findByIdAndUpdate(req.user.id, { avatarUrl: result.secure_url }, { new: true });
-        if (!user) return res.status(404).json({ message: 'User not found after image update' }); 
+        if (!user) return res.status(404).json({ message: 'User not found after image update' });
 
         res.status(200).json({ success: true, message: 'Profile image updated successfully', data: { avatarUrl: user.avatarUrl } });
     } catch (error) {
         cleanupTempFile(tempFilePath);
         console.error("Profile image upload error:", error);
-        next(error); 
+        next(error);
     }
 };
 
@@ -772,6 +772,58 @@ exports.uploadUserDocuments = async (req, res, next) => {
     }
 };
 
+
+
+// Delete a specific document for a user
+exports.deleteUserDocument = async (req, res, next) => {
+    try {
+        const { id, documentId } = req.params;
+
+        const user = await User.findOne({ _id: id, organizationId: req.user.organizationId });
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        const document = user.documents.id(documentId);
+        if (!document) {
+            return res.status(404).json({ success: false, message: 'Document not found' });
+        }
+
+        let publicId = null;
+        try {
+            // Extract public_id from URL
+            const regex = /\/upload\/(?:v\d+\/)?(.+)$/;
+            const match = document.fileUrl.match(regex);
+            if (match && match[1]) {
+                publicId = match[1];
+                publicId = decodeURIComponent(publicId);
+            }
+        } catch (err) {
+            console.warn("Could not extract public_id from URL, attempting database removal anyway", err);
+        }
+
+        if (publicId) {
+            try {
+                await cloudinary.uploader.destroy(publicId, { resource_type: 'raw' });
+            } catch (cloudinaryError) {
+                console.error("Cloudinary deletion failed:", cloudinaryError);
+            }
+        }
+
+        document.deleteOne();
+        await user.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Document deleted successfully'
+        });
+
+    } catch (error) {
+        console.error("Delete Document error:", error);
+        next(error);
+    }
+};
+
 // Get logged-in user's profile
 exports.getMyProfile = async (req, res, next) => {
     try {
@@ -785,15 +837,15 @@ exports.getMyProfile = async (req, res, next) => {
 exports.updateMyProfile = async (req, res, next) => {
     try {
         // --- Whitelist updated ---
-        const allowedUpdates = [ 'name', 'email', 'phone', 'address', 'gender', 'dateOfBirth', 'panNumber', 'citizenshipNumber' ]; // Changed age to dateOfBirth
+        const allowedUpdates = ['name', 'email', 'phone', 'address', 'gender', 'dateOfBirth', 'panNumber', 'citizenshipNumber']; // Changed age to dateOfBirth
         const updateData = {};
         for (const field of allowedUpdates) {
-             if (Object.prototype.hasOwnProperty.call(req.body, field)) {
+            if (Object.prototype.hasOwnProperty.call(req.body, field)) {
                 const value = req.body[field];
                 // --- Type/Format validation for dateOfBirth ---
-                 if (field === 'dateOfBirth') {
+                if (field === 'dateOfBirth') {
                     if (value !== null && isNaN(Date.parse(value))) {
-                         return res.status(400).json({ message: `Invalid type or format for dateOfBirth` });
+                        return res.status(400).json({ message: `Invalid type or format for dateOfBirth` });
                     }
                     // Allow setting dateOfBirth to null or a valid date
                     updateData[field] = value ? new Date(value) : null;
@@ -801,12 +853,12 @@ exports.updateMyProfile = async (req, res, next) => {
                     // Allow null for other string fields if needed, otherwise check type
                     return res.status(400).json({ success: false, message: `Invalid type for ${field}. Expected string.` });
                 } else if (value !== null) { // Only assign non-null string values
-                     updateData[field] = value;
+                    updateData[field] = value;
                 }
-                 // If you want to allow explicitly setting string fields to null or empty string:
-                 // else {
-                 //    updateData[field] = value; // Assign null or "" if provided
-                 // }
+                // If you want to allow explicitly setting string fields to null or empty string:
+                // else {
+                //    updateData[field] = value; // Assign null or "" if provided
+                // }
             }
         }
         // --- End Whitelist/Validation ---
@@ -821,7 +873,7 @@ exports.updateMyProfile = async (req, res, next) => {
 
         res.status(200).json({ success: true, data: user });
     } catch (error) {
-         if (error.code === 11000) return res.status(400).json({ success: false, message: 'Email already in use.' });
+        if (error.code === 11000) return res.status(400).json({ success: false, message: 'Email already in use.' });
         next(error);
     }
 };

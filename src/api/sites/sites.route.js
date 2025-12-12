@@ -3,6 +3,7 @@ const multer = require('multer');
 const {
     createSite,
     getAllSites,
+    getAllSitesDetails,
     getSiteById,
     updateSite,
     deleteSite,
@@ -43,6 +44,12 @@ router.get(
 
 );
 
+// Get all sites for logged-in user's organization
+router.get(
+    '/details',
+    getAllSitesDetails
+);
+
 // Get single site (detail view) - Available to all roles
 router.get(
     '/:id',
@@ -73,7 +80,7 @@ router.post(
 // Delete a site image - Admin, Manager //TODO: Allow salesperson
 router.delete(
     '/:id/images/:imageNumber',
-    restrictTo('admin', 'manager','salesperson'),
+    restrictTo('admin', 'manager', 'salesperson'),
     deleteSiteImage
 );
 

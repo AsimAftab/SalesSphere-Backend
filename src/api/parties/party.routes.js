@@ -2,13 +2,30 @@ const express = require('express');
 const {
     createParty,
     getAllParties,
+    getAllPartiesDetails,
     getPartyById,
     updateParty,
-    deleteParty // Changed back to deleteParty for hard delete
+    deleteParty, // Use the deleteParty controller function
+    uploadPartyImage, // Import new controller
+    deletePartyImage // Import new controller
 } = require('./party.controller');
 const { protect, restrictTo } = require('../../middlewares/auth.middleware');
+const multer = require('multer');
 
 const router = express.Router();
+
+// Configure multer for party images
+const imageUpload = multer({
+    dest: 'tmp/',
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only image files up to 5MB are allowed!'), false);
+        }
+    }
+});
 
 // Apply 'protect' middleware to all routes in this file
 router.use(protect);
@@ -24,6 +41,12 @@ router.post(
 router.get(
     '/',
     getAllParties
+);
+
+// Get all parties for logged-in user's organization
+router.get(
+    '/details',
+    getAllPartiesDetails
 );
 
 // Get single party (detail view) - Available to all roles
@@ -47,6 +70,21 @@ router.delete(
     deleteParty // Use the deleteParty controller function
 );
 // --- END MODIFICATION ---
+
+// Upload or update a party image - Admin, Manager, Salesperson
+router.post(
+    '/:id/image',
+    restrictTo('admin', 'manager', 'salesperson'),
+    imageUpload.single('image'),
+    uploadPartyImage
+);
+
+// Delete a party image - Admin, Manager
+router.delete(
+    '/:id/image',
+    restrictTo('admin', 'manager'),
+    deletePartyImage
+);
 
 module.exports = router;
 

@@ -5,7 +5,8 @@ const {
     getProspectById,
     updateProspect,
     deleteProspect,
-    transferToParty
+    transferToParty,
+    getAllProspectsDetails
 } = require('./prospect.controller');
 const { protect, restrictTo } = require('../../middlewares/auth.middleware');
 
@@ -26,12 +27,19 @@ router.get(
     '/',
     getAllProspects
 );
+// Get all prospects for logged-in user's organization
+router.get(
+    '/details',
+    getAllProspectsDetails
+);
 
 // Get single prospect (detail view) - Available to all roles
 router.get(
     '/:id',
     getProspectById
 );
+
+
 
 // Update a prospect - Admin, Manager, and Salesperson
 router.put(
@@ -54,6 +62,7 @@ router.post(
     restrictTo('admin', 'manager'),
     transferToParty // <-- Added this controller function
 );
+
 
 module.exports = router;
 
