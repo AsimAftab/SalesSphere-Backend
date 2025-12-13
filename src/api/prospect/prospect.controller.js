@@ -1,4 +1,5 @@
 const Prospect = require('./prospect.model');
+const ProspectCategory = require('./prospectCategory.model');
 const Party = require('../parties/party.model.js'); // Corrected path
 const User = require('../users/user.model.js'); // Corrected path
 const { sendEmail } = require('../../utils/emailSender'); // <-- Assumed email utility
@@ -23,7 +24,57 @@ const prospectSchemaValidation = z.object({
         longitude: z.number({ required_error: "Longitude is required" }),
     }),
     description: z.string().optional(),
+    // --- NEW: Prospect Interest Validation ---
+    prospectInterest: z.array(z.object({
+        category: z.string({ required_error: "Category is required" }).min(1, "Category is required"),
+        brands: z.array(z.string()).min(1, "At least one brand is required")
+    })).optional(),
+    // --- END NEW ---
 });
+
+// --- Category Validation ---
+const categorySchemaValidation = z.object({
+    name: z.string({ required_error: "Category name is required" }).min(1, "Category name is required"),
+    brands: z.array(z.string()).optional()
+});
+
+// --- HELPER FUNCTIONS ---
+
+// Sync Prospect Interest Helper
+const syncProspectInterest = async (interests, organizationId) => {
+    if (!interests || interests.length === 0) return;
+
+    for (const item of interests) {
+        const categoryName = item.category.trim();
+        const brands = item.brands || [];
+
+        // Check if category exists
+        let category = await ProspectCategory.findOne({
+            name: { $regex: new RegExp(`^${categoryName}$`, 'i') },
+            organizationId: organizationId
+        });
+
+        if (category) {
+            // Update: Add new unique brands
+            if (brands.length > 0) {
+                const newBrands = brands.filter(b =>
+                    !category.brands.some(existing => existing.toLowerCase() === b.toLowerCase())
+                );
+                if (newBrands.length > 0) {
+                    category.brands.push(...newBrands);
+                    await category.save();
+                }
+            }
+        } else {
+            // Create: New category with brands
+            await ProspectCategory.create({
+                name: categoryName,
+                brands: brands,
+                organizationId: organizationId
+            });
+        }
+    }
+};
 
 // @desc    Create a new prospect
 exports.createProspect = async (req, res, next) => {
@@ -32,9 +83,13 @@ exports.createProspect = async (req, res, next) => {
         const { organizationId, _id: userId } = req.user;
 
         // Validate request body
-        const validatedData = prospectSchemaValidation.parse(req.body); // <-- Now validates prospectName
+        const validatedData = prospectSchemaValidation.parse(req.body);
 
-        // --- No duplicate check needed for prospects ---
+        // --- Sync Prospect Interest ---
+        if (validatedData.prospectInterest) {
+            await syncProspectInterest(validatedData.prospectInterest, organizationId);
+        }
+        // -----------------------------
 
         const newProspect = await Prospect.create({
             ...validatedData,
@@ -136,6 +191,12 @@ exports.updateProspect = async (req, res, next) => {
         if (validatedData.dateJoined) {
             validatedData.dateJoined = new Date(validatedData.dateJoined);
         }
+
+        // --- NEW: Sync Categories & Brands ---
+        if (validatedData.prospectInterest) {
+            await syncProspectInterest(validatedData.prospectInterest, organizationId);
+        }
+        // --- END ---
 
         const prospect = await Prospect.findOneAndUpdate(
             { _id: req.params.id, organizationId: organizationId },
@@ -476,6 +537,26 @@ exports.deleteProspectImage = async (req, res, next) => {
     } catch (error) {
         console.error('Error deleting prospect image:', error);
         return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+
+
+// @desc    Get all Prospect Categories
+// @route   GET /api/v1/prospects/categories
+// @access  Authenticated Users
+exports.getProspectCategories = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+
+        const categories = await ProspectCategory.find({ organizationId: organizationId })
+            .sort({ name: 1 })
+            .lean();
+
+        res.status(200).json({ success: true, count: categories.length, data: categories });
+    } catch (error) {
+        next(error);
     }
 };
 

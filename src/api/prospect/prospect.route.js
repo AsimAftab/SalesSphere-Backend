@@ -8,6 +8,8 @@ const {
     deleteProspect,
     transferToParty,
     getAllProspectsDetails,
+    createProspectCategory, // <-- Imported
+    getProspectCategories,   // <-- Imported,
     uploadProspectImage, // Import new controller function
     deleteProspectImage  // Import new controller function
 } = require('./prospect.controller');
@@ -49,6 +51,13 @@ router.get(
     '/details',
     getAllProspectsDetails
 );
+
+// --- Prospect Categories Routes ---
+router.get(
+    '/categories',
+    getProspectCategories
+);
+// ----------------------------------
 
 // Get single prospect (detail view) - Available to all roles
 router.get(

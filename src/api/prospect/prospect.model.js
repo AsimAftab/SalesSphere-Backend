@@ -75,6 +75,20 @@ const prospectSchema = new mongoose.Schema({
             message: 'A Prospect can have a maximum of 5 images'
         }
     },
+    // --- NEW: Prospect Interest ---
+    prospectInterest: [{
+        category: {
+            type: String,
+            required: [true, 'Category name is required'],
+            trim: true
+        },
+        brands: [{
+            type: String,
+            required: [true, 'Brand name is required'],
+            trim: true
+        }]
+    }],
+    // --- END NEW ---
     organizationId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Organization',
