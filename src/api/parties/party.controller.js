@@ -119,7 +119,7 @@ exports.getPartyById = async (req, res, next) => {
             organizationId: organizationId
         })
             .select(
-                '_id partyName ownerName panVatNumber dateJoined description organizationId createdBy contact location createdAt updatedAt'
+                '_id partyName ownerName panVatNumber dateJoined description organizationId createdBy contact location image createdAt updatedAt'
             ) // Explicitly setting field order
             .lean(); // <-- ADD .LEAN() TO RETURN A PLAIN JAVASCRIPT OBJECT
 
