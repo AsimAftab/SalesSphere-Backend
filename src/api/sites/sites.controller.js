@@ -1,4 +1,5 @@
 const Site = require('./sites.model');
+const Organization = require('../organizations/organization.model');
 const { z } = require('zod');
 const cloudinary = require('../../config/cloudinary');
 const fs = require('fs');
@@ -233,9 +234,20 @@ exports.uploadSiteImage = async (req, res, next) => {
             return res.status(404).json({ success: false, message: 'Site not found' });
         }
 
+        // Fetch Organization for folder path
+        const organization = await Organization.findById(organizationId);
+        if (!organization) {
+            cleanupTempFile(tempFilePath);
+            return res.status(404).json({ success: false, message: 'Organization not found' });
+        }
+
+        const orgName = organization.name;
+        const siteName = site.siteName;
+        const folderPath = `sales-sphere/${orgName}/sitesImage/${siteName}/${id}`;
+
         // Upload to Cloudinary
         const result = await cloudinary.uploader.upload(req.file.path, {
-            folder: `sales-sphere/sites/${id}`,
+            folder: folderPath,
             public_id: `${id}_image_${imageNum}`,
             overwrite: true,
             transformation: [
@@ -309,13 +321,23 @@ exports.deleteSiteImage = async (req, res, next) => {
             });
         }
 
+        // Fetch Organization for folder path construction
+        const organization = await Organization.findById(organizationId);
+        if (!organization) {
+            return res.status(404).json({ success: false, message: 'Organization not found' });
+        }
+
+        const orgName = organization.name;
+        const siteName = site.siteName;
+        const folderPath = `sales-sphere/${orgName}/sitesImage/${siteName}/${id}`;
+
         // Remove from array
         site.images.splice(imageIndex, 1);
         await site.save();
 
         // Optionally delete from Cloudinary
         try {
-            await cloudinary.uploader.destroy(`sales-sphere/sites/${id}/${id}_image_${imageNum}`);
+            await cloudinary.uploader.destroy(`${folderPath}/${id}_image_${imageNum}`);
         } catch (cloudinaryError) {
             console.error('Error deleting from Cloudinary:', cloudinaryError);
             // Continue even if Cloudinary delete fails

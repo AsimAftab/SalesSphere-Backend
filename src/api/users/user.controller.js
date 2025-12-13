@@ -1,4 +1,5 @@
 const User = require('./user.model');
+const Organization = require('../organizations/organization.model'); // Import Organization model
 const cloudinary = require('../../config/cloudinary');
 const crypto = require('crypto');
 const { sendWelcomeEmail } = require('../../utils/emailSender');
@@ -47,8 +48,13 @@ exports.createUser = async (req, res, next) => {
         // --- Step 2: Handle avatar upload AFTER getting newUser._id ---
         if (req.file && req.file.fieldname === 'avatar') {
             try {
+                // Fetch Organization Name
+                const organization = await Organization.findById(req.user.organizationId);
+                const orgName = organization ? organization.name : 'UnknownOrg';
+                const folderPath = `sales-sphere/${orgName}/usersImage/${newUser.name}/${newUser._id}`;
+
                 const result = await cloudinary.uploader.upload(req.file.path, {
-                    folder: `sales-sphere/avatars`,
+                    folder: folderPath,
                     // --- FIX: Use newUser._id for public_id ---
                     public_id: `${newUser._id}_avatar`,
                     // --- END FIX ---
@@ -324,8 +330,12 @@ exports.createOrgUser = async (req, res, next) => {
         // Handle optional avatar upload
         if (req.file && req.file.fieldname === 'avatar') {
             try {
+                // Organization name is already fetched into 'organization' variable above (line 284)
+                const orgName = organization.name;
+                const folderPath = `sales-sphere/${orgName}/usersImage/${newUser.name}/${newUser._id}`;
+
                 const result = await cloudinary.uploader.upload(req.file.path, {
-                    folder: `sales-sphere/avatars`,
+                    folder: folderPath,
                     public_id: `${newUser._id}_avatar`,
                     overwrite: true,
                     transformation: [
@@ -623,8 +633,19 @@ exports.updateUser = async (req, res, next) => {
         // --- Handle Optional Avatar Update ---
         if (req.file && req.file.fieldname === 'avatar') {
             try {
+                // Fetch Organization Name
+                const organization = await Organization.findById(req.user.organizationId);
+                const orgName = organization ? organization.name : 'UnknownOrg';
+                // Use userToUpdate.name (or new name if updating) - best to use current DB name or explicit new name
+                // But generally ID is stable. Folder structure relies on Name, so if name changes... 
+                // Currently keeping it simple based on current userToUpdate state unless name is in body.
+                // However, folder names usually stick to creation time names or need complex migration.
+                // For simplicity and consistency with Party/Prospect controller which just grabs current name:
+                const userName = updateData.name || userToUpdate.name;
+                const folderPath = `sales-sphere/${orgName}/usersImage/${userName}/${userIdToUpdate}`;
+
                 const result = await cloudinary.uploader.upload(req.file.path, {
-                    folder: `sales-sphere/avatars`,
+                    folder: folderPath,
                     public_id: `${userIdToUpdate}_avatar`, // Use the target user's ID
                     overwrite: true,
                     transformation: [
@@ -677,8 +698,13 @@ exports.updateMyProfileImage = async (req, res, next) => { // Added next for err
     try {
         if (!req.file) return res.status(400).json({ message: 'Please upload an image file' });
 
+        // Fetch Organization Name
+        const organization = await Organization.findById(req.user.organizationId);
+        const orgName = organization ? organization.name : 'UnknownOrg';
+        const folderPath = `sales-sphere/${orgName}/usersImage/${req.user.name}/${req.user.id}`;
+
         const result = await cloudinary.uploader.upload(req.file.path, {
-            folder: `sales-sphere/avatars`,
+            folder: folderPath,
             public_id: `${req.user.id}_avatar`, // Correct: Uses user ID
             overwrite: true,
             transformation: [
