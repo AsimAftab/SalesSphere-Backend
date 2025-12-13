@@ -228,6 +228,7 @@ exports.uploadPartyImage = async (req, res, next) => {
         }
 
         // Upload to Cloudinary
+        
         const result = await cloudinary.uploader.upload(req.file.path, {
             folder: `sales-sphere/${organization.name}/partiesImage/${party.partyName}/${id}`,
             public_id: `${id}_image`,

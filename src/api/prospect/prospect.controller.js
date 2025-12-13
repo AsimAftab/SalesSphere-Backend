@@ -2,6 +2,7 @@ const Prospect = require('./prospect.model');
 const ProspectCategory = require('./prospectCategory.model');
 const Party = require('../parties/party.model.js'); // Corrected path
 const User = require('../users/user.model.js'); // Corrected path
+const Organization = require('../organizations/organization.model.js'); // Import Organization model
 const { sendEmail } = require('../../utils/emailSender'); // <-- Assumed email utility
 const crypto = require('crypto'); // <-- Added for random string generation
 const { z } = require('zod');
@@ -432,9 +433,24 @@ exports.uploadProspectImage = async (req, res, next) => {
             return res.status(404).json({ success: false, message: 'Prospect not found' });
         }
 
+        // Fetch Organization for folder path
+        const organization = await Organization.findById(organizationId);
+        if (!organization) {
+            cleanupTempFile(tempFilePath);
+            return res.status(404).json({ success: false, message: 'Organization not found' });
+        }
+
+        // Sanitize names for folder path
+        // const sanitize = (name) => name.trim().replace(/\s+/g, '-').toLowerCase(); 
+        // Using raw names to match party.controller.js behavior for consistency
+        const orgName = organization.name;
+        const prospectName = prospect.prospectName;
+
+        const folderPath = `sales-sphere/${orgName}/prospectImage/${prospectName}/${id}`;
+
         // Upload to Cloudinary
         const result = await cloudinary.uploader.upload(req.file.path, {
-            folder: `sales-sphere/prospects/${id}`, // Different folder for prospects
+            folder: folderPath,
             public_id: `${id}_image_${imageNum}`,
             overwrite: true,
             transformation: [
@@ -507,7 +523,7 @@ exports.deleteProspectImage = async (req, res, next) => {
         // Find and remove the image
         // Ensure images array exists
         if (!prospect.images) {
-             return res.status(404).json({ success: false, message: `Image ${imageNum} not found` });
+            return res.status(404).json({ success: false, message: `Image ${imageNum} not found` });
         }
 
         const imageIndex = prospect.images.findIndex(img => img.imageNumber === imageNum);
@@ -518,13 +534,26 @@ exports.deleteProspectImage = async (req, res, next) => {
             });
         }
 
+        // Fetch Organization for folder path construction
+        const organization = await Organization.findById(organizationId);
+        if (!organization) {
+            return res.status(404).json({ success: false, message: 'Organization not found' });
+        }
+
+        // Sanitize names for folder path
+        // const sanitize = (name) => name.trim().replace(/\s+/g, '-').toLowerCase();
+        // Using raw names to match party.controller.js behavior for consistency
+        const orgName = organization.name;
+        const prospectName = prospect.prospectName;
+        const folderPath = `sales-sphere/${orgName}/prospectImage/${prospectName}/${id}`;
+
         // Remove from array
         prospect.images.splice(imageIndex, 1);
         await prospect.save();
 
         // Optionally delete from Cloudinary
         try {
-            await cloudinary.uploader.destroy(`sales-sphere/prospects/${id}/${id}_image_${imageNum}`);
+            await cloudinary.uploader.destroy(`${folderPath}/${id}_image_${imageNum}`);
         } catch (cloudinaryError) {
             console.error('Error deleting from Cloudinary:', cloudinaryError);
             // Continue even if Cloudinary delete fails
