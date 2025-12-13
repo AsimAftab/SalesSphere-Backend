@@ -54,6 +54,20 @@ const prospectSchema = new mongoose.Schema({
         type: String,
         trim: true,
     },
+    // --- NEW: Prospect Interest ---
+    prospectInterest: [{
+        category: {
+            type: String,
+            required: [true, 'Category name is required'],
+            trim: true
+        },
+        brands: [{
+            type: String,
+            required: [true, 'Brand name is required'],
+            trim: true
+        }]
+    }],
+    // --- END NEW ---
     organizationId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Organization',

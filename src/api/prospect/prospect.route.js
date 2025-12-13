@@ -6,7 +6,9 @@ const {
     updateProspect,
     deleteProspect,
     transferToParty,
-    getAllProspectsDetails
+    getAllProspectsDetails,
+    createProspectCategory, // <-- Imported
+    getProspectCategories   // <-- Imported
 } = require('./prospect.controller');
 const { protect, restrictTo } = require('../../middlewares/auth.middleware');
 
@@ -32,6 +34,13 @@ router.get(
     '/details',
     getAllProspectsDetails
 );
+
+// --- Prospect Categories Routes ---
+router.get(
+    '/categories',
+    getProspectCategories
+);
+// ----------------------------------
 
 // Get single prospect (detail view) - Available to all roles
 router.get(
