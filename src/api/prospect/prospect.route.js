@@ -9,7 +9,7 @@ const {
     transferToParty,
     getAllProspectsDetails,
     createProspectCategory, // <-- Imported
-    getProspectCategories   // <-- Imported,
+    getProspectCategories,   // <-- Imported,
     uploadProspectImage, // Import new controller function
     deleteProspectImage  // Import new controller function
 } = require('./prospect.controller');
