@@ -54,6 +54,27 @@ const prospectSchema = new mongoose.Schema({
         type: String,
         trim: true,
     },
+    images: {
+        type: [{
+            imageNumber: {
+                type: Number,
+                required: true,
+                min: 1,
+                max: 5
+            },
+            imageUrl: {
+                type: String,
+                required: true
+            }
+        }],
+        default: [],
+        validate: {
+            validator: function(images) {
+                return images.length <= 5;
+            },
+            message: 'A Prospect can have a maximum of 5 images'
+        }
+    },
     organizationId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Organization',

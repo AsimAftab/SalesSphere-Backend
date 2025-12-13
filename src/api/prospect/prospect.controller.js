@@ -4,6 +4,8 @@ const User = require('../users/user.model.js'); // Corrected path
 const { sendEmail } = require('../../utils/emailSender'); // <-- Assumed email utility
 const crypto = require('crypto'); // <-- Added for random string generation
 const { z } = require('zod');
+const cloudinary = require('../../config/cloudinary'); // Ensure this path matches your project structure
+const fs = require('fs'); // Required for file cleanup
 
 // --- Zod Validation Schema ---
 const prospectSchemaValidation = z.object({
@@ -110,7 +112,7 @@ exports.getProspectById = async (req, res, next) => {
             organizationId: organizationId
         })
             .select(
-                '_id prospectName ownerName panVatNumber dateJoined description organizationId createdBy contact location createdAt updatedAt' // <-- FIXED
+                '_id prospectName ownerName panVatNumber dateJoined description organizationId createdBy contact location images createdAt updatedAt' // <-- FIXED
             )
             .lean();
 
@@ -327,6 +329,153 @@ exports.transferToParty = async (req, res, next) => {
         }
         console.error("Error in transferToParty:", error);
         next(error);
+    }
+};
+
+const cleanupTempFile = (filePath) => {
+    if (filePath) {
+        fs.unlink(filePath, (err) => {
+            if (err) console.error(`Error removing temp file ${filePath}:`, err);
+        });
+    }
+};
+
+// @desc    Upload or update a prospect image
+exports.uploadProspectImage = async (req, res, next) => {
+    let tempFilePath = req.file ? req.file.path : null;
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+        const { id } = req.params;
+        const { imageNumber } = req.body;
+
+        // Validate image file
+        if (!req.file) {
+            return res.status(400).json({ success: false, message: 'Please upload an image file' });
+        }
+
+        // Validate imageNumber (Limit: 5 for prospects)
+        const imageNum = parseInt(imageNumber);
+        if (isNaN(imageNum) || imageNum < 1 || imageNum > 5) {
+            cleanupTempFile(tempFilePath);
+            return res.status(400).json({
+                success: false,
+                message: 'imageNumber must be between 1 and 5'
+            });
+        }
+
+        // Check if prospect exists and belongs to organization
+        const prospect = await Prospect.findOne({ _id: id, organizationId });
+        if (!prospect) {
+            cleanupTempFile(tempFilePath);
+            return res.status(404).json({ success: false, message: 'Prospect not found' });
+        }
+
+        // Upload to Cloudinary
+        const result = await cloudinary.uploader.upload(req.file.path, {
+            folder: `sales-sphere/prospects/${id}`, // Different folder for prospects
+            public_id: `${id}_image_${imageNum}`,
+            overwrite: true,
+            transformation: [
+                { width: 1200, height: 800, crop: "limit" },
+                { fetch_format: "auto", quality: "auto" }
+            ]
+        });
+
+        cleanupTempFile(tempFilePath);
+        tempFilePath = null;
+
+        // Initialize images array if it doesn't exist
+        if (!prospect.images) {
+            prospect.images = [];
+        }
+
+        // Check if image with this number already exists
+        const existingImageIndex = prospect.images.findIndex(img => img.imageNumber === imageNum);
+
+        if (existingImageIndex !== -1) {
+            // Update existing image
+            prospect.images[existingImageIndex].imageUrl = result.secure_url;
+        } else {
+            // Add new image
+            prospect.images.push({
+                imageNumber: imageNum,
+                imageUrl: result.secure_url
+            });
+        }
+
+        await prospect.save();
+
+        return res.status(200).json({
+            success: true,
+            message: existingImageIndex !== -1 ? 'Image updated successfully' : 'Image uploaded successfully',
+            data: {
+                imageNumber: imageNum,
+                imageUrl: result.secure_url
+            }
+        });
+    } catch (error) {
+        cleanupTempFile(tempFilePath);
+        console.error('Error uploading prospect image:', error);
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+// @desc    Delete a prospect image
+exports.deleteProspectImage = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+        const { id, imageNumber } = req.params;
+
+        // Validate imageNumber (Limit: 5)
+        const imageNum = parseInt(imageNumber);
+        if (isNaN(imageNum) || imageNum < 1 || imageNum > 5) {
+            return res.status(400).json({
+                success: false,
+                message: 'imageNumber must be between 1 and 5'
+            });
+        }
+
+        // Check if prospect exists and belongs to organization
+        const prospect = await Prospect.findOne({ _id: id, organizationId });
+        if (!prospect) {
+            return res.status(404).json({ success: false, message: 'Prospect not found' });
+        }
+
+        // Find and remove the image
+        // Ensure images array exists
+        if (!prospect.images) {
+             return res.status(404).json({ success: false, message: `Image ${imageNum} not found` });
+        }
+
+        const imageIndex = prospect.images.findIndex(img => img.imageNumber === imageNum);
+        if (imageIndex === -1) {
+            return res.status(404).json({
+                success: false,
+                message: `Image ${imageNum} not found`
+            });
+        }
+
+        // Remove from array
+        prospect.images.splice(imageIndex, 1);
+        await prospect.save();
+
+        // Optionally delete from Cloudinary
+        try {
+            await cloudinary.uploader.destroy(`sales-sphere/prospects/${id}/${id}_image_${imageNum}`);
+        } catch (cloudinaryError) {
+            console.error('Error deleting from Cloudinary:', cloudinaryError);
+            // Continue even if Cloudinary delete fails
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: 'Image deleted successfully'
+        });
+    } catch (error) {
+        console.error('Error deleting prospect image:', error);
+        return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
 

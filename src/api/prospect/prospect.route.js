@@ -1,4 +1,5 @@
 const express = require('express');
+const multer = require('multer'); // Import multer
 const {
     createProspect,
     getAllProspects,
@@ -6,11 +7,26 @@ const {
     updateProspect,
     deleteProspect,
     transferToParty,
-    getAllProspectsDetails
+    getAllProspectsDetails,
+    uploadProspectImage, // Import new controller function
+    deleteProspectImage  // Import new controller function
 } = require('./prospect.controller');
 const { protect, restrictTo } = require('../../middlewares/auth.middleware');
 
 const router = express.Router();
+
+// --- Configure multer for prospect images ---
+const imageUpload = multer({
+    dest: 'tmp/',
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only image files up to 5MB are allowed!'), false);
+        }
+    }
+});
 
 // Apply 'protect' middleware to all routes in this file
 router.use(protect);
@@ -27,6 +43,7 @@ router.get(
     '/',
     getAllProspects
 );
+
 // Get all prospects for logged-in user's organization
 router.get(
     '/details',
@@ -39,8 +56,6 @@ router.get(
     getProspectById
 );
 
-
-
 // Update a prospect - Admin, Manager, and Salesperson
 router.put(
     '/:id',
@@ -48,21 +63,35 @@ router.put(
     updateProspect
 );
 
-
 // Permanently delete a prospect - Admin, Manager
 router.delete(
     '/:id',
     restrictTo('admin', 'manager'),
-    deleteProspect // Use the deleteProspect controller function
+    deleteProspect
 );
 
 // Transfer a prospect to a party - Admin, Manager, Salesperson
 router.post(
-    '/:id/transfer', // <-- Added this route
+    '/:id/transfer',
     restrictTo('admin', 'manager'),
-    transferToParty // <-- Added this controller function
+    transferToParty
 );
 
+// --- NEW IMAGE ROUTES ---
+
+// Upload or update a prospect image
+router.post(
+    '/:id/images',
+    restrictTo('admin', 'manager', 'salesperson'), // Assuming salespersons can also upload images
+    imageUpload.single('image'),
+    uploadProspectImage
+);
+
+// Delete a prospect image
+router.delete(
+    '/:id/images/:imageNumber',
+    restrictTo('admin', 'manager', 'salesperson'),
+    deleteProspectImage
+);
 
 module.exports = router;
-
