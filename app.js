@@ -25,6 +25,7 @@ const territoryMapRoutes = require('./src/api/live-tracking/map-territory-view/m
 const analyticsRoutes = require('./src/api/analytics/analytics.route.js');
 const beatPlanRoutes = require('./src/api/beat-plans/beat-plan.route.js');
 const beatPlanTrackingRoutes = require('./src/api/beat-plans/tracking/tracking.route.js');
+const miscellaneousWorkRoutes = require('./src/api/miscellaneous-work/miscellaneous.route.js');
 
 dotenv.config();
 
@@ -159,10 +160,10 @@ const {
   getSecret: () => process.env.CSRF_SECRET || 'your-csrf-secret-key-change-in-production',
   cookieName: process.env.NODE_ENV === 'production' ? '__Host-psifi.x-csrf-token' : 'x-csrf-token',
   cookieOptions: {
-    sameSite: process.env.NODE_ENV === 'production' 
-      ? 'strict' 
-      : process.env.NODE_ENV === 'staging' 
-        ? 'none' 
+    sameSite: process.env.NODE_ENV === 'production'
+      ? 'strict'
+      : process.env.NODE_ENV === 'staging'
+        ? 'none'
         : 'lax', // none for staging (cross-site), lax for dev, strict for prod
     path: '/',
     secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging', // HTTPS for production and staging
@@ -176,12 +177,12 @@ const {
 // Conditionally apply CSRF protection
 app.use((req, res, next) => {
   const isMobileClient = req.headers['x-client-type'] === 'mobile';
-  
+
   if (isMobileClient) {
     // Skip CSRF for mobile clients using Bearer tokens
     return next();
   }
-  
+
   // Apply CSRF protection for web clients
   doubleCsrfProtection(req, res, (err) => {
     if (err) {
@@ -250,6 +251,7 @@ app.use('/api/v1/map', authLimiter, territoryMapRoutes);
 app.use('/api/v1/analytics', authLimiter, analyticsRoutes);
 app.use('/api/v1/beat-plans', authLimiter, beatPlanRoutes);
 app.use('/api/v1/beat-plans/tracking', authLimiter, beatPlanTrackingRoutes);
+app.use('/api/v1/miscellaneous-work', authLimiter, miscellaneousWorkRoutes);
 
 // Test Route
 app.get("/", (req, res) => {

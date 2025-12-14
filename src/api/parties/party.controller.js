@@ -228,7 +228,7 @@ exports.uploadPartyImage = async (req, res, next) => {
         }
 
         // Upload to Cloudinary
-        
+
         const result = await cloudinary.uploader.upload(req.file.path, {
             folder: `sales-sphere/${organization.name}/partiesImage/${party.partyName}/${id}`,
             public_id: `${id}_image`,
@@ -306,3 +306,124 @@ exports.deletePartyImage = async (req, res, next) => {
 };
 // --- END MODIFICATION ---
 
+// --- Zod Validation Schema for Bulk Import ---
+const bulkPartySchemaValidation = z.object({
+    partyName: z.string({ required_error: "Party name is required" }).min(1, "Party name is required"),
+    ownerName: z.string({ required_error: "Owner name is required" }).min(1, "Owner name is required"),
+    panVatNumber: z.string({ required_error: "PAN/VAT number is required" }).min(1, "PAN/VAT number is required").max(14),
+    contact: z.object({
+        phone: z.string({ required_error: "Phone number is required" }).min(1, "Phone number is required"),
+        email: z.string().email("Invalid email address").optional().or(z.literal('')),
+    }),
+    address: z.string().optional(), // Simple address string for bulk import
+    description: z.string().optional(),
+});
+
+// @desc    Bulk import parties from Excel/CSV
+// @route   POST /api/v1/parties/bulk-import
+// @access  Private (Admin, Manager)
+exports.bulkImportParties = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId, _id: userId } = req.user;
+
+        const { parties } = req.body;
+
+        if (!parties || !Array.isArray(parties) || parties.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Please provide an array of parties to import'
+            });
+        }
+
+        const results = {
+            successful: [],
+            failed: [],
+            duplicates: []
+        };
+
+        for (let i = 0; i < parties.length; i++) {
+            const partyData = parties[i];
+            const rowNumber = i + 1;
+
+            try {
+                // Validate party data
+                const validatedData = bulkPartySchemaValidation.parse(partyData);
+
+                // Check for existing party with same PAN/VAT
+                const existingParty = await Party.findOne({
+                    panVatNumber: validatedData.panVatNumber,
+                    organizationId,
+                });
+
+                if (existingParty) {
+                    results.duplicates.push({
+                        row: rowNumber,
+                        partyName: validatedData.partyName,
+                        panVatNumber: validatedData.panVatNumber,
+                        message: 'A party with this PAN/VAT number already exists'
+                    });
+                    continue;
+                }
+
+                // Create party with auto-generated dateJoined
+                const newParty = await Party.create({
+                    partyName: validatedData.partyName,
+                    ownerName: validatedData.ownerName,
+                    panVatNumber: validatedData.panVatNumber,
+                    contact: validatedData.contact,
+                    location: validatedData.address ? { address: validatedData.address } : undefined,
+                    description: validatedData.description,
+                    dateJoined: new Date(), // Auto-generated
+                    organizationId,
+                    createdBy: userId,
+                });
+
+                results.successful.push({
+                    row: rowNumber,
+                    partyName: newParty.partyName,
+                    _id: newParty._id
+                });
+
+            } catch (error) {
+                if (error instanceof z.ZodError) {
+                    results.failed.push({
+                        row: rowNumber,
+                        partyName: partyData.partyName || 'Unknown',
+                        errors: error.errors.map(e => ({ field: e.path.join('.'), message: e.message }))
+                    });
+                } else if (error.code === 11000) {
+                    results.duplicates.push({
+                        row: rowNumber,
+                        partyName: partyData.partyName || 'Unknown',
+                        panVatNumber: partyData.panVatNumber,
+                        message: 'Duplicate PAN/VAT number'
+                    });
+                } else {
+                    results.failed.push({
+                        row: rowNumber,
+                        partyName: partyData.partyName || 'Unknown',
+                        errors: [{ message: error.message || 'Unknown error' }]
+                    });
+                }
+            }
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: `Bulk import completed. ${results.successful.length} parties imported successfully.`,
+            data: {
+                totalProcessed: parties.length,
+                successfulCount: results.successful.length,
+                failedCount: results.failed.length,
+                duplicateCount: results.duplicates.length,
+                successful: results.successful,
+                failed: results.failed,
+                duplicates: results.duplicates
+            }
+        });
+    } catch (error) {
+        console.error('Error in bulk import:', error);
+        return res.status(500).json({ success: false, message: 'Server error during bulk import' });
+    }
+};
