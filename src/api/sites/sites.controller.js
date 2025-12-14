@@ -1,4 +1,5 @@
 const Site = require('./sites.model');
+const SiteCategory = require('./siteCategory.model');
 const Organization = require('../organizations/organization.model');
 const { z } = require('zod');
 const cloudinary = require('../../config/cloudinary');
@@ -8,6 +9,7 @@ const fs = require('fs');
 const siteSchemaValidation = z.object({
     siteName: z.string({ required_error: "Site name is required" }).min(1, "Site name is required"),
     ownerName: z.string({ required_error: "Owner name is required" }).min(1, "Owner name is required"),
+    subOrganization: z.string().optional(),
     dateJoined: z.string({ required_error: "Date joined is required" }).refine(val => !isNaN(Date.parse(val)), { message: "Invalid date format" }),
     contact: z.object({
         phone: z.string({ required_error: "Phone number is required" }).min(1, "Phone number is required"),
@@ -19,7 +21,72 @@ const siteSchemaValidation = z.object({
         longitude: z.number({ required_error: "Longitude is required" }),
     }),
     description: z.string().optional(),
+    siteInterest: z.array(z.object({
+        category: z.string({ required_error: "Category is required" }).min(1, "Category is required"),
+        brands: z.array(z.string()).min(1, "At least one brand is required"),
+        technicians: z.array(z.object({
+            name: z.string().min(1, "Technician name is required"),
+            phone: z.string().min(1, "Technician phone is required")
+        })).optional()
+    })).optional(),
 });
+
+// Sync Site Interest Helper
+const syncSiteInterest = async (interests, organizationId) => {
+    if (!interests || interests.length === 0) return;
+
+    for (const item of interests) {
+        const categoryName = item.category.trim();
+        const brands = item.brands || [];
+        const technicians = item.technicians || [];
+
+        // Check if category exists
+        let category = await SiteCategory.findOne({
+            name: { $regex: new RegExp(`^${categoryName}$`, 'i') },
+            organizationId: organizationId
+        });
+
+        if (category) {
+            let isUpdated = false;
+
+            // Update: Add new unique brands
+            if (brands.length > 0) {
+                const newBrands = brands.filter(b =>
+                    !category.brands.some(existing => existing.toLowerCase() === b.toLowerCase())
+                );
+                if (newBrands.length > 0) {
+                    category.brands.push(...newBrands);
+                    isUpdated = true;
+                }
+            }
+
+            // Update: Add new unique technicians
+            if (technicians.length > 0) {
+                const newTechnicians = technicians.filter(t =>
+                    !category.technicians.some(existing =>
+                        existing.phone === t.phone // Assume phone is unique identifier for simplicity
+                    )
+                );
+                if (newTechnicians.length > 0) {
+                    category.technicians.push(...newTechnicians);
+                    isUpdated = true;
+                }
+            }
+
+            if (isUpdated) {
+                await category.save();
+            }
+        } else {
+            // Create: New category with brands and technicians
+            await SiteCategory.create({
+                name: categoryName,
+                brands: brands,
+                technicians: technicians,
+                organizationId: organizationId
+            });
+        }
+    }
+};
 
 // @desc    Create a new site
 exports.createSite = async (req, res, next) => {
@@ -29,6 +96,12 @@ exports.createSite = async (req, res, next) => {
 
         // Validate request body
         const validatedData = siteSchemaValidation.parse(req.body);
+
+        // --- Sync Site Interest ---
+        if (validatedData.siteInterest) {
+            await syncSiteInterest(validatedData.siteInterest, organizationId);
+        }
+        // -----------------------------
 
         const newSite = await Site.create({
             ...validatedData,
@@ -139,7 +212,14 @@ exports.updateSite = async (req, res, next) => {
         const { id } = req.params;
 
         // Validate request body
+        // Validate request body
         const validatedData = siteSchemaValidation.parse(req.body);
+
+        // --- Sync Site Interest ---
+        if (validatedData.siteInterest) {
+            await syncSiteInterest(validatedData.siteInterest, organizationId);
+        }
+        // -----------------------------
 
         const site = await Site.findOne({ _id: id, organizationId });
         if (!site) {
@@ -350,5 +430,23 @@ exports.deleteSiteImage = async (req, res, next) => {
     } catch (error) {
         console.error('Error deleting site image:', error);
         return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+// @desc    Get all Site Categories
+// @route   GET /api/sites/categories
+// @access  Authenticated Users
+exports.getSiteCategories = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+
+        const categories = await SiteCategory.find({ organizationId: organizationId })
+            .sort({ name: 1 })
+            .lean();
+
+        res.status(200).json({ success: true, count: categories.length, data: categories });
+    } catch (error) {
+        next(error);
     }
 };

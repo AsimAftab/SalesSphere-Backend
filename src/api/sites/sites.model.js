@@ -11,6 +11,10 @@ const siteSchema = new mongoose.Schema({
         required: [true, 'Owner name is required'],
         trim: true,
     },
+    subOrganization: {
+        type: String,
+        trim: true,
+    },
     dateJoined: {
         type: Date,
         required: [true, 'Date joined is required'],
@@ -46,6 +50,27 @@ const siteSchema = new mongoose.Schema({
         type: String,
         trim: true,
     },
+    siteInterest: [{
+        category: {
+            type: String,
+            required: true,
+            trim: true
+        },
+        brands: [{
+            type: String,
+            trim: true
+        }],
+        technicians: [{
+            name: {
+                type: String,
+                trim: true
+            },
+            phone: {
+                type: String,
+                trim: true
+            }
+        }]
+    }],
     images: {
         type: [{
             imageNumber: {
@@ -61,7 +86,7 @@ const siteSchema = new mongoose.Schema({
         }],
         default: [],
         validate: {
-            validator: function(images) {
+            validator: function (images) {
                 return images.length <= 9;
             },
             message: 'A site can have a maximum of 9 images'
