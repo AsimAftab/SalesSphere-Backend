@@ -103,3 +103,6 @@ TRACKING_README.md
 DEPLOYMENT-WEBSOCKET.md
 nginx-salessphere360.conf
 test-socket.js
+
+postman/
+.postman/
