@@ -1,5 +1,6 @@
 const Site = require('./sites.model');
 const SiteCategory = require('./siteCategory.model');
+const SiteSubOrganization = require('./siteSubOrganization.model');
 const Organization = require('../organizations/organization.model');
 const { z } = require('zod');
 const cloudinary = require('../../config/cloudinary');
@@ -88,6 +89,27 @@ const syncSiteInterest = async (interests, organizationId) => {
     }
 };
 
+// Sync Sub-Organization Helper
+const syncSubOrganization = async (subOrgName, organizationId) => {
+    if (!subOrgName) return;
+
+    const trimmedName = subOrgName.trim();
+
+    // Check if sub-organization exists
+    const existingSubOrg = await SiteSubOrganization.findOne({
+        name: { $regex: new RegExp(`^${trimmedName}$`, 'i') },
+        organizationId: organizationId
+    });
+
+    if (!existingSubOrg) {
+        // Create new sub-organization
+        await SiteSubOrganization.create({
+            name: trimmedName,
+            organizationId: organizationId
+        });
+    }
+};
+
 // @desc    Create a new site
 exports.createSite = async (req, res, next) => {
     try {
@@ -100,6 +122,12 @@ exports.createSite = async (req, res, next) => {
         // --- Sync Site Interest ---
         if (validatedData.siteInterest) {
             await syncSiteInterest(validatedData.siteInterest, organizationId);
+        }
+        // -----------------------------
+
+        // --- Sync Sub-Organization ---
+        if (validatedData.subOrganization) {
+            await syncSubOrganization(validatedData.subOrganization, organizationId);
         }
         // -----------------------------
 
@@ -218,6 +246,12 @@ exports.updateSite = async (req, res, next) => {
         // --- Sync Site Interest ---
         if (validatedData.siteInterest) {
             await syncSiteInterest(validatedData.siteInterest, organizationId);
+        }
+        // -----------------------------
+
+        // --- Sync Sub-Organization ---
+        if (validatedData.subOrganization) {
+            await syncSubOrganization(validatedData.subOrganization, organizationId);
         }
         // -----------------------------
 
@@ -446,6 +480,25 @@ exports.getSiteCategories = async (req, res, next) => {
             .lean();
 
         res.status(200).json({ success: true, count: categories.length, data: categories });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// @desc    Get all Site Sub-Organizations
+// @route   GET /api/sites/sub-organizations
+// @access  Authenticated Users
+exports.getSiteSubOrganizations = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+
+        const subOrgs = await SiteSubOrganization.find({ organizationId: organizationId })
+            .select('name')
+            .sort({ name: 1 })
+            .lean();
+
+        res.status(200).json({ success: true, count: subOrgs.length, data: subOrgs });
     } catch (error) {
         next(error);
     }
