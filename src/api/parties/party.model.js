@@ -36,16 +36,13 @@ const partySchema = new mongoose.Schema({
     location: {
         address: {
             type: String,
-            required: [true, 'Address is required'],
             trim: true,
         },
         latitude: {
             type: Number,
-            required: [true, 'Latitude is required'],
         },
         longitude: {
             type: Number,
-            required: [true, 'Longitude is required'],
         },
     },
     description: {
