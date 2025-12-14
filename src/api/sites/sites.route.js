@@ -9,7 +9,8 @@ const {
     deleteSite,
     uploadSiteImage,
     deleteSiteImage,
-    getSiteCategories
+    getSiteCategories,
+    getSiteSubOrganizations
 } = require('./sites.controller');
 const { protect, restrictTo } = require('../../middlewares/auth.middleware');
 
@@ -48,6 +49,13 @@ router.get(
 router.get(
     '/categories',
     getSiteCategories
+    
+);
+
+// Get all Site Sub-Organizations
+router.get(
+    '/sub-organizations',
+    getSiteSubOrganizations
 );
 
 // Get all sites for logged-in user's organization
