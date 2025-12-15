@@ -251,7 +251,7 @@ exports.getAllInvoices = async (req, res, next) => {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId, role, _id: userId } = req.user;
 
-        const query = { organizationId: organizationId };
+        const query = { organizationId: organizationId, isEstimate: false };
 
         if (role === 'salesperson') {
             query.createdBy = userId;
