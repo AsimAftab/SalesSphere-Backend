@@ -164,7 +164,7 @@ exports.getAllMiscellaneousWork = async (req, res, next) => {
         }
 
         const works = await MiscellaneousWork.find(query)
-            .populate('employeeId', 'name role')
+            .populate('employeeId', 'name role avatarUrl')
             .populate('assignedById', 'name')
             .sort({ workDate: -1, createdAt: -1 })
             .lean();
