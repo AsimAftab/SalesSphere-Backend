@@ -116,7 +116,7 @@ exports.getAllProspects = async (req, res, next) => {
         const { organizationId } = req.user;
 
         const prospects = await Prospect.find({ organizationId: organizationId })
-            .select('_id prospectName ownerName location.address') // <-- FIXED: Matched to your model
+            .select('_id prospectName ownerName location.address prospectInterest') // <-- FIXED: Matched to your model
             .sort({ createdAt: -1 })
             .lean();
 
