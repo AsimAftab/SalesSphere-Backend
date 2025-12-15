@@ -2,7 +2,7 @@ const Invoice = require('./invoice.model');
 const Party = require('../parties/party.model');
 const Product = require('../product/product.model');
 const Counter = require('./counter.model');
-const Organization = require('../organizations/organization.model'); 
+const Organization = require('../organizations/organization.model');
 const mongoose = require('mongoose');
 const { z } = require('zod');
 
@@ -10,14 +10,20 @@ const { z } = require('zod');
 const itemSchema = z.object({
     productId: z.string().refine(val => mongoose.Types.ObjectId.isValid(val), "Invalid product ID"),
     quantity: z.coerce.number().int().min(1, "Quantity must be at least 1"),
-    // --- UPDATED: Price is now optional ---
-    price: z.coerce.number().min(0, "Price cannot be negative").optional(), 
-    // --- END UPDATE ---
+    price: z.coerce.number().min(0, "Price cannot be negative").optional(),
+    discount: z.coerce.number().min(0, "Discount cannot be negative").max(100, "Discount cannot exceed 100%").optional().default(0),
 });
 
 const invoiceSchemaValidation = z.object({
     partyId: z.string().refine(val => mongoose.Types.ObjectId.isValid(val), "Invalid party ID"),
     expectedDeliveryDate: z.string().refine(val => !isNaN(Date.parse(val)), "Invalid delivery date"),
+    discount: z.coerce.number().min(0, "Discount cannot be negative").max(100, "Discount cannot exceed 100%").optional().default(0),
+    items: z.array(itemSchema).min(1, "At least one item is required"),
+});
+
+// --- Zod Validation Schema for Estimate (same as invoice minus expectedDeliveryDate) ---
+const estimateSchemaValidation = z.object({
+    partyId: z.string().refine(val => mongoose.Types.ObjectId.isValid(val), "Invalid party ID"),
     discount: z.coerce.number().min(0, "Discount cannot be negative").max(100, "Discount cannot exceed 100%").optional().default(0),
     items: z.array(itemSchema).min(1, "At least one item is required"),
 });
@@ -30,6 +36,16 @@ async function getNextInvoiceNumber(organizationId) {
     return `INV-${year}-${formattedSeq}`;
 }
 
+// --- HELPER: Generate Estimate Number (short random format) ---
+function generateEstimateNumber() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let suffix = '';
+    for (let i = 0; i < 8; i++) {
+        suffix += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return `EST-${suffix}`;
+}
+
 // --- HELPER: Modify Stock ---
 async function modifyStock(items, organizationId, session, operation = 'decrease') {
     const operations = items.map(item => {
@@ -39,7 +55,7 @@ async function modifyStock(items, organizationId, session, operation = 'decrease
         } else {
             update.$inc = { qty: item.quantity };
         }
-        
+
         const filter = {
             _id: item.productId,
             organizationId: organizationId,
@@ -59,7 +75,7 @@ async function modifyStock(items, organizationId, session, operation = 'decrease
     });
 
     const result = await Product.bulkWrite(operations, { session: session });
-    
+
     // If we tried to decrease stock and not all items were modified, it means stock was insufficient
     if (operation === 'decrease' && result.modifiedCount !== items.length) {
         throw new Error('Insufficient stock for one or more items.');
@@ -116,21 +132,25 @@ exports.createInvoice = async (req, res, next) => {
                     throw new Error(`Product with ID ${item.productId} not found.`);
                 }
                 if (product.qty < item.quantity) {
-                     throw new Error(`Insufficient stock for ${product.productName}. Available: ${product.qty}, Requested: ${item.quantity}`);
+                    throw new Error(`Insufficient stock for ${product.productName}. Available: ${product.qty}, Requested: ${item.quantity}`);
                 }
 
-                // --- UPDATED: Use custom price OR default product price ---
+                // Use custom price OR default product price
                 const priceToUse = item.price !== undefined ? item.price : product.price;
-                // --- END UPDATE ---
+                const itemDiscount = item.discount || 0;
 
-                const total = priceToUse * item.quantity;
+                // Calculate item total with discount
+                const itemSubtotal = priceToUse * item.quantity;
+                const itemDiscountAmount = (itemSubtotal * itemDiscount) / 100;
+                const total = itemSubtotal - itemDiscountAmount;
                 subtotal += total;
 
                 invoiceItems.push({
                     productId: product._id,
                     productName: product.productName,
-                    price: priceToUse, // <-- Use the determined price
+                    price: priceToUse,
                     quantity: item.quantity,
+                    discount: itemDiscount,
                     total: total,
                 });
 
@@ -255,8 +275,8 @@ exports.getInvoiceById = async (req, res, next) => {
         const { organizationId, role, _id: userId } = req.user;
 
         const query = {
-             _id: req.params.id,
-             organizationId: organizationId
+            _id: req.params.id,
+            organizationId: organizationId
         };
 
         if (role === 'salesperson') {
@@ -265,7 +285,7 @@ exports.getInvoiceById = async (req, res, next) => {
 
         const invoice = await Invoice.findOne(query)
             .populate('createdBy', 'name email');
-        
+
         if (!invoice) {
             return res.status(404).json({ success: false, message: 'Invoice not found' });
         }
@@ -282,7 +302,7 @@ exports.getInvoiceById = async (req, res, next) => {
 // exports.deleteInvoice = async (req, res, next) => {
 //     const session = await mongoose.startSession();
 //     session.startTransaction();
-    
+
 //     try {
 //         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
 //         const { organizationId } = req.user;
@@ -297,7 +317,7 @@ exports.getInvoiceById = async (req, res, next) => {
 //         }
 
 //         const shouldRestock = ['pending', 'in progress', 'in transit'].includes(invoice.status);
-        
+
 //         if (shouldRestock) {
 //             const itemsToRestock = invoice.items.map(item => ({
 //                 productId: item.productId,
@@ -438,7 +458,7 @@ exports.getPartiesOrderStats = async (req, res, next) => {
 
         // Build match condition based on role
         const matchCondition = { organizationId: organizationId };
-        
+
         if (role === 'salesperson') {
             matchCondition.createdBy = userId;
         }
@@ -532,7 +552,7 @@ exports.getPartyOrderStats = async (req, res, next) => {
             organizationId: organizationId,
             party: new mongoose.Types.ObjectId(partyId)
         };
-        
+
         if (role === 'salesperson') {
             matchCondition.createdBy = userId;
         }
@@ -611,7 +631,7 @@ exports.getPartyOrderStats = async (req, res, next) => {
             completed: result.summary.completedOrders,
             rejected: result.summary.rejectedOrders
         };
-        
+
         // Remove individual status fields
         delete result.summary.pendingOrders;
         delete result.summary.inProgressOrders;
@@ -627,5 +647,300 @@ exports.getPartyOrderStats = async (req, res, next) => {
     } catch (error) {
         console.error("Error fetching party order stats:", error);
         next(error);
+    }
+};
+
+// ============================================
+// ESTIMATE ENDPOINTS
+// ============================================
+
+// @desc    Create a new estimate (no stock deduction)
+// @route   POST /api/v1/invoices/estimates
+// @access  Private (Admin, Manager, Salesperson)
+exports.createEstimate = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId, _id: userId } = req.user;
+
+        const validatedData = estimateSchemaValidation.parse(req.body);
+        const { partyId, discount, items } = validatedData;
+
+        // Fetch party
+        const party = await Party.findOne({ _id: partyId, organizationId: organizationId });
+        if (!party) {
+            return res.status(404).json({ success: false, message: 'Party not found.' });
+        }
+
+        // Fetch organization
+        const organization = await Organization.findById(organizationId).select('name panVatNumber address phone');
+        if (!organization) {
+            return res.status(404).json({ success: false, message: 'Organization not found.' });
+        }
+
+        // Fetch products
+        const productIds = items.map(item => item.productId);
+        const products = await Product.find({
+            _id: { $in: productIds },
+            organizationId: organizationId
+        }).select('productName price');
+
+        if (products.length !== productIds.length) {
+            return res.status(404).json({ success: false, message: 'One or more products not found.' });
+        }
+
+        let subtotal = 0;
+        const estimateItems = [];
+
+        for (const item of items) {
+            const product = products.find(p => p._id.toString() === item.productId);
+            if (!product) {
+                return res.status(404).json({ success: false, message: `Product with ID ${item.productId} not found.` });
+            }
+
+            const priceToUse = item.price !== undefined ? item.price : product.price;
+            const itemDiscount = item.discount || 0;
+
+            // Calculate item total with discount
+            const itemSubtotal = priceToUse * item.quantity;
+            const itemDiscountAmount = (itemSubtotal * itemDiscount) / 100;
+            const total = itemSubtotal - itemDiscountAmount;
+            subtotal += total;
+
+            estimateItems.push({
+                productId: product._id,
+                productName: product.productName,
+                price: priceToUse,
+                quantity: item.quantity,
+                discount: itemDiscount,
+                total: total,
+            });
+        }
+
+        const discountAmount = (subtotal * discount) / 100;
+        const totalAmount = subtotal - discountAmount;
+
+        if (totalAmount < 0) {
+            return res.status(400).json({ success: false, message: 'Total amount cannot be negative after discount.' });
+        }
+
+        const estimateNumber = generateEstimateNumber();
+
+        const newEstimate = await Invoice.create({
+            party: partyId,
+            isEstimate: true,
+            estimateNumber: estimateNumber,
+            items: estimateItems,
+            subtotal: subtotal,
+            discount: discount,
+            totalAmount: totalAmount,
+            organizationId: organizationId,
+            createdBy: userId,
+            // Organization details
+            organizationName: organization.name,
+            organizationPanVatNumber: organization.panVatNumber,
+            organizationAddress: organization.address,
+            organizationPhone: organization.phone,
+            // Party details
+            partyName: party.partyName,
+            partyOwnerName: party.ownerName,
+            partyAddress: party.location?.address || '',
+            partyPanVatNumber: party.panVatNumber
+        });
+
+        return res.status(201).json({ success: true, data: newEstimate });
+
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ success: false, message: "Validation failed", errors: error.format() });
+        }
+        console.error("Error creating estimate:", error);
+        return next(error);
+    }
+};
+
+// @desc    Get all estimates
+// @route   GET /api/v1/invoices/estimates
+// @access  Private
+exports.getAllEstimates = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId, role, _id: userId } = req.user;
+
+        const query = { organizationId: organizationId, isEstimate: true };
+
+        if (role === 'salesperson') {
+            query.createdBy = userId;
+        }
+
+        const estimates = await Invoice.find(query)
+            .select('estimateNumber partyName totalAmount createdAt createdBy')
+            .populate('createdBy', 'name email')
+            .sort({ createdAt: -1 });
+
+        res.status(200).json({ success: true, count: estimates.length, data: estimates });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// @desc    Get a single estimate by ID
+// @route   GET /api/v1/invoices/estimates/:id
+// @access  Private
+exports.getEstimateById = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId, role, _id: userId } = req.user;
+
+        const query = {
+            _id: req.params.id,
+            organizationId: organizationId,
+            isEstimate: true
+        };
+
+        if (role === 'salesperson') {
+            query.createdBy = userId;
+        }
+
+        const estimate = await Invoice.findOne(query)
+            .populate('createdBy', 'name email');
+
+        if (!estimate) {
+            return res.status(404).json({ success: false, message: 'Estimate not found' });
+        }
+
+        res.status(200).json({ success: true, data: estimate });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// @desc    Delete an estimate
+// @route   DELETE /api/v1/invoices/estimates/:id
+// @access  Private (Admin, Manager)
+exports.deleteEstimate = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+
+        const estimate = await Invoice.findOneAndDelete({
+            _id: req.params.id,
+            organizationId: organizationId,
+            isEstimate: true
+        });
+
+        if (!estimate) {
+            return res.status(404).json({ success: false, message: 'Estimate not found' });
+        }
+
+        res.status(200).json({ success: true, message: 'Estimate deleted successfully' });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// @desc    Convert an estimate to an invoice (deducts stock, generates invoice number)
+// @route   POST /api/v1/invoices/estimates/:id/convert
+// @access  Private (Admin, Manager, Salesperson)
+exports.convertEstimateToInvoice = async (req, res, next) => {
+    const MAX_RETRIES = 3;
+    let attempt = 0;
+
+    const convertSchema = z.object({
+        expectedDeliveryDate: z.string().refine(val => !isNaN(Date.parse(val)), "Invalid delivery date"),
+    });
+
+    while (attempt < MAX_RETRIES) {
+        const session = await mongoose.startSession();
+        session.startTransaction();
+
+        try {
+            if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+            const { organizationId } = req.user;
+
+            const { expectedDeliveryDate } = convertSchema.parse(req.body);
+
+            // Find the estimate
+            const estimate = await Invoice.findOne({
+                _id: req.params.id,
+                organizationId: organizationId,
+                isEstimate: true
+            }).session(session);
+
+            if (!estimate) {
+                await session.abortTransaction();
+                return res.status(404).json({ success: false, message: 'Estimate not found' });
+            }
+
+            // Check stock availability for all items
+            const productIds = estimate.items.map(item => item.productId);
+            const products = await Product.find({
+                _id: { $in: productIds },
+                organizationId: organizationId
+            }).select('productName qty').session(session);
+
+            for (const item of estimate.items) {
+                const product = products.find(p => p._id.toString() === item.productId.toString());
+                if (!product) {
+                    throw new Error(`Product ${item.productName} not found.`);
+                }
+                if (product.qty < item.quantity) {
+                    throw new Error(`Insufficient stock for ${item.productName}. Available: ${product.qty}, Required: ${item.quantity}`);
+                }
+            }
+
+            // Deduct stock
+            const itemsToDecrement = estimate.items.map(item => ({
+                productId: item.productId,
+                quantity: item.quantity
+            }));
+            await modifyStock(itemsToDecrement, organizationId, session, 'decrease');
+
+            // Generate invoice number
+            const invoiceNumber = await getNextInvoiceNumber(organizationId);
+
+            // Convert estimate to invoice
+            estimate.isEstimate = false;
+            estimate.invoiceNumber = invoiceNumber;
+            estimate.expectedDeliveryDate = new Date(expectedDeliveryDate);
+            estimate.status = 'pending';
+
+            await estimate.save({ session: session });
+            await session.commitTransaction();
+
+            return res.status(200).json({
+                success: true,
+                message: 'Estimate converted to invoice successfully',
+                data: estimate
+            });
+
+        } catch (error) {
+            await session.abortTransaction();
+
+            if (error.errorLabels && error.errorLabels.includes('TransientTransactionError')) {
+                attempt++;
+                console.log(`Transaction conflict in convert. Retry attempt ${attempt}/${MAX_RETRIES}`);
+
+                if (attempt < MAX_RETRIES) {
+                    await new Promise(resolve => setTimeout(resolve, 50 * attempt));
+                    continue;
+                } else {
+                    return res.status(503).json({
+                        success: false,
+                        message: 'Unable to convert estimate due to high concurrency. Please try again.'
+                    });
+                }
+            }
+
+            if (error instanceof z.ZodError) {
+                return res.status(400).json({ success: false, message: "Validation failed", errors: error.format() });
+            }
+            if (error.message.includes('Insufficient stock')) {
+                return res.status(400).json({ success: false, message: error.message });
+            }
+            console.error("Error converting estimate:", error);
+            return next(error);
+        } finally {
+            session.endSession();
+        }
     }
 };
