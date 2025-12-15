@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 
-// --- This schema is unchanged ---
+// --- Item schema with discount ---
 const invoiceItemSchema = new mongoose.Schema({
     productId: {
         type: mongoose.Schema.Types.ObjectId,
@@ -20,6 +20,12 @@ const invoiceItemSchema = new mongoose.Schema({
         required: true,
         min: 1,
     },
+    discount: {
+        type: Number,
+        default: 0,
+        min: 0,
+        max: 100, // Discount percentage (0-100)
+    },
     total: {
         type: Number,
         required: true,
@@ -32,7 +38,7 @@ const invoiceSchema = new mongoose.Schema({
         ref: 'Party',
         required: [true, 'A party is required for an invoice'],
     },
-    
+
     // --- Copied Organization Data (FOR PDF) ---
     organizationName: {
         type: String,
@@ -63,7 +69,6 @@ const invoiceSchema = new mongoose.Schema({
     },
     partyAddress: {
         type: String,
-        required: [true, 'Party address is required for invoice'],
     },
     partyPanVatNumber: {
         type: String,
@@ -71,17 +76,27 @@ const invoiceSchema = new mongoose.Schema({
     },
     // --- END Copied Data ---
 
+    // --- Estimate/Invoice Type ---
+    isEstimate: {
+        type: Boolean,
+        default: false,
+    },
+    estimateNumber: {
+        type: String,
+        // Only required for estimates, set when isEstimate is true
+    },
+    // --- END Estimate Fields ---
+
     invoiceNumber: {
         type: String,
-        required: true,
-        // Note: Uniqueness is enforced by compound index (invoiceNumber + organizationId)
+        // Not required for estimates, only set when converted to invoice
     },
     expectedDeliveryDate: {
         type: Date,
-        required: [true, 'Expected delivery date is required'],
+        // Required for invoices, optional for estimates
     },
     items: [invoiceItemSchema],
-    
+
     subtotal: {
         type: Number,
         required: true,
@@ -96,13 +111,13 @@ const invoiceSchema = new mongoose.Schema({
         type: Number,
         required: true,
     },
-    
+
     status: {
         type: String,
         enum: ['pending', 'in progress', 'in transit', 'completed', 'rejected'],
         default: 'pending',
     },
-    
+
     organizationId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Organization',
@@ -115,10 +130,14 @@ const invoiceSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
-// ... indexes are unchanged ...
+// Indexes
 invoiceSchema.index({ organizationId: 1 });
 invoiceSchema.index({ party: 1 });
-invoiceSchema.index({ invoiceNumber: 1, organizationId: 1 }, { unique: true });
+invoiceSchema.index({ isEstimate: 1, organizationId: 1 });
+// Sparse index for invoiceNumber (only indexed when present)
+invoiceSchema.index({ invoiceNumber: 1, organizationId: 1 }, { unique: true, sparse: true });
+// Sparse index for estimateNumber
+invoiceSchema.index({ estimateNumber: 1, organizationId: 1 }, { unique: true, sparse: true });
 
 
 const Invoice = mongoose.model('Invoice', invoiceSchema);

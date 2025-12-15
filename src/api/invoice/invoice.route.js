@@ -6,7 +6,13 @@ const {
     deleteInvoice,
     updateInvoiceStatus,
     getPartiesOrderStats,
-    getPartyOrderStats
+    getPartyOrderStats,
+    // Estimate endpoints
+    createEstimate,
+    getAllEstimates,
+    getEstimateById,
+    deleteEstimate,
+    convertEstimateToInvoice
 } = require('./invoice.controller');
 const { protect, restrictTo } = require('../../middlewares/auth.middleware');
 
@@ -15,7 +21,46 @@ const router = express.Router();
 // Apply 'protect' middleware to all routes
 router.use(protect);
 
-// --- Invoice CRUD Routes ---
+// ============================================
+// ESTIMATE ROUTES (must come before /:id routes)
+// ============================================
+
+// Create a new estimate
+router.post(
+    '/estimates',
+    restrictTo('admin', 'manager', 'salesperson'),
+    createEstimate
+);
+
+// Get all estimates
+router.get(
+    '/estimates',
+    getAllEstimates
+);
+
+// Get a single estimate by ID
+router.get(
+    '/estimates/:id',
+    getEstimateById
+);
+
+// Delete an estimate
+router.delete(
+    '/estimates/:id',
+    restrictTo('admin', 'manager'),
+    deleteEstimate
+);
+
+// Convert estimate to invoice
+router.post(
+    '/estimates/:id/convert',
+    restrictTo('admin', 'manager', 'salesperson'),
+    convertEstimateToInvoice
+);
+
+// ============================================
+// INVOICE ROUTES
+// ============================================
 
 // Get aggregated order statistics for all parties
 router.get(
@@ -48,20 +93,11 @@ router.get(
     getInvoiceById
 );
 
-// // Delete an invoice (and restock items)
-// router.delete(
-//     '/:id',
-//     restrictTo('admin', 'manager'),
-//     deleteInvoice
-// );
-
-// --- NEW ROUTE ---
 // Update an invoice's status
 router.put(
     '/:id/status',
     restrictTo('admin', 'manager'),
-    updateInvoiceStatus // <-- 2. Add new route
+    updateInvoiceStatus
 );
-// --- END NEW ROUTE ---
 
 module.exports = router;
