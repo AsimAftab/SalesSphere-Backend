@@ -52,7 +52,7 @@ const uploadToCloudinary = async (file, orgName, productId) => {
 
     const result = await cloudinary.uploader.upload(file.path, {
         folder: `sales-sphere/${sanitizedOrgName}/products`,
-        public_id: productId, 
+        public_id: productId,
         overwrite: true,
         transformation: [
             { width: 400, height: 400, crop: "fill" },
@@ -96,7 +96,7 @@ exports.createProduct = async (req, res, next) => {
 
         // 2. Find or Create the Category
         const category = await getOrCreateCategory(validatedData.category, organizationId);
-        
+
         // 3. Fetch Organization name
         const organization = await Organization.findById(organizationId).select('name');
         if (!organization) {
@@ -114,12 +114,12 @@ exports.createProduct = async (req, res, next) => {
             organizationId: organizationId,
             createdBy: userId,
         });
-        
+
         // 5. Handle Image Upload
         if (req.file) {
             tempFilePath = req.file.path;
             const imageObject = await uploadToCloudinary(
-                req.file, 
+                req.file,
                 organization.name,
                 newProduct._id.toString()
             );
@@ -157,8 +157,8 @@ exports.getAllProducts = async (req, res, next) => {
             organizationId: organizationId,
             isActive: true
         })
-        .populate('category', 'name')
-        .sort({ createdAt: -1 }); 
+            .populate('category', 'name')
+            .sort({ createdAt: -1 });
 
         res.status(200).json({ success: true, count: products.length, data: products });
     } catch (error) {
@@ -177,7 +177,7 @@ exports.getProductById = async (req, res, next) => {
             organizationId: organizationId,
             isActive: true
         })
-        .populate('category', 'name');
+            .populate('category', 'name');
 
         if (!product) {
             return res.status(404).json({ success: false, message: 'Product not found' });
@@ -225,8 +225,8 @@ exports.updateProduct = async (req, res, next) => {
             }
             tempFilePath = req.file.path;
             const imageObject = await uploadToCloudinary(
-                req.file, 
-                organization.name, 
+                req.file,
+                organization.name,
                 product._id.toString()
             );
             product.image = imageObject;
@@ -235,7 +235,7 @@ exports.updateProduct = async (req, res, next) => {
         }
 
         // 5. Apply other updates
-        
+
         // --- NEW: Check for duplicate name on update ---
         if (validatedData.productName && validatedData.productName !== product.productName) {
             const existingProduct = await Product.findOne({
@@ -259,7 +259,7 @@ exports.updateProduct = async (req, res, next) => {
             product.qty = validatedData.qty;
         }
         // --- END FIX ---
-        
+
         // --- NEW: Handle serialNo update ---
         if (Object.prototype.hasOwnProperty.call(validatedData, 'serialNo')) {
             product.serialNo = validatedData.serialNo;
@@ -270,7 +270,7 @@ exports.updateProduct = async (req, res, next) => {
         const updatedProduct = await product.save();
 
         res.status(200).json({ success: true, data: updatedProduct });
-    
+
     } catch (error) {
         cleanupTempFile(tempFilePath);
         if (error instanceof z.ZodError) {
@@ -310,6 +310,112 @@ exports.deleteProduct = async (req, res, next) => {
 
         res.status(200).json({ success: true, message: 'Product deleted successfully' });
     } catch (error) {
+        next(error);
+    }
+};
+
+// @desc    Bulk delete products (Hard Delete)
+// @route   DELETE /api/v1/products/bulk-delete
+// @access  Private (Admin, Manager)
+exports.bulkDeleteProducts = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+
+        // 1. Validate request body
+        const { productIds } = req.body;
+
+        if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'productIds array is required and must not be empty'
+            });
+        }
+
+        // 2. Limit the number of products that can be deleted at once
+        if (productIds.length > 100) {
+            return res.status(400).json({
+                success: false,
+                message: 'Maximum 100 products can be deleted at once'
+            });
+        }
+
+        // 3. Find all products matching the IDs and belonging to this organization
+        const products = await Product.find({
+            _id: { $in: productIds },
+            organizationId: organizationId
+        });
+
+        if (products.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'No products found matching the provided IDs'
+            });
+        }
+
+        // 4. Collect public_ids for images to delete from Cloudinary
+        const imagePublicIds = products
+            .filter(product => product.image && product.image.public_id)
+            .map(product => product.image.public_id);
+
+        // 5. Delete products from database
+        const deleteResult = await Product.deleteMany({
+            _id: { $in: products.map(p => p._id) },
+            organizationId: organizationId
+        });
+
+        // 6. Delete images from Cloudinary (in parallel)
+        const imageDeleteResults = {
+            successful: 0,
+            failed: 0,
+            errors: []
+        };
+
+        if (imagePublicIds.length > 0) {
+            const deletePromises = imagePublicIds.map(async (publicId) => {
+                try {
+                    await cloudinary.uploader.destroy(publicId);
+                    return { success: true, publicId };
+                } catch (error) {
+                    console.error(`Cloudinary delete failed for ${publicId}:`, error);
+                    return { success: false, publicId, error: error.message };
+                }
+            });
+
+            const results = await Promise.all(deletePromises);
+            results.forEach(result => {
+                if (result.success) {
+                    imageDeleteResults.successful++;
+                } else {
+                    imageDeleteResults.failed++;
+                    imageDeleteResults.errors.push({
+                        publicId: result.publicId,
+                        error: result.error
+                    });
+                }
+            });
+        }
+
+        // 7. Prepare response
+        const notFoundIds = productIds.filter(
+            id => !products.some(p => p._id.toString() === id)
+        );
+
+        res.status(200).json({
+            success: true,
+            message: 'Bulk delete completed',
+            data: {
+                totalRequested: productIds.length,
+                productsDeleted: deleteResult.deletedCount,
+                notFound: notFoundIds.length,
+                notFoundIds: notFoundIds.length > 0 ? notFoundIds : undefined,
+                imagesDeleted: imageDeleteResults.successful,
+                imageDeleteFailed: imageDeleteResults.failed,
+                imageErrors: imageDeleteResults.errors.length > 0 ? imageDeleteResults.errors : undefined
+            }
+        });
+    } catch (error) {
+        console.error("Error in bulk delete:", error);
         next(error);
     }
 };

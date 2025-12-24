@@ -6,6 +6,7 @@ const {
     getProductById,
     updateProduct,
     deleteProduct,
+    bulkDeleteProducts,
     bulkImportProducts
 } = require('./product.controller');
 const { protect, restrictTo } = require('../../middlewares/auth.middleware');
@@ -36,6 +37,13 @@ router.post(
     '/bulk-import',
     restrictTo('admin', 'manager'),
     bulkImportProducts
+);
+
+// Bulk delete products (must be before /:id route)
+router.delete(
+    '/bulk-delete',
+    restrictTo('admin', 'manager'),
+    bulkDeleteProducts
 );
 
 // Create a product
