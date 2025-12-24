@@ -47,7 +47,7 @@ router.get(
 // Delete an estimate
 router.delete(
     '/estimates/:id',
-    restrictTo('admin', 'manager'),
+    restrictTo('admin', 'manager','salesperson'),
     deleteEstimate
 );
 
