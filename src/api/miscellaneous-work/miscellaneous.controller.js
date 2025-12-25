@@ -247,16 +247,25 @@ exports.updateMiscellaneousWork = async (req, res, next) => {
         const { organizationId } = req.user;
         const { id } = req.params;
 
-        const validatedData = miscellaneousWorkSchemaValidation.parse(req.body);
+        // Use .partial() to allow partial updates
+        const validatedData = miscellaneousWorkSchemaValidation.partial().parse(req.body);
 
         const work = await MiscellaneousWork.findOne({ _id: id, organizationId });
         if (!work) {
             return res.status(404).json({ success: false, message: 'Miscellaneous work not found' });
         }
 
+        // Prepare update data
+        const updateData = { ...validatedData };
+
+        // Only parse workDate if it's provided
+        if (validatedData.workDate) {
+            updateData.workDate = new Date(validatedData.workDate);
+        }
+
         const updatedWork = await MiscellaneousWork.findByIdAndUpdate(
             id,
-            { ...validatedData, workDate: new Date(validatedData.workDate) },
+            updateData,
             { new: true, runValidators: true }
         )
             .populate('employeeId', 'name role')
