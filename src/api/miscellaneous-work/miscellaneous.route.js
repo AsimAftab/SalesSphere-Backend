@@ -51,7 +51,7 @@ router.get(
 // Update a miscellaneous work entry - Admin, Manager
 router.put(
     '/:id',
-    restrictTo('admin', 'manager'),
+    restrictTo('admin', 'manager', 'salesperson'),
     updateMiscellaneousWork
 );
 

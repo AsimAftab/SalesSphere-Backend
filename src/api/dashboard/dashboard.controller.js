@@ -65,10 +65,11 @@ exports.getDashboardStats = async (req, res) => {
     const totalSalesToday = todayAgg[0]?.totalSalesToday || 0;
     const totalOrdersToday = todayAgg[0]?.totalOrdersToday || 0;
 
-    // 3) Pending orders (global count across all time)
+    // 3) Pending orders (global count across all time) - exclude estimates
     const pendingOrders = await Invoice.countDocuments({
       organizationId: orgObjectId,
-      status: 'pending'
+      status: 'pending',
+      isEstimate: false
     });
 
     return res.status(200).json({
@@ -234,7 +235,7 @@ exports.getAttendanceSummary = async (req, res) => {
     });
 
     // Calculate attendance rate (present + half day / team strength * 100)
-    const attendanceRate = teamStrength > 0 
+    const attendanceRate = teamStrength > 0
       ? ((present + halfDay * 0.5) / teamStrength * 100).toFixed(2)
       : 0;
 
