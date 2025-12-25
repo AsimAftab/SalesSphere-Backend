@@ -11,6 +11,7 @@ const miscellaneousWorkSchemaValidation = z.object({
     natureOfWork: z.string({ required_error: "Nature of work is required" }).min(1, "Nature of work is required"),
     address: z.string({ required_error: "Address is required" }).min(1, "Address is required"),
     workDate: z.string({ required_error: "Work date is required" }).refine(val => !isNaN(Date.parse(val)), { message: "Invalid date format" }),
+    assignedById: z.string().optional(), // Optional: defaults to current user if not provided
 });
 
 // Helper function to safely delete a file
@@ -114,7 +115,7 @@ exports.createMiscellaneousWork = async (req, res, next) => {
         const newWork = await MiscellaneousWork.create({
             ...validatedData,
             employeeId: userId,
-            assignedById: userId, // Default to current user, can be overridden
+            assignedById: validatedData.assignedById || userId, // Use provided value or default to current user
             organizationId,
             workDate,
         });
