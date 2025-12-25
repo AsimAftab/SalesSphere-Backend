@@ -8,7 +8,8 @@ const {
     deleteParty, // Use the deleteParty controller function
     uploadPartyImage, // Import new controller
     deletePartyImage, // Import new controller
-    bulkImportParties // Bulk import controller
+    bulkImportParties, // Bulk import controller
+    getPartyTypes // Party types controller
 } = require('./party.controller');
 const { protect, restrictTo } = require('../../middlewares/auth.middleware');
 const multer = require('multer');
@@ -48,6 +49,12 @@ router.get(
 router.get(
     '/details',
     getAllPartiesDetails
+);
+
+// Get all party types - Available to all roles
+router.get(
+    '/types',
+    getPartyTypes
 );
 
 // Bulk import parties - Admin, Manager
