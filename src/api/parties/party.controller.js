@@ -1,4 +1,5 @@
 const Party = require('./party.model');
+const PartyType = require('./partyType.model');
 const Organization = require('../organizations/organization.model');
 const { z } = require('zod');
 const cloudinary = require('../../config/cloudinary');
@@ -10,6 +11,7 @@ const partySchemaValidation = z.object({
     ownerName: z.string({ required_error: "Owner name is required" }).min(1, "Owner name is required"),
     dateJoined: z.string({ required_error: "Date joined is required" }).refine(val => !isNaN(Date.parse(val)), { message: "Invalid date format" }),
     panVatNumber: z.string({ required_error: "PAN/VAT number is required" }).min(1, "PAN/VAT number is required").max(14),
+    partyType: z.string().optional(),
     contact: z.object({
         phone: z.string({ required_error: "Phone number is required" }).min(1, "Phone number is required"),
         email: z.string().email("Invalid email address").optional().or(z.literal('')), // Allow empty string or valid email
@@ -21,6 +23,27 @@ const partySchemaValidation = z.object({
     }),
     description: z.string().optional(),
 });
+
+// Sync Party Type Helper
+const syncPartyType = async (partyTypeName, organizationId) => {
+    if (!partyTypeName) return;
+
+    const trimmedName = partyTypeName.trim();
+
+    // Check if party type exists
+    const existingPartyType = await PartyType.findOne({
+        name: { $regex: new RegExp(`^${trimmedName}$`, 'i') },
+        organizationId: organizationId
+    });
+
+    if (!existingPartyType) {
+        // Create new party type
+        await PartyType.create({
+            name: trimmedName,
+            organizationId: organizationId
+        });
+    }
+};
 
 // @desc    Create a new party
 exports.createParty = async (req, res, next) => {
@@ -38,6 +61,11 @@ exports.createParty = async (req, res, next) => {
         });
         if (existingParty) {
             return res.status(400).json({ success: false, message: 'A party with this PAN/VAT number already exists.' });
+        }
+
+        // Sync party type if provided
+        if (validatedData.partyType) {
+            await syncPartyType(validatedData.partyType, organizationId);
         }
 
         const newParty = await Party.create({
@@ -67,8 +95,9 @@ exports.getAllParties = async (req, res, next) => {
         const { organizationId } = req.user;
 
         const parties = await Party.find({ organizationId: organizationId })
-            .select('_id partyName ownerName location.address createdAt')
+            .select('_id partyName ownerName location.address partyType createdAt createdBy')
             .sort({ createdAt: -1 })
+            .populate('createdBy', 'name')
             .lean();
 
         res.status(200).json({ success: true, count: parties.length, data: parties });
@@ -119,7 +148,7 @@ exports.getPartyById = async (req, res, next) => {
             organizationId: organizationId
         })
             .select(
-                '_id partyName ownerName panVatNumber dateJoined description organizationId createdBy contact location image createdAt updatedAt'
+                '_id partyName ownerName panVatNumber dateJoined description organizationId partyType createdBy contact location image createdAt updatedAt'
             ) // Explicitly setting field order
             .lean(); // <-- ADD .LEAN() TO RETURN A PLAIN JAVASCRIPT OBJECT
 
@@ -142,6 +171,11 @@ exports.updateParty = async (req, res, next) => {
 
         if (validatedData.dateJoined) {
             validatedData.dateJoined = new Date(validatedData.dateJoined);
+        }
+
+        // Sync party type if provided
+        if (validatedData.partyType) {
+            await syncPartyType(validatedData.partyType, organizationId);
         }
 
         const party = await Party.findOneAndUpdate(
@@ -425,5 +459,24 @@ exports.bulkImportParties = async (req, res, next) => {
     } catch (error) {
         console.error('Error in bulk import:', error);
         return res.status(500).json({ success: false, message: 'Server error during bulk import' });
+    }
+};
+
+// @desc    Get all Party Types
+// @route   GET /api/v1/parties/types
+// @access  Authenticated Users
+exports.getPartyTypes = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+
+        const partyTypes = await PartyType.find({ organizationId: organizationId })
+            .select('name')
+            .sort({ name: 1 })
+            .lean();
+
+        res.status(200).json({ success: true, count: partyTypes.length, data: partyTypes });
+    } catch (error) {
+        next(error);
     }
 };

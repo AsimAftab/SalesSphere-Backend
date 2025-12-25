@@ -838,6 +838,74 @@ exports.deleteEstimate = async (req, res, next) => {
     }
 };
 
+// @desc    Bulk delete estimates
+// @route   DELETE /api/v1/invoices/estimates/bulk-delete
+// @access  Private (Admin, Manager)
+exports.bulkDeleteEstimates = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+
+        // 1. Validate request body
+        const { estimateIds } = req.body;
+
+        if (!estimateIds || !Array.isArray(estimateIds) || estimateIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'estimateIds array is required and must not be empty'
+            });
+        }
+
+        // 2. Limit the number of estimates that can be deleted at once
+        if (estimateIds.length > 100) {
+            return res.status(400).json({
+                success: false,
+                message: 'Maximum 100 estimates can be deleted at once'
+            });
+        }
+
+        // 3. Find all estimates matching the IDs and belonging to this organization
+        const estimates = await Invoice.find({
+            _id: { $in: estimateIds },
+            organizationId: organizationId,
+            isEstimate: true
+        });
+
+        if (estimates.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'No estimates found matching the provided IDs'
+            });
+        }
+
+        // 4. Delete estimates from database
+        const deleteResult = await Invoice.deleteMany({
+            _id: { $in: estimates.map(e => e._id) },
+            organizationId: organizationId,
+            isEstimate: true
+        });
+
+        // 5. Prepare response
+        const notFoundIds = estimateIds.filter(
+            id => !estimates.some(e => e._id.toString() === id)
+        );
+
+        res.status(200).json({
+            success: true,
+            message: 'Bulk delete completed',
+            data: {
+                totalRequested: estimateIds.length,
+                estimatesDeleted: deleteResult.deletedCount,
+                notFound: notFoundIds.length,
+                notFoundIds: notFoundIds.length > 0 ? notFoundIds : undefined
+            }
+        });
+    } catch (error) {
+        console.error("Error in bulk delete estimates:", error);
+        next(error);
+    }
+};
+
 // @desc    Convert an estimate to an invoice (deducts stock, generates invoice number)
 // @route   POST /api/v1/invoices/estimates/:id/convert
 // @access  Private (Admin, Manager, Salesperson)

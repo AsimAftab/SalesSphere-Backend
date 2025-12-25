@@ -12,6 +12,7 @@ const {
     getAllEstimates,
     getEstimateById,
     deleteEstimate,
+    bulkDeleteEstimates,
     convertEstimateToInvoice
 } = require('./invoice.controller');
 const { protect, restrictTo } = require('../../middlewares/auth.middleware');
@@ -44,10 +45,17 @@ router.get(
     getEstimateById
 );
 
+// Bulk delete estimates (must come before /:id route)
+router.delete(
+    '/estimates/bulk-delete',
+    restrictTo('admin', 'manager'),
+    bulkDeleteEstimates
+);
+
 // Delete an estimate
 router.delete(
     '/estimates/:id',
-    restrictTo('admin', 'manager','salesperson'),
+    restrictTo('admin', 'manager', 'salesperson'),
     deleteEstimate
 );
 

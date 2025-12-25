@@ -21,6 +21,10 @@ const partySchema = new mongoose.Schema({
         trim: true,
         maxlength: 14
     },
+    partyType: {
+        type: String,
+        trim: true,
+    },
     contact: {
         phone: {
             type: String,
