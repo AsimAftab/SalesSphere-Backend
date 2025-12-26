@@ -185,6 +185,54 @@ exports.getAllMiscellaneousWork = async (req, res, next) => {
     }
 };
 
+// @desc    Get miscellaneous work entries for the logged-in user (salesperson)
+// @route   GET /api/v1/miscellaneous-work/my-work
+// @access  Authenticated Users
+exports.getMyMiscellaneousWork = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId, _id: userId } = req.user;
+        const { date, month, year } = req.query;
+
+        // Fetch organization for timezone
+        const organization = await Organization.findById(organizationId).select('timezone');
+        const timezone = organization?.timezone || 'Asia/Kolkata';
+
+        // Query by organization AND the logged-in user's employee ID
+        let query = { organizationId, employeeId: userId };
+
+        // Filter by specific date
+        if (date) {
+            const { start, end } = getDayRangeInOrgTZ(date, timezone);
+            query.workDate = { $gte: start, $lte: end };
+        }
+        // Filter by month and year
+        else if (month && year) {
+            const { start, end } = getMonthRangeInOrgTZ(parseInt(year), parseInt(month), timezone);
+            query.workDate = { $gte: start, $lte: end };
+        }
+
+        const works = await MiscellaneousWork.find(query)
+            .populate('employeeId', 'name role avatarUrl')
+            .populate('assignedById', 'name')
+            .sort({ workDate: -1, createdAt: -1 })
+            .lean();
+
+        return res.status(200).json({
+            success: true,
+            count: works.length,
+            data: works.map((work, index) => ({
+                sNo: index + 1,
+                ...work
+            })),
+            organizationTimezone: timezone
+        });
+    } catch (error) {
+        console.error('Error fetching user miscellaneous work:', error);
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
 // @desc    Get a single miscellaneous work entry by ID
 // @route   GET /api/v1/miscellaneous-work/:id
 // @access  Authenticated Users
@@ -241,11 +289,11 @@ exports.getMiscellaneousWorkImages = async (req, res, next) => {
 
 // @desc    Update a miscellaneous work entry
 // @route   PUT /api/v1/miscellaneous-work/:id
-// @access  Authenticated Users (Admin, Manager)
+// @access  Authenticated Users (Admin, Manager, Salesperson - own work only)
 exports.updateMiscellaneousWork = async (req, res, next) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
-        const { organizationId } = req.user;
+        const { organizationId, _id: userId, role } = req.user;
         const { id } = req.params;
 
         // Use .partial() to allow partial updates
@@ -254,6 +302,14 @@ exports.updateMiscellaneousWork = async (req, res, next) => {
         const work = await MiscellaneousWork.findOne({ _id: id, organizationId });
         if (!work) {
             return res.status(404).json({ success: false, message: 'Miscellaneous work not found' });
+        }
+
+        // Salesperson can only edit their own work
+        if (role === 'salesperson' && work.employeeId.toString() !== userId.toString()) {
+            return res.status(403).json({
+                success: false,
+                message: 'You can only edit your own miscellaneous work'
+            });
         }
 
         // Prepare update data

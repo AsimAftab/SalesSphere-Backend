@@ -3,6 +3,7 @@ const multer = require('multer');
 const {
     createMiscellaneousWork,
     getAllMiscellaneousWork,
+    getMyMiscellaneousWork,
     getMiscellaneousWorkById,
     updateMiscellaneousWork,
     deleteMiscellaneousWork,
@@ -40,6 +41,13 @@ router.post(
 router.get(
     '/',
     getAllMiscellaneousWork
+);
+
+// Get miscellaneous work entries for the logged-in user (salesperson)
+// Note: This route must be defined BEFORE /:id to avoid conflicts
+router.get(
+    '/my-work',
+    getMyMiscellaneousWork
 );
 
 // Get single miscellaneous work entry
