@@ -66,7 +66,7 @@ router.put(
 // Delete a miscellaneous work entry - Admin, Manager
 router.delete(
     '/:id',
-    restrictTo('admin', 'manager'),
+    restrictTo('admin', 'manager', 'salesperson'),
     deleteMiscellaneousWork
 );
 
@@ -86,7 +86,7 @@ router.post(
 // Delete an image - Admin, Manager
 router.delete(
     '/:id/images/:imageNumber',
-    restrictTo('admin', 'manager'),
+    restrictTo('admin', 'manager', 'salesperson'),
     deleteMiscellaneousWorkImage
 );
 
