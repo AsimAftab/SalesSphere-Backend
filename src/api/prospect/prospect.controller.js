@@ -169,7 +169,7 @@ exports.getProspectById = async (req, res, next) => {
             organizationId: organizationId
         })
             .select(
-                '_id prospectName ownerName panVatNumber dateJoined description organizationId createdBy contact location images createdAt updatedAt' // <-- FIXED
+                '_id prospectName ownerName panVatNumber dateJoined description prospectInterest organizationId createdBy contact location images createdAt updatedAt' // <-- FIXED
             )
             .lean();
 
