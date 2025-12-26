@@ -10,8 +10,10 @@ const { DateTime } = require('luxon');
 const miscellaneousWorkSchemaValidation = z.object({
     natureOfWork: z.string({ required_error: "Nature of work is required" }).min(1, "Nature of work is required"),
     address: z.string({ required_error: "Address is required" }).min(1, "Address is required"),
+    latitude: z.number().optional(),
+    longitude: z.number().optional(),
     workDate: z.string({ required_error: "Work date is required" }).refine(val => !isNaN(Date.parse(val)), { message: "Invalid date format" }),
-    assignedById: z.string().optional(), // Optional: defaults to current user if not provided
+    assignedBy: z.string().optional(), // Optional: name of person who assigned the work
 });
 
 // Helper function to safely delete a file
@@ -115,7 +117,7 @@ exports.createMiscellaneousWork = async (req, res, next) => {
         const newWork = await MiscellaneousWork.create({
             ...validatedData,
             employeeId: userId,
-            assignedById: validatedData.assignedById || userId, // Use provided value or default to current user
+            assignedBy: validatedData.assignedBy || req.user.name, // Use provided value or default to current user's name
             organizationId,
             workDate,
         });
@@ -166,7 +168,6 @@ exports.getAllMiscellaneousWork = async (req, res, next) => {
 
         const works = await MiscellaneousWork.find(query)
             .populate('employeeId', 'name role avatarUrl')
-            .populate('assignedById', 'name')
             .sort({ workDate: -1, createdAt: -1 })
             .lean();
 
@@ -214,7 +215,6 @@ exports.getMyMiscellaneousWork = async (req, res, next) => {
 
         const works = await MiscellaneousWork.find(query)
             .populate('employeeId', 'name role avatarUrl')
-            .populate('assignedById', 'name')
             .sort({ workDate: -1, createdAt: -1 })
             .lean();
 
@@ -243,8 +243,7 @@ exports.getMiscellaneousWorkById = async (req, res, next) => {
         const { id } = req.params;
 
         const work = await MiscellaneousWork.findOne({ _id: id, organizationId })
-            .populate('employeeId', 'name role')
-            .populate('assignedById', 'name');
+            .populate('employeeId', 'name role');
 
         if (!work) {
             return res.status(404).json({ success: false, message: 'Miscellaneous work not found' });
@@ -325,8 +324,7 @@ exports.updateMiscellaneousWork = async (req, res, next) => {
             updateData,
             { new: true, runValidators: true }
         )
-            .populate('employeeId', 'name role')
-            .populate('assignedById', 'name');
+            .populate('employeeId', 'name role');
 
         return res.status(200).json({
             success: true,

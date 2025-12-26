@@ -16,10 +16,16 @@ const miscellaneousWorkSchema = new mongoose.Schema({
         required: [true, 'Address is required'],
         trim: true,
     },
-    assignedById: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
+    latitude: {
+        type: Number,
+    },
+    longitude: {
+        type: Number,
+    },
+    assignedBy: {
+        type: String,
         required: [true, 'Assigned by is required'],
+        trim: true,
     },
     images: [{
         imageNumber: { type: Number, min: 1, max: 2 },
