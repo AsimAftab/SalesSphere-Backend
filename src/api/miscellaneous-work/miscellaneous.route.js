@@ -7,6 +7,7 @@ const {
     getMiscellaneousWorkById,
     updateMiscellaneousWork,
     deleteMiscellaneousWork,
+    massBulkDeleteMiscellaneousWork,
     uploadMiscellaneousWorkImage,
     deleteMiscellaneousWorkImage,
     getMiscellaneousWorkImages
@@ -48,6 +49,14 @@ router.get(
 router.get(
     '/my-work',
     getMyMiscellaneousWork
+);
+
+// Mass delete miscellaneous work entries - Admin, Manager
+// Note: This route must be defined BEFORE /:id to avoid conflicts
+router.delete(
+    '/mass-delete',
+    restrictTo('admin', 'manager'),
+    massBulkDeleteMiscellaneousWork
 );
 
 // Get single miscellaneous work entry

@@ -5,6 +5,7 @@ const { z } = require('zod');
 const cloudinary = require('../../config/cloudinary');
 const fs = require('fs');
 const { DateTime } = require('luxon');
+const mongoose = require('mongoose');
 
 // --- Zod Validation Schema ---
 const miscellaneousWorkSchemaValidation = z.object({
@@ -366,6 +367,106 @@ exports.deleteMiscellaneousWork = async (req, res, next) => {
         });
     } catch (error) {
         console.error('Error deleting miscellaneous work:', error);
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+// @desc    Mass delete miscellaneous work entries with images
+// @route   DELETE /api/v1/miscellaneous-work/mass-delete
+// @access  Authenticated Users (Admin, Manager)
+exports.massBulkDeleteMiscellaneousWork = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+        const { ids } = req.body;
+
+        // Validate input
+        if (!ids || !Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Please provide an array of IDs to delete'
+            });
+        }
+
+        // Validate that all IDs are valid MongoDB ObjectIDs
+        const invalidIds = ids.filter(id => !mongoose.Types.ObjectId.isValid(id));
+        if (invalidIds.length > 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid ID format detected',
+                invalidIds: invalidIds,
+                hint: 'MongoDB ObjectIDs must be 24-character hexadecimal strings (0-9, a-f)'
+            });
+        }
+
+        // Fetch all works that match the IDs and belong to the organization
+        const works = await MiscellaneousWork.find({
+            _id: { $in: ids },
+            organizationId
+        });
+
+        if (works.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'No miscellaneous work entries found for the provided IDs'
+            });
+        }
+
+        // Fetch organization for folder path construction
+        const organization = await Organization.findById(organizationId);
+        if (!organization) {
+            return res.status(404).json({ success: false, message: 'Organization not found' });
+        }
+
+        const orgName = organization.name;
+        const deletionResults = {
+            totalRequested: ids.length,
+            totalFound: works.length,
+            totalDeleted: 0,
+            imagesDeleted: 0,
+            imagesFailed: 0,
+            errors: []
+        };
+
+        // Delete images from Cloudinary and then delete the work entries
+        for (const work of works) {
+            try {
+                // Delete all images associated with this work entry
+                if (work.images && work.images.length > 0) {
+                    const folderPath = buildFolderPath(orgName, work.workDate);
+
+                    for (const image of work.images) {
+                        try {
+                            const publicId = `${folderPath}/${work._id}_image_${image.imageNumber}`;
+                            await cloudinary.uploader.destroy(publicId);
+                            deletionResults.imagesDeleted++;
+                        } catch (cloudinaryError) {
+                            console.error(`Error deleting image from Cloudinary for work ${work._id}:`, cloudinaryError);
+                            deletionResults.imagesFailed++;
+                            // Continue even if Cloudinary delete fails
+                        }
+                    }
+                }
+
+                // Delete the work entry from database
+                await MiscellaneousWork.findByIdAndDelete(work._id);
+                deletionResults.totalDeleted++;
+            } catch (error) {
+                console.error(`Error deleting miscellaneous work ${work._id}:`, error);
+                deletionResults.errors.push({
+                    id: work._id,
+                    error: error.message
+                });
+            }
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: `Successfully deleted ${deletionResults.totalDeleted} miscellaneous work entries`,
+            data: deletionResults
+        });
+    } catch (error) {
+        console.error('Error in mass delete miscellaneous work:', error);
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
