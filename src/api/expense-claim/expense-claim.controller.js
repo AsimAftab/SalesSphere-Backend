@@ -290,6 +290,14 @@ exports.updateExpenseClaimStatus = async (req, res, next) => {
             });
         }
 
+        // Prevent users from approving/rejecting their own expense claims
+        if (expenseClaim.createdBy.toString() === userId.toString()) {
+            return res.status(403).json({
+                success: false,
+                message: 'You cannot approve or reject your own expense claim'
+            });
+        }
+
         // Update status
         expenseClaim.status = status;
 
