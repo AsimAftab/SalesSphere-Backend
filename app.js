@@ -27,6 +27,7 @@ const beatPlanRoutes = require('./src/api/beat-plans/beat-plan.route.js');
 const beatPlanTrackingRoutes = require('./src/api/beat-plans/tracking/tracking.route.js');
 const miscellaneousWorkRoutes = require('./src/api/miscellaneous-work/miscellaneous.route.js');
 const expenseClaimRoutes = require('./src/api/expense-claim/expense-claim.route.js');
+const tourPlanRoutes = require('./src/api/tour-plans/tour-plans.route.js');
 
 dotenv.config();
 
@@ -254,6 +255,7 @@ app.use('/api/v1/beat-plans', authLimiter, beatPlanRoutes);
 app.use('/api/v1/beat-plans/tracking', authLimiter, beatPlanTrackingRoutes);
 app.use('/api/v1/miscellaneous-work', authLimiter, miscellaneousWorkRoutes);
 app.use('/api/v1/expense-claims', authLimiter, expenseClaimRoutes);
+app.use('/api/v1/tour-plans', authLimiter, tourPlanRoutes);
 
 // Test Route
 app.get("/", (req, res) => {
