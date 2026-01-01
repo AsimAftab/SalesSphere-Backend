@@ -97,6 +97,37 @@ exports.getAllTourPlans = async (req, res, next) => {
     }
 };
 
+// @desc    Get my tour plans (for logged-in user)
+// @route   GET /api/v1/tour-plans/my-tour-plans
+// @access  Private
+exports.getMyTourPlans = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId, _id: userId } = req.user;
+
+        const query = { organizationId, createdBy: userId };
+
+        const tourPlans = await TourPlan.find(query)
+            .select('placeOfVisit startDate endDate purposeOfVisit status createdBy approvedBy createdAt')
+            .populate('createdBy', 'name email')
+            .populate('approvedBy', 'name email')
+            .sort({ createdAt: -1 })
+            .lean();
+
+        // Calculate numberOfDays for each tour plan using luxon
+        const tourPlansWithDays = tourPlans.map(plan => {
+            const startDate = DateTime.fromJSDate(new Date(plan.startDate));
+            const endDate = DateTime.fromJSDate(new Date(plan.endDate));
+            const numberOfDays = Math.ceil(endDate.diff(startDate, 'days').days) + 1;
+            return { ...plan, numberOfDays };
+        });
+
+        res.status(200).json({ success: true, count: tourPlansWithDays.length, data: tourPlansWithDays });
+    } catch (error) {
+        next(error);
+    }
+};
+
 // @desc    Get a single tour plan by ID
 // @route   GET /api/v1/tour-plans/:id
 // @access  Private

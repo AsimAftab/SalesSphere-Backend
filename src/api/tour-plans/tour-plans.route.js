@@ -2,6 +2,7 @@ const express = require('express');
 const {
     createTourPlan,
     getAllTourPlans,
+    getMyTourPlans,
     getTourPlanById,
     updateTourPlan,
     deleteTourPlan,
@@ -20,12 +21,13 @@ router.use(protect);
 // ============================================
 
 // 2. Specialized/Administrative Routes
-// Must stay ABOVE /:id to prevent "bulk-delete" being treated as an ID
+// Must stay ABOVE /:id to prevent "bulk-delete" or "my-tour-plans" being treated as an ID
 router.delete('/bulk-delete', restrictTo('admin', 'manager'), bulkDeleteTourPlans);
+router.get('/my-tour-plans', getMyTourPlans);
 
 // 3. Collection Routes (/)
 router.route('/')
-    .get(getAllTourPlans)
+    .get(restrictTo('admin', 'manager'), getAllTourPlans)
     .post(createTourPlan);
 
 // 4. Specific Resource Routes (/:id)

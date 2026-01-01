@@ -26,6 +26,15 @@ const cleanupTempFile = (filePath) => {
     }
 };
 
+// Centralized helper to get Org Timezone and Name (DRY - avoids repetitive DB calls)
+const getOrgSettings = async (orgId) => {
+    const org = await Organization.findById(orgId).select('timezone name').lean();
+    return {
+        timezone: org?.timezone || 'Asia/Kolkata',
+        orgName: org?.name || 'unknown'
+    };
+};
+
 // Parse date string and return a Date at UTC midnight with local date components
 // This prevents timezone issues when querying by date
 const parseDateToOrgTZ = (dateStr, timezone = 'Asia/Kolkata') => {
@@ -105,20 +114,18 @@ exports.createMiscellaneousWork = async (req, res, next) => {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId, _id: userId } = req.user;
 
-        // Fetch organization for timezone
-        const organization = await Organization.findById(organizationId).select('timezone');
-        const timezone = organization?.timezone || 'Asia/Kolkata';
+        // 🔥 OPTIMIZATION: Parallelize Validation and Org settings fetch
+        const [validatedData, { timezone }] = await Promise.all([
+            miscellaneousWorkSchemaValidation.parseAsync(req.body),
+            getOrgSettings(organizationId)
+        ]);
 
-        // Validate request body
-        const validatedData = miscellaneousWorkSchemaValidation.parse(req.body);
-
-        // Parse workDate using Luxon to handle timezone correctly
         const workDate = parseDateToOrgTZ(validatedData.workDate, timezone);
 
         const newWork = await MiscellaneousWork.create({
             ...validatedData,
             employeeId: userId,
-            assignedBy: validatedData.assignedBy || req.user.name, // Use provided value or default to current user's name
+            assignedBy: validatedData.assignedBy || req.user.name,
             organizationId,
             workDate,
         });
@@ -133,7 +140,7 @@ exports.createMiscellaneousWork = async (req, res, next) => {
             return res.status(400).json({
                 success: false,
                 message: 'Validation error',
-                errors: error.errors.map(e => ({ field: e.path.join('.'), message: e.message })),
+                errors: error.flatten().fieldErrors,
             });
         }
         console.error('Error creating miscellaneous work:', error);
@@ -150,9 +157,8 @@ exports.getAllMiscellaneousWork = async (req, res, next) => {
         const { organizationId } = req.user;
         const { date, month, year } = req.query;
 
-        // Fetch organization for timezone
-        const organization = await Organization.findById(organizationId).select('timezone');
-        const timezone = organization?.timezone || 'Asia/Kolkata';
+        // Use centralized helper for org settings
+        const { timezone } = await getOrgSettings(organizationId);
 
         let query = { organizationId };
 
@@ -196,9 +202,8 @@ exports.getMyMiscellaneousWork = async (req, res, next) => {
         const { organizationId, _id: userId } = req.user;
         const { date, month, year } = req.query;
 
-        // Fetch organization for timezone
-        const organization = await Organization.findById(organizationId).select('timezone');
-        const timezone = organization?.timezone || 'Asia/Kolkata';
+        // Use centralized helper for org settings
+        const { timezone } = await getOrgSettings(organizationId);
 
         // Query by organization AND the logged-in user's employee ID
         let query = { organizationId, employeeId: userId };
@@ -428,37 +433,52 @@ exports.massBulkDeleteMiscellaneousWork = async (req, res, next) => {
             errors: []
         };
 
-        // Delete images from Cloudinary and then delete the work entries
-        for (const work of works) {
+        // Delete images from Cloudinary and work entries in parallel for better performance
+        const deletePromises = works.map(async (work) => {
+            const result = { imagesDeleted: 0, imagesFailed: 0, success: true, id: work._id };
+
             try {
                 // Delete all images associated with this work entry
                 if (work.images && work.images.length > 0) {
                     const folderPath = buildFolderPath(orgName, work.workDate);
 
-                    for (const image of work.images) {
+                    // Delete images in parallel too
+                    const imageDeletePromises = work.images.map(async (image) => {
                         try {
                             const publicId = `${folderPath}/${work._id}_image_${image.imageNumber}`;
                             await cloudinary.uploader.destroy(publicId);
-                            deletionResults.imagesDeleted++;
+                            return { success: true };
                         } catch (cloudinaryError) {
                             console.error(`Error deleting image from Cloudinary for work ${work._id}:`, cloudinaryError);
-                            deletionResults.imagesFailed++;
-                            // Continue even if Cloudinary delete fails
+                            return { success: false };
                         }
-                    }
+                    });
+
+                    const imageResults = await Promise.all(imageDeletePromises);
+                    result.imagesDeleted = imageResults.filter(r => r.success).length;
+                    result.imagesFailed = imageResults.filter(r => !r.success).length;
                 }
 
                 // Delete the work entry from database
                 await MiscellaneousWork.findByIdAndDelete(work._id);
-                deletionResults.totalDeleted++;
             } catch (error) {
                 console.error(`Error deleting miscellaneous work ${work._id}:`, error);
-                deletionResults.errors.push({
-                    id: work._id,
-                    error: error.message
-                });
+                result.success = false;
+                result.error = error.message;
             }
-        }
+
+            return result;
+        });
+
+        const results = await Promise.all(deletePromises);
+
+        // Aggregate results
+        results.forEach(r => {
+            if (r.success) deletionResults.totalDeleted++;
+            deletionResults.imagesDeleted += r.imagesDeleted;
+            deletionResults.imagesFailed += r.imagesFailed;
+            if (r.error) deletionResults.errors.push({ id: r.id, error: r.error });
+        });
 
         return res.status(200).json({
             success: true,
@@ -497,21 +517,17 @@ exports.uploadMiscellaneousWorkImage = async (req, res, next) => {
             });
         }
 
-        // Check if work exists and belongs to organization
-        const work = await MiscellaneousWork.findOne({ _id: id, organizationId });
+        // 🔥 OPTIMIZATION: Fetch work and org info in parallel
+        const [work, { orgName }] = await Promise.all([
+            MiscellaneousWork.findOne({ _id: id, organizationId }),
+            getOrgSettings(organizationId)
+        ]);
+
         if (!work) {
             cleanupTempFile(tempFilePath);
             return res.status(404).json({ success: false, message: 'Miscellaneous work not found' });
         }
 
-        // Fetch Organization for folder path
-        const organization = await Organization.findById(organizationId);
-        if (!organization) {
-            cleanupTempFile(tempFilePath);
-            return res.status(404).json({ success: false, message: 'Organization not found' });
-        }
-
-        const orgName = organization.name;
         const folderPath = buildFolderPath(orgName, work.workDate);
 
         // Upload to Cloudinary
