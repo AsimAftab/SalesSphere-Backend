@@ -109,7 +109,7 @@ exports.getAllExpenseClaims = async (req, res, next) => {
         }
 
         const expenseClaims = await ExpenseClaim.find(query)
-            .select('title amount incurredDate category description status createdBy approvedBy party createdAt')
+            .select('title amount incurredDate category description status createdBy approvedBy party createdAt receipt')
             .populate('category', 'name')
             .populate('createdBy', 'name email')
             .populate('approvedBy', 'name email')
