@@ -6,16 +6,16 @@ const { sendEmail, sendWelcomeEmail } = require('../../utils/emailSender'); // <
 
 // Function to sign an access token (short-lived)
 const signToken = (id) => {
-    return jwt.sign({ id }, process.env.JWT_SECRET, {
-        expiresIn: process.env.JWT_EXPIRES_IN || '15m', // Short-lived: 15 minutes
-    });
+  return jwt.sign({ id }, process.env.JWT_SECRET, {
+    expiresIn: process.env.JWT_EXPIRES_IN || '15m', // Short-lived: 15 minutes
+  });
 };
 
 // Function to sign a refresh token (long-lived)
 const signRefreshToken = (id) => {
-    return jwt.sign({ id }, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET, {
-        expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d', // Long-lived: 7 days
-    });
+  return jwt.sign({ id }, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET, {
+    expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d', // Long-lived: 7 days
+  });
 };
 
 // Helper to send tokens (access + refresh) as both cookie AND in response
@@ -52,8 +52,8 @@ const sendTokenResponse = async (
         process.env.NODE_ENV === 'production'
           ? 'strict'
           : process.env.NODE_ENV === 'staging'
-          ? 'none'
-          : 'lax',
+            ? 'none'
+            : 'lax',
     };
     res.cookie('token', accessToken, accessTokenCookieOptions);
 
@@ -66,8 +66,8 @@ const sendTokenResponse = async (
         process.env.NODE_ENV === 'production'
           ? 'strict'
           : process.env.NODE_ENV === 'staging'
-          ? 'none'
-          : 'lax',
+            ? 'none'
+            : 'lax',
     };
     res.cookie('refreshToken', refreshToken, refreshTokenCookieOptions);
   }
@@ -305,57 +305,57 @@ exports.register = async (req, res) => {
 // @desc    Login a user
 // @route   POST /api/v1/auth/login
 exports.login = async (req, res) => {
-    try {
-        const { email, password } = req.body;
+  try {
+    const { email, password } = req.body;
 
-        if (!email || !password) {
-            return res.status(400).json({ message: 'Please provide email and password' });
-        }
-        if (typeof email !== 'string') {
-            return res.status(400).json({ message: 'Invalid email format' });
-        }
-
-        const user = await User.findOne({ email: { $eq: email } }).select('+password');
-
-        if (!user || !(await user.matchPassword(password))) {
-            return res.status(401).json({ message: 'Incorrect email or password' });
-        }
-         if (user.isActive === false) {
-            return res.status(403).json({
-                status: 'error',
-                message: 'Your account is inactive. Please contact the administrator to reactivate your account.'
-            });
-        }
-
-        // Check if this is a mobile client
-        const isMobileClient = req.headers['x-client-type'] === 'mobile';
-
-        // Restrict web access to specific roles
-        const allowedWebRoles = ['admin', 'superadmin', 'manager','developer'];
-        // Restrict mobile access - deny admin on mobile
-        const deniedMobileRoles = ['admin'];
-
-        // If this is a web login (NOT mobile) AND the user's role is NOT allowed on web
-        if (!isMobileClient && !allowedWebRoles.includes(user.role)) {
-            return res.status(403).json({
-                status: 'error',
-                message: 'Access denied. Please use the mobile application.'
-            });
-        }
-
-        // If this is a mobile login AND the user's role is NOT allowed on mobile
-        if (isMobileClient && deniedMobileRoles.includes(user.role)) {
-            return res.status(403).json({
-                status: 'error',
-                message: 'Access denied. Please use the web application.'
-            });
-        }
-
-        // Send token response (cookie for web, JSON for mobile if X-Client-Type header present)
-        sendTokenResponse(user, 200, res, isMobileClient);
-    } catch (error) {
-        res.status(500).json({ message: 'Server Error', error: error.message });
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Please provide email and password' });
     }
+    if (typeof email !== 'string') {
+      return res.status(400).json({ message: 'Invalid email format' });
+    }
+
+    const user = await User.findOne({ email: { $eq: email } }).select('+password');
+
+    if (!user || !(await user.matchPassword(password))) {
+      return res.status(401).json({ message: 'Incorrect email or password' });
+    }
+    if (user.isActive === false) {
+      return res.status(403).json({
+        status: 'error',
+        message: 'Your account is inactive. Please contact the administrator to reactivate your account.'
+      });
+    }
+
+    // Check if this is a mobile client
+    const isMobileClient = req.headers['x-client-type'] === 'mobile';
+
+    // Restrict web access to specific roles
+    const allowedWebRoles = ['admin', 'superadmin', 'manager', 'developer'];
+    // Restrict mobile access - deny admin on mobile
+    const deniedMobileRoles = ['admin'];
+
+    // If this is a web login (NOT mobile) AND the user's role is NOT allowed on web
+    if (!isMobileClient && !allowedWebRoles.includes(user.role)) {
+      return res.status(403).json({
+        status: 'error',
+        message: 'Access denied. Please use the mobile application.'
+      });
+    }
+
+    // If this is a mobile login AND the user's role is NOT allowed on mobile
+    if (isMobileClient && deniedMobileRoles.includes(user.role)) {
+      return res.status(403).json({
+        status: 'error',
+        message: 'Access denied. Please use the web application.'
+      });
+    }
+
+    // Send token response (cookie for web, JSON for mobile if X-Client-Type header present)
+    sendTokenResponse(user, 200, res, isMobileClient);
+  } catch (error) {
+    res.status(500).json({ message: 'Server Error', error: error.message });
+  }
 };
 
 
@@ -368,15 +368,15 @@ exports.forgotPassword = async (req, res) => {
 
     // 2) If user doesn't exist, send a generic success response
     if (!user) {
-      return res.status(200).json({ 
-        status: 'success', 
-        message: 'If that email is registered, a token has been sent.' 
+      return res.status(200).json({
+        status: 'success',
+        message: 'If that email is registered, a token has been sent.'
       });
     }
 
     // 3) Generate the random reset token
     const resetToken = user.createPasswordResetToken();
-    await user.save({ validateBeforeSave: false }); 
+    await user.save({ validateBeforeSave: false });
 
     // 4) Create the reset URL for your frontend
     const resetURL = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
@@ -443,7 +443,7 @@ exports.resetPassword = async (req, res) => {
     //    ⬇️ --- MODIFIED: Added .select('+password') --- ⬇️
     const user = await User.findOne({
       passwordResetToken: hashedToken,
-      passwordResetExpires: { $gt: Date.now() }, 
+      passwordResetExpires: { $gt: Date.now() },
     }).select('+password'); // <-- We need the password to compare it
 
     // 4) If no user, the token is invalid or has expired
@@ -466,7 +466,7 @@ exports.resetPassword = async (req, res) => {
     // 7) CRITICAL: Invalidate the token
     user.passwordResetToken = undefined;
     user.passwordResetExpires = undefined;
-    
+
     await user.save(); // This triggers the pre-save hook to hash the new password
 
     // 8) Log the user in by sending token response (cookie for web, JSON for mobile)
@@ -723,212 +723,131 @@ exports.scheduleDemo = async (req, res) => {
 // @desc    Logout user by clearing cookies and invalidating refresh token
 // @route   POST /api/v1/auth/logout
 exports.logout = async (req, res) => {
-    try {
-        // Invalidate refresh token in database if user is authenticated
-        if (req.user) {
-            await User.findByIdAndUpdate(req.user._id, {
-                refreshToken: null,
-                refreshTokenExpiry: null,
-                sessionExpiresAt: null
-            });
-        }
-
-        // Clear access token cookie
-        res.cookie('token', 'loggedout', {
-            expires: new Date(Date.now() + 10 * 1000), // Expires in 10 seconds
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging',
-            sameSite: process.env.NODE_ENV === 'production'
-                ? 'strict'
-                : process.env.NODE_ENV === 'staging'
-                ? 'none'
-                : 'lax',
-        });
-
-        // Clear refresh token cookie
-        res.cookie('refreshToken', 'loggedout', {
-            expires: new Date(Date.now() + 10 * 1000), // Expires in 10 seconds
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging',
-            sameSite: process.env.NODE_ENV === 'production'
-                ? 'strict'
-                : process.env.NODE_ENV === 'staging'
-                ? 'none'
-                : 'lax',
-        });
-
-        res.status(200).json({
-            status: 'success',
-            message: 'Logged out successfully'
-        });
-    } catch (error) {
-        console.error('❌ Logout error:', error);
-        res.status(500).json({
-            status: 'error',
-            message: 'Server Error',
-            error: error.message
-        });
+  try {
+    // Invalidate refresh token in database if user is authenticated
+    if (req.user) {
+      await User.findByIdAndUpdate(req.user._id, {
+        refreshToken: null,
+        refreshTokenExpiry: null,
+        sessionExpiresAt: null
+      });
     }
+
+    // Clear access token cookie
+    res.cookie('token', 'loggedout', {
+      expires: new Date(Date.now() + 10 * 1000), // Expires in 10 seconds
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging',
+      sameSite: process.env.NODE_ENV === 'production'
+        ? 'strict'
+        : process.env.NODE_ENV === 'staging'
+          ? 'none'
+          : 'lax',
+    });
+
+    // Clear refresh token cookie
+    res.cookie('refreshToken', 'loggedout', {
+      expires: new Date(Date.now() + 10 * 1000), // Expires in 10 seconds
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging',
+      sameSite: process.env.NODE_ENV === 'production'
+        ? 'strict'
+        : process.env.NODE_ENV === 'staging'
+          ? 'none'
+          : 'lax',
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Logged out successfully'
+    });
+  } catch (error) {
+    console.error('❌ Logout error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Server Error',
+      error: error.message
+    });
+  }
 };
 
 // @desc    Check if user's JWT is valid
 // @route   GET /api/v1/auth/check-status
 exports.checkAuthStatus = (req, res) => {
-    // If the 'protect' middleware passed, req.user is attached.
-    // The middleware handles the 401 error if the token is invalid/expired.
+  // If the 'protect' middleware passed, req.user is attached.
+  // The middleware handles the 401 error if the token is invalid/expired.
 
-    // The frontend just needs to know if the token is good.
-    // If it gets this 200 OK, it proceeds.
-    // If it gets a 401 (handled by 'protect'), it redirects to login.
-    res.status(200).json({
-        status: 'success',
-        message: 'Token is valid.',
-        data: {
-            user: req.user // Return user data from protect middleware
-        }
-    });
+  // The frontend just needs to know if the token is good.
+  // If it gets this 200 OK, it proceeds.
+  // If it gets a 401 (handled by 'protect'), it redirects to login.
+  res.status(200).json({
+    status: 'success',
+    message: 'Token is valid.',
+    data: {
+      user: req.user // Return user data from protect middleware
+    }
+  });
 };
 
 // @desc    Refresh access token using refresh token
 // @route   POST /api/v1/auth/refresh
-exports.refreshToken = async (req, res) => {
-    try {
-        // Get refresh token from cookie or request body
-        const refreshToken = req.cookies.refreshToken || req.body.refreshToken;
+// @desc    Refresh access token using refresh token
+// @route   POST /api/v1/auth/refresh
+exports.refreshToken = async (req, res, next) => {
+  try {
+    // 1. Unified extraction (Handles Web Cookies & Mobile Body)
+    const refreshToken = req.cookies.refreshToken || req.body.refreshToken;
 
-        if (!refreshToken) {
-            return res.status(401).json({
-                status: 'error',
-                message: 'No refresh token provided'
-            });
-        }
-
-        // Verify the refresh token
-        let decoded;
-        try {
-            decoded = jwt.verify(
-                refreshToken,
-                process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET
-            );
-        } catch (error) {
-            return res.status(401).json({
-                status: 'error',
-                message: 'Invalid or expired refresh token'
-            });
-        }
-
-        // Find user and check if refresh token matches
-        const user = await User.findById(decoded.id).select('+refreshToken +refreshTokenExpiry +sessionExpiresAt');
-
-        if (!user) {
-            return res.status(401).json({
-                status: 'error',
-                message: 'User not found'
-            });
-        }
-
-        // Check if refresh token matches the one stored in database
-        if (user.refreshToken !== refreshToken) {
-            return res.status(401).json({
-                status: 'error',
-                message: 'Invalid refresh token'
-            });
-        }
-
-        // Check if refresh token has expired (sliding expiration)
-        if (!user.refreshTokenExpiry || user.refreshTokenExpiry < Date.now()) {
-            return res.status(401).json({
-                status: 'error',
-                message: 'Refresh token has expired. Please login again.'
-            });
-        }
-
-        // Check absolute session expiration (maximum session length)
-        if (user.sessionExpiresAt && user.sessionExpiresAt < Date.now()) {
-            // Clear tokens
-            user.refreshToken = null;
-            user.refreshTokenExpiry = null;
-            user.sessionExpiresAt = null;
-            await user.save({ validateBeforeSave: false });
-
-            return res.status(401).json({
-                status: 'error',
-                message: 'Session has expired. Please login again for security.'
-            });
-        }
-
-        // Check if user is active
-        if (user.isActive === false) {
-            return res.status(403).json({
-                status: 'error',
-                message: 'Your account is inactive. Please contact the administrator.'
-            });
-        }
-
-        // Generate new access token
-        const newAccessToken = signToken(user._id);
-
-        // Rotate refresh token (generate new one) - sliding expiration
-        const newRefreshToken = signRefreshToken(user._id);
-        user.refreshToken = newRefreshToken;
-        user.refreshTokenExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days sliding
-        // Note: sessionExpiresAt is NOT updated - it stays at the original 30 days from first login
-        await user.save({ validateBeforeSave: false });
-
-        // Set new cookies
-        const accessTokenCookieOptions = {
-            expires: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging',
-            sameSite:
-                process.env.NODE_ENV === 'production'
-                    ? 'strict'
-                    : process.env.NODE_ENV === 'staging'
-                    ? 'none'
-                    : 'lax',
-        };
-        res.cookie('token', newAccessToken, accessTokenCookieOptions);
-
-        const refreshTokenCookieOptions = {
-            expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging',
-            sameSite:
-                process.env.NODE_ENV === 'production'
-                    ? 'strict'
-                    : process.env.NODE_ENV === 'staging'
-                    ? 'none'
-                    : 'lax',
-        };
-        res.cookie('refreshToken', newRefreshToken, refreshTokenCookieOptions);
-
-        // Remove sensitive fields
-        user.password = undefined;
-        user.refreshToken = undefined;
-        user.refreshTokenExpiry = undefined;
-
-        // Check if mobile client
-        const isMobileClient = req.headers['x-client-type'] === 'mobile';
-
-        const response = {
-            status: 'success',
-            message: 'Access token refreshed successfully',
-            data: { user }
-        };
-
-        // For mobile clients, include tokens in response
-        if (isMobileClient) {
-            response.accessToken = newAccessToken;
-            response.refreshToken = newRefreshToken;
-        }
-
-        res.status(200).json(response);
-    } catch (error) {
-        console.error('❌ Refresh token error:', error);
-        res.status(500).json({
-            status: 'error',
-            message: 'Server Error',
-            error: error.message
-        });
+    if (!refreshToken) {
+      return res.status(401).json({ status: 'error', message: 'No refresh token provided' });
     }
+
+    // 2. Token Verification
+    let decoded;
+    try {
+      decoded = jwt.verify(
+        refreshToken,
+        process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET
+      );
+    } catch (error) {
+      return res.status(401).json({ status: 'error', message: 'Invalid or expired refresh token' });
+    }
+
+    // 3. Database Check (Verify token hasn't been rotated/revoked)
+    const user = await User.findById(decoded.id).select('+refreshToken +refreshTokenExpiry +sessionExpiresAt');
+
+    if (!user || user.refreshToken !== refreshToken) {
+      return res.status(401).json({ status: 'error', message: 'Token is invalid or has been reused' });
+    }
+
+    // 4. Security Checks (Sliding Expiry, Absolute Expiry, & Active Status)
+    const now = Date.now();
+    const isExpired = !user.refreshTokenExpiry || user.refreshTokenExpiry < now;
+    const isSessionOver = user.sessionExpiresAt && user.sessionExpiresAt < now;
+
+    if (isExpired || isSessionOver) {
+      // Cleanup on expiry
+      user.refreshToken = null;
+      user.refreshTokenExpiry = null;
+      await user.save({ validateBeforeSave: false });
+
+      const msg = isSessionOver ? 'Session has expired (30-day limit)' : 'Refresh token expired';
+      return res.status(401).json({ status: 'error', message: `${msg}. Please login again.` });
+    }
+
+    if (user.isActive === false) {
+      return res.status(403).json({ status: 'error', message: 'Account is inactive.' });
+    }
+
+    // 5. Use existing helper to handle Cookie setting and JSON response
+    // This ensures Web and Mobile are handled exactly like the login route
+    const isMobileClient = req.headers['x-client-type'] === 'mobile';
+
+    // We pass includeTokenInResponse = isMobileClient to the helper
+    return sendTokenResponse(user, 200, res, isMobileClient);
+
+  } catch (error) {
+    console.error('❌ Refresh token error:', error);
+    res.status(500).json({ status: 'error', message: 'Server Error' });
+  }
 };
