@@ -16,7 +16,7 @@ const router = express.Router();
 router.use(protect);
 
 // Get all active tracking sessions (Admin, Manager only)
-router.get('/active', restrictTo('admin', 'manager', 'superadmin'), getActiveTrackingSessions);
+router.get('/active', restrictTo('admin', 'manager', 'salesperson', 'superadmin'), getActiveTrackingSessions);
 
 // Get current tracking session for a beat plan
 router.get('/:beatPlanId', getTrackingSession);
