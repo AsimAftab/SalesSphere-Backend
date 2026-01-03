@@ -29,6 +29,7 @@ const miscellaneousWorkRoutes = require('./src/api/miscellaneous-work/miscellane
 const expenseClaimRoutes = require('./src/api/expense-claim/expense-claim.route.js');
 const tourPlanRoutes = require('./src/api/tour-plans/tour-plans.route.js');
 const notesRoutes = require('./src/api/notes/notes.route.js');
+const collectionsRoutes = require('./src/api/collections/collections.route.js');
 
 dotenv.config();
 
@@ -258,6 +259,7 @@ app.use('/api/v1/miscellaneous-work', authLimiter, miscellaneousWorkRoutes);
 app.use('/api/v1/expense-claims', authLimiter, expenseClaimRoutes);
 app.use('/api/v1/tour-plans', authLimiter, tourPlanRoutes);
 app.use('/api/v1/notes', authLimiter, notesRoutes);
+app.use('/api/v1/collections', authLimiter, collectionsRoutes);
 
 // Test Route
 app.get("/", (req, res) => {
