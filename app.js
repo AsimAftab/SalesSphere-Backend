@@ -30,6 +30,7 @@ const expenseClaimRoutes = require('./src/api/expense-claim/expense-claim.route.
 const tourPlanRoutes = require('./src/api/tour-plans/tour-plans.route.js');
 const notesRoutes = require('./src/api/notes/notes.route.js');
 const collectionsRoutes = require('./src/api/collections/collections.route.js');
+const leaveRequestRoutes = require('./src/api/leave-request/leave.route.js');
 
 dotenv.config();
 
@@ -260,6 +261,7 @@ app.use('/api/v1/expense-claims', authLimiter, expenseClaimRoutes);
 app.use('/api/v1/tour-plans', authLimiter, tourPlanRoutes);
 app.use('/api/v1/notes', authLimiter, notesRoutes);
 app.use('/api/v1/collections', authLimiter, collectionsRoutes);
+app.use('/api/v1/leave-requests', authLimiter, leaveRequestRoutes);
 
 // Test Route
 app.get("/", (req, res) => {
