@@ -114,6 +114,11 @@ const corsOptionsDelegate = (req, callback) => {
     if (localhostRegex.test(origin) || localhostIPRegex.test(origin)) {
       return callback(null, { origin: true, credentials: true });
     }
+
+    // Allow Chrome extensions (Requestly, etc.) in dev/staging only
+    if (origin.startsWith('chrome-extension://')) {
+      return callback(null, { origin: true, credentials: true });
+    }
   }
 
   // Not allowed
