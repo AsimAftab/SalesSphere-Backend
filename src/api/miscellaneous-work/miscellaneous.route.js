@@ -1,3 +1,6 @@
+// src/api/miscellaneous-work/miscellaneous.route.js
+// Miscellaneous work routes - permission-based access
+
 const express = require('express');
 const multer = require('multer');
 const {
@@ -12,14 +15,13 @@ const {
     deleteMiscellaneousWorkImage,
     getMiscellaneousWorkImages
 } = require('./miscellaneous.controller');
-const { protect, restrictTo } = require('../../middlewares/auth.middleware');
+const { protect, requirePermission } = require('../../middlewares/auth.middleware');
 
 const router = express.Router();
 
-// Configure multer for images
 const imageUpload = multer({
     dest: 'tmp/',
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    limits: { fileSize: 5 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
         if (file.mimetype.startsWith('image/')) {
             cb(null, true);
@@ -29,74 +31,32 @@ const imageUpload = multer({
     }
 });
 
-// Apply 'protect' middleware to all routes in this file
 router.use(protect);
 
-// Create a miscellaneous work entry - All authenticated users
-router.post(
-    '/',
-    createMiscellaneousWork
-);
+// ============================================
+// VIEW OPERATIONS
+// ============================================
+router.get('/', requirePermission('miscellaneousWork', 'view'), getAllMiscellaneousWork);
+router.get('/my-work', requirePermission('miscellaneousWork', 'view'), getMyMiscellaneousWork);
+router.get('/:id', requirePermission('miscellaneousWork', 'view'), getMiscellaneousWorkById);
+router.get('/:id/images', requirePermission('miscellaneousWork', 'view'), getMiscellaneousWorkImages);
 
-// Get all miscellaneous work entries with optional filters (date, month, year)
-router.get(
-    '/',
-    getAllMiscellaneousWork
-);
+// ============================================
+// ADD OPERATIONS
+// ============================================
+router.post('/', requirePermission('miscellaneousWork', 'add'), createMiscellaneousWork);
+router.post('/:id/images', requirePermission('miscellaneousWork', 'add'), imageUpload.single('image'), uploadMiscellaneousWorkImage);
 
-// Get miscellaneous work entries for the logged-in user (salesperson)
-// Note: This route must be defined BEFORE /:id to avoid conflicts
-router.get(
-    '/my-work',
-    getMyMiscellaneousWork
-);
+// ============================================
+// UPDATE OPERATIONS
+// ============================================
+router.put('/:id', requirePermission('miscellaneousWork', 'update'), updateMiscellaneousWork);
 
-// Mass delete miscellaneous work entries - Admin, Manager
-// Note: This route must be defined BEFORE /:id to avoid conflicts
-router.delete(
-    '/mass-delete',
-    restrictTo('admin', 'manager'),
-    massBulkDeleteMiscellaneousWork
-);
-
-// Get single miscellaneous work entry
-router.get(
-    '/:id',
-    getMiscellaneousWorkById
-);
-
-// Update a miscellaneous work entry - Admin, Manager
-router.put(
-    '/:id',
-    restrictTo('admin', 'manager', 'salesperson'),
-    updateMiscellaneousWork
-);
-
-// Delete a miscellaneous work entry - Admin, Manager
-router.delete(
-    '/:id',
-    restrictTo('admin', 'manager', 'salesperson'),
-    deleteMiscellaneousWork
-);
-
-// Get images for a specific miscellaneous work entry
-router.get(
-    '/:id/images',
-    getMiscellaneousWorkImages
-);
-
-// Upload or update an image - All authenticated users
-router.post(
-    '/:id/images',
-    imageUpload.single('image'),
-    uploadMiscellaneousWorkImage
-);
-
-// Delete an image - Admin, Manager
-router.delete(
-    '/:id/images/:imageNumber',
-    restrictTo('admin', 'manager', 'salesperson'),
-    deleteMiscellaneousWorkImage
-);
+// ============================================
+// DELETE OPERATIONS
+// ============================================
+router.delete('/:id', requirePermission('miscellaneousWork', 'delete'), deleteMiscellaneousWork);
+router.delete('/mass-delete', requirePermission('miscellaneousWork', 'delete'), massBulkDeleteMiscellaneousWork);
+router.delete('/:id/images/:imageNumber', requirePermission('miscellaneousWork', 'delete'), deleteMiscellaneousWorkImage);
 
 module.exports = router;

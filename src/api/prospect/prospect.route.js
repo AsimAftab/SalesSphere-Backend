@@ -1,5 +1,8 @@
+// src/api/prospect/prospect.route.js
+// Prospect management routes - permission-based access
+
 const express = require('express');
-const multer = require('multer'); // Import multer
+const multer = require('multer');
 const {
     createProspect,
     getAllProspects,
@@ -8,19 +11,18 @@ const {
     deleteProspect,
     transferToParty,
     getAllProspectsDetails,
-    createProspectCategory, // <-- Imported
-    getProspectCategories,   // <-- Imported,
-    uploadProspectImage, // Import new controller function
-    deleteProspectImage  // Import new controller function
+    createProspectCategory,
+    getProspectCategories,
+    uploadProspectImage,
+    deleteProspectImage
 } = require('./prospect.controller');
-const { protect, restrictTo } = require('../../middlewares/auth.middleware');
+const { protect, requirePermission } = require('../../middlewares/auth.middleware');
 
 const router = express.Router();
 
-// --- Configure multer for prospect images ---
 const imageUpload = multer({
     dest: 'tmp/',
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    limits: { fileSize: 5 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
         if (file.mimetype.startsWith('image/')) {
             cb(null, true);
@@ -30,77 +32,32 @@ const imageUpload = multer({
     }
 });
 
-// Apply 'protect' middleware to all routes in this file
 router.use(protect);
 
-// Create a prospect - Admin, Manager, and Salesperson
-router.post(
-    '/',
-    restrictTo('admin', 'manager', 'salesperson'),
-    createProspect
-);
+// ============================================
+// VIEW OPERATIONS
+// ============================================
+router.get('/', requirePermission('prospects', 'view'), getAllProspects);
+router.get('/details', requirePermission('prospects', 'view'), getAllProspectsDetails);
+router.get('/categories', requirePermission('prospects', 'view'), getProspectCategories);
+router.get('/:id', requirePermission('prospects', 'view'), getProspectById);
 
-// Get all prospects (list view) - Available to all roles
-router.get(
-    '/',
-    getAllProspects
-);
+// ============================================
+// ADD OPERATIONS
+// ============================================
+router.post('/', requirePermission('prospects', 'add'), createProspect);
+router.post('/:id/images', requirePermission('prospects', 'add'), imageUpload.single('image'), uploadProspectImage);
 
-// Get all prospects for logged-in user's organization
-router.get(
-    '/details',
-    getAllProspectsDetails
-);
+// ============================================
+// UPDATE OPERATIONS
+// ============================================
+router.put('/:id', requirePermission('prospects', 'update'), updateProspect);
+router.post('/:id/transfer', requirePermission('prospects', 'update'), transferToParty);
 
-// --- Prospect Categories Routes ---
-router.get(
-    '/categories',
-    getProspectCategories
-);
-// ----------------------------------
-
-// Get single prospect (detail view) - Available to all roles
-router.get(
-    '/:id',
-    getProspectById
-);
-
-// Update a prospect - Admin, Manager, and Salesperson
-router.put(
-    '/:id',
-    restrictTo('admin', 'manager', 'salesperson'),
-    updateProspect
-);
-
-// Permanently delete a prospect - Admin, Manager
-router.delete(
-    '/:id',
-    restrictTo('admin', 'manager'),
-    deleteProspect
-);
-
-// Transfer a prospect to a party - Admin, Manager, Salesperson
-router.post(
-    '/:id/transfer',
-    restrictTo('admin', 'manager'),
-    transferToParty
-);
-
-// --- NEW IMAGE ROUTES ---
-
-// Upload or update a prospect image
-router.post(
-    '/:id/images',
-    restrictTo('admin', 'manager', 'salesperson'), // Assuming salespersons can also upload images
-    imageUpload.single('image'),
-    uploadProspectImage
-);
-
-// Delete a prospect image
-router.delete(
-    '/:id/images/:imageNumber',
-    restrictTo('admin', 'manager', 'salesperson'),
-    deleteProspectImage
-);
+// ============================================
+// DELETE OPERATIONS
+// ============================================
+router.delete('/:id', requirePermission('prospects', 'delete'), deleteProspect);
+router.delete('/:id/images/:imageNumber', requirePermission('prospects', 'delete'), deleteProspectImage);
 
 module.exports = router;

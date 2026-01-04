@@ -170,16 +170,15 @@ userSchema.methods.getEffectivePermissions = function () {
 
     // If user has a custom role assigned and it's populated
     if (this.customRoleId && this.customRoleId.permissions) {
-        // Return permissions from the custom role
         const rolePerms = {};
         const customRole = this.customRoleId;
 
-        // Convert mongoose subdocuments to plain object
         if (customRole.permissions) {
             for (const [module, perms] of Object.entries(customRole.permissions.toObject ? customRole.permissions.toObject() : customRole.permissions)) {
                 rolePerms[module] = {
-                    read: perms.read || false,
-                    write: perms.write || false,
+                    view: perms.view || false,
+                    add: perms.add || false,
+                    update: perms.update || false,
                     delete: perms.delete || false
                 };
             }
@@ -194,7 +193,7 @@ userSchema.methods.getEffectivePermissions = function () {
 /**
  * Check if user has specific permission
  * @param {string} module - Module name (e.g., 'products', 'parties')
- * @param {string} action - Action type ('read', 'write', 'delete')
+ * @param {string} action - Action type ('view', 'add', 'update', 'delete')
  * @returns {boolean}
  */
 userSchema.methods.hasPermission = function (module, action) {

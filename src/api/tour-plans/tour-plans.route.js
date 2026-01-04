@@ -1,3 +1,6 @@
+// src/api/tour-plans/tour-plans.route.js
+// Tour plan management routes - permission-based access
+
 const express = require('express');
 const {
     createTourPlan,
@@ -9,34 +12,34 @@ const {
     updateTourPlanStatus,
     bulkDeleteTourPlans,
 } = require('./tour-plans.controller');
-const { protect, restrictTo } = require('../../middlewares/auth.middleware');
+const { protect, requirePermission } = require('../../middlewares/auth.middleware');
 
 const router = express.Router();
 
-// 1. Global Middleware
 router.use(protect);
 
 // ============================================
-// TOUR PLAN ROUTES
+// VIEW OPERATIONS
 // ============================================
+router.get('/my-tour-plans', requirePermission('tourPlan', 'view'), getMyTourPlans);
+router.get('/', requirePermission('tourPlan', 'view'), getAllTourPlans);
+router.get('/:id', requirePermission('tourPlan', 'view'), getTourPlanById);
 
-// 2. Specialized/Administrative Routes
-// Must stay ABOVE /:id to prevent "bulk-delete" or "my-tour-plans" being treated as an ID
-router.delete('/bulk-delete', restrictTo('admin', 'manager'), bulkDeleteTourPlans);
-router.get('/my-tour-plans', getMyTourPlans);
+// ============================================
+// ADD OPERATIONS
+// ============================================
+router.post('/', requirePermission('tourPlan', 'add'), createTourPlan);
 
-// 3. Collection Routes (/)
-router.route('/')
-    .get(restrictTo('admin', 'manager'), getAllTourPlans)
-    .post(createTourPlan);
+// ============================================
+// UPDATE OPERATIONS
+// ============================================
+router.patch('/:id', requirePermission('tourPlan', 'update'), updateTourPlan);
+router.patch('/:id/status', requirePermission('tourPlan', 'update'), updateTourPlanStatus);
 
-// 4. Specific Resource Routes (/:id)
-router.route('/:id')
-    .get(getTourPlanById)
-    .patch(updateTourPlan) // Changed to PATCH for partial updates
-    .delete(restrictTo('admin', 'manager'), deleteTourPlan);
-
-// 5. Action-Specific Routes
-router.patch('/:id/status', restrictTo('admin', 'manager'), updateTourPlanStatus);
+// ============================================
+// DELETE OPERATIONS
+// ============================================
+router.delete('/:id', requirePermission('tourPlan', 'delete'), deleteTourPlan);
+router.delete('/bulk-delete', requirePermission('tourPlan', 'delete'), bulkDeleteTourPlans);
 
 module.exports = router;

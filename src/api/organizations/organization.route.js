@@ -1,5 +1,5 @@
 // src/api/organizations/organization.route.js
-// Organization management routes - migrated to permission-based access
+// Organization management routes - permission-based access
 
 const express = require('express');
 const {
@@ -18,33 +18,16 @@ const {
 
 const router = express.Router();
 
-// Apply 'protect' middleware to all routes
 router.use(protect);
 
-// ============================================
-// ORGANIZATION ROUTES
-// ============================================
+// Get my organization - requires organizations.view
+router.get('/my-organization', requirePermission('organizations', 'view'), getMyOrganization);
 
-// Get my organization details - requires read permission on organizations
-router.get('/my-organization', requirePermission('organizations', 'read'), getMyOrganization);
-
-// ============================================
-// SYSTEM ROUTES (superadmin/developer only)
-// ============================================
-
-// Get specific organization details by ID
+// System routes (superadmin/developer only)
 router.get('/:id', requireSystemRole(), getOrganizationById);
-
-// Update organization details
 router.put('/:id', requireSystemRole(), updateMyOrganization);
-
-// Deactivate an organization
 router.put('/:id/deactivate', requireSystemRole(), deactivateOrganization);
-
-// Reactivate an organization
 router.put('/:id/reactivate', requireSystemRole(), reactivateOrganization);
-
-// Extend organization subscription
 router.post('/:id/extend-subscription', requireSystemRole(), extendSubscription);
 
 module.exports = router;

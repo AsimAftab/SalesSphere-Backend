@@ -1,5 +1,5 @@
 // src/api/parties/party.routes.js
-// Party management routes - migrated to permission-based access
+// Party management routes - permission-based access
 
 const express = require('express');
 const {
@@ -19,7 +19,6 @@ const multer = require('multer');
 
 const router = express.Router();
 
-// Configure multer for party images
 const imageUpload = multer({
     dest: 'tmp/',
     limits: { fileSize: 5 * 1024 * 1024 },
@@ -32,54 +31,24 @@ const imageUpload = multer({
     }
 });
 
-// Apply protect middleware to all routes
 router.use(protect);
 
-// ============================================
-// READ OPERATIONS - requires parties.read
-// ============================================
+// VIEW operations
+router.get('/', requirePermission('parties', 'view'), getAllParties);
+router.get('/details', requirePermission('parties', 'view'), getAllPartiesDetails);
+router.get('/types', requirePermission('parties', 'view'), getPartyTypes);
+router.get('/:id', requirePermission('parties', 'view'), getPartyById);
 
-// Get all parties (list view)
-router.get('/', requirePermission('parties', 'read'), getAllParties);
+// ADD operations
+router.post('/', requirePermission('parties', 'add'), createParty);
+router.post('/bulk-import', requirePermission('parties', 'add'), bulkImportParties);
+router.post('/:id/image', requirePermission('parties', 'add'), imageUpload.single('image'), uploadPartyImage);
 
-// Get all parties with details
-router.get('/details', requirePermission('parties', 'read'), getAllPartiesDetails);
+// UPDATE operations
+router.put('/:id', requirePermission('parties', 'update'), updateParty);
 
-// Get party types
-router.get('/types', requirePermission('parties', 'read'), getPartyTypes);
-
-// Get single party
-router.get('/:id', requirePermission('parties', 'read'), getPartyById);
-
-// ============================================
-// WRITE OPERATIONS - requires parties.write
-// ============================================
-
-// Create a party
-router.post('/', requirePermission('parties', 'write'), createParty);
-
-// Update a party
-router.put('/:id', requirePermission('parties', 'write'), updateParty);
-
-// Bulk import parties
-router.post('/bulk-import', requirePermission('parties', 'write'), bulkImportParties);
-
-// Upload party image
-router.post(
-    '/:id/image',
-    requirePermission('parties', 'write'),
-    imageUpload.single('image'),
-    uploadPartyImage
-);
-
-// ============================================
-// DELETE OPERATIONS - requires parties.delete
-// ============================================
-
-// Delete a party
+// DELETE operations
 router.delete('/:id', requirePermission('parties', 'delete'), deleteParty);
-
-// Delete party image
 router.delete('/:id/image', requirePermission('parties', 'delete'), deletePartyImage);
 
 module.exports = router;

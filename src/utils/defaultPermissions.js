@@ -1,27 +1,23 @@
 // src/utils/defaultPermissions.js
 // Default permission definitions for the RBAC system
-// Structure: { module: { read: bool, write: bool, delete: bool } }
+// Structure: { module: { view: bool, add: bool, update: bool, delete: bool } }
 
 /**
+ * PERMISSION ACTIONS:
+ * - view: Can read/see data
+ * - add: Can create new records
+ * - update: Can modify existing records
+ * - delete: Can remove records
+ * 
  * ROLE TYPES:
- * 
- * SYSTEM ROLES (cross-organization):
- * - superadmin: Full access to everything
- * - developer: Read/Write access, NO delete (for support/debugging)
- * 
- * ORGANIZATION ROLES:
- * - admin: Organization administrator - Full permissions within their org
- * - manager: Team manager - Configurable permissions (future: dynamic)
- * - salesperson: Field representative - Limited permissions
- * - user: Basic user - Minimal permissions
- * 
- * FUTURE ENHANCEMENTS:
- * - Plan-based role features
- * - Dynamic role creation by org admins
+ * - superadmin: Full system access
+ * - developer: View/Add/Update, NO delete (for support)
+ * - admin: Full org access
+ * - user: Base role with custom role permissions
  */
 
 // ============================================
-// ALL MODULES LIST (for reference)
+// ALL MODULES LIST
 // ============================================
 const ALL_MODULES = [
     'dashboard',
@@ -44,171 +40,113 @@ const ALL_MODULES = [
     'notes',
     'miscellaneousWork',
     'settings',
-    // System-level modules (superadmin/developer only)
+    'mobileApp', // Mobile app access permission
+    // System-level modules
     'organizations',
     'systemUsers',
     'subscriptions'
 ];
 
 // ============================================
-// HELPER: Create full access permissions
+// HELPER: Create full access (all 4 permissions)
 // ============================================
 const createFullAccess = () => {
     const permissions = {};
     ALL_MODULES.forEach(module => {
-        permissions[module] = { read: true, write: true, delete: true };
+        permissions[module] = { view: true, add: true, update: true, delete: true };
     });
     return permissions;
 };
 
 // ============================================
-// HELPER: Create read/write only (no delete)
+// HELPER: Create view/add/update only (no delete)
 // ============================================
-const createReadWriteOnly = () => {
+const createNoDeleteAccess = () => {
     const permissions = {};
     ALL_MODULES.forEach(module => {
-        permissions[module] = { read: true, write: true, delete: false };
+        permissions[module] = { view: true, add: true, update: true, delete: false };
     });
     return permissions;
 };
 
 // ============================================
-// SUPERADMIN - Full system access (all modules, all actions)
+// SUPERADMIN - Full system access
 // ============================================
 const SUPERADMIN_DEFAULT_PERMISSIONS = createFullAccess();
 
 // ============================================
-// DEVELOPER - Read/Write access, NO delete (for support)
+// DEVELOPER - View/Add/Update, NO delete
 // ============================================
-const DEVELOPER_DEFAULT_PERMISSIONS = createReadWriteOnly();
+const DEVELOPER_DEFAULT_PERMISSIONS = createNoDeleteAccess();
 
 // ============================================
-// ADMIN - Organization administrator (full access within org)
-// Note: System modules access controlled separately in middleware
+// ADMIN - Full organization access
 // ============================================
 const ADMIN_DEFAULT_PERMISSIONS = {
-    dashboard: { read: true, write: true, delete: true },
-    liveTracking: { read: true, write: true, delete: true },
-    products: { read: true, write: true, delete: true },
-    orderLists: { read: true, write: true, delete: true },
-    employees: { read: true, write: true, delete: true },
-    attendance: { read: true, write: true, delete: true },
-    leaves: { read: true, write: true, delete: true },
-    parties: { read: true, write: true, delete: true },
-    prospects: { read: true, write: true, delete: true },
-    sites: { read: true, write: true, delete: true },
-    rawMaterials: { read: true, write: true, delete: true },
-    analytics: { read: true, write: true, delete: true },
-    beatPlan: { read: true, write: true, delete: true },
-    tourPlan: { read: true, write: true, delete: true },
-    collections: { read: true, write: true, delete: true },
-    expenses: { read: true, write: true, delete: true },
-    odometer: { read: true, write: true, delete: true },
-    notes: { read: true, write: true, delete: true },
-    miscellaneousWork: { read: true, write: true, delete: true },
-    settings: { read: true, write: true, delete: true },
-    // System modules - admin can only read their own org
-    organizations: { read: true, write: true, delete: false },
-    systemUsers: { read: false, write: false, delete: false },
-    subscriptions: { read: true, write: false, delete: false }
+    dashboard: { view: true, add: true, update: true, delete: true },
+    liveTracking: { view: true, add: true, update: true, delete: true },
+    products: { view: true, add: true, update: true, delete: true },
+    orderLists: { view: true, add: true, update: true, delete: true },
+    employees: { view: true, add: true, update: true, delete: true },
+    attendance: { view: true, add: true, update: true, delete: true },
+    leaves: { view: true, add: true, update: true, delete: true },
+    parties: { view: true, add: true, update: true, delete: true },
+    prospects: { view: true, add: true, update: true, delete: true },
+    sites: { view: true, add: true, update: true, delete: true },
+    rawMaterials: { view: true, add: true, update: true, delete: true },
+    analytics: { view: true, add: true, update: true, delete: true },
+    beatPlan: { view: true, add: true, update: true, delete: true },
+    tourPlan: { view: true, add: true, update: true, delete: true },
+    collections: { view: true, add: true, update: true, delete: true },
+    expenses: { view: true, add: true, update: true, delete: true },
+    odometer: { view: true, add: true, update: true, delete: true },
+    notes: { view: true, add: true, update: true, delete: true },
+    miscellaneousWork: { view: true, add: true, update: true, delete: true },
+    settings: { view: true, add: true, update: true, delete: true },
+    mobileApp: { view: true, add: false, update: false, delete: false }, // Mobile app access
+    // System modules - limited
+    organizations: { view: true, add: false, update: true, delete: false },
+    systemUsers: { view: false, add: false, update: false, delete: false },
+    subscriptions: { view: true, add: false, update: false, delete: false }
 };
 
 // ============================================
-// MANAGER - Team manager (configurable in future)
-// ============================================
-const MANAGER_DEFAULT_PERMISSIONS = {
-    dashboard: { read: true, write: false, delete: false },
-    liveTracking: { read: true, write: false, delete: false },
-    products: { read: true, write: true, delete: false },
-    orderLists: { read: true, write: true, delete: false },
-    employees: { read: true, write: true, delete: false },
-    attendance: { read: true, write: true, delete: false },
-    leaves: { read: true, write: true, delete: false },
-    parties: { read: true, write: true, delete: false },
-    prospects: { read: true, write: true, delete: false },
-    sites: { read: true, write: true, delete: false },
-    rawMaterials: { read: true, write: true, delete: false },
-    analytics: { read: true, write: false, delete: false },
-    beatPlan: { read: true, write: true, delete: false },
-    tourPlan: { read: true, write: true, delete: false },
-    collections: { read: true, write: true, delete: false },
-    expenses: { read: true, write: true, delete: false },
-    odometer: { read: true, write: false, delete: false },
-    notes: { read: true, write: true, delete: false },
-    miscellaneousWork: { read: true, write: true, delete: false },
-    settings: { read: true, write: false, delete: false },
-    // No system module access
-    organizations: { read: true, write: false, delete: false },
-    systemUsers: { read: false, write: false, delete: false },
-    subscriptions: { read: false, write: false, delete: false }
-};
-
-// ============================================
-// SALESPERSON - Field representative
-// Note: Resource-level filtering handled in controllers
-// ============================================
-const SALESPERSON_DEFAULT_PERMISSIONS = {
-    dashboard: { read: true, write: false, delete: false },
-    liveTracking: { read: false, write: false, delete: false },
-    products: { read: true, write: false, delete: false },
-    orderLists: { read: true, write: true, delete: false }, // Can create orders
-    employees: { read: false, write: false, delete: false },
-    attendance: { read: true, write: true, delete: false }, // Own attendance
-    leaves: { read: true, write: true, delete: false }, // Own leaves
-    parties: { read: true, write: true, delete: false },
-    prospects: { read: true, write: true, delete: false },
-    sites: { read: true, write: true, delete: false },
-    rawMaterials: { read: true, write: false, delete: false },
-    analytics: { read: false, write: false, delete: false },
-    beatPlan: { read: true, write: false, delete: false }, // View assigned
-    tourPlan: { read: true, write: false, delete: false },
-    collections: { read: true, write: true, delete: false },
-    expenses: { read: true, write: true, delete: false },
-    odometer: { read: true, write: true, delete: false },
-    notes: { read: true, write: true, delete: false },
-    miscellaneousWork: { read: true, write: true, delete: false },
-    settings: { read: false, write: false, delete: false },
-    // No system module access
-    organizations: { read: false, write: false, delete: false },
-    systemUsers: { read: false, write: false, delete: false },
-    subscriptions: { read: false, write: false, delete: false }
-};
-
-// ============================================
-// USER - Basic/default user
+// USER - Base role (minimal permissions)
+// Custom roles will override these
 // ============================================
 const USER_DEFAULT_PERMISSIONS = {
-    dashboard: { read: true, write: false, delete: false },
-    liveTracking: { read: false, write: false, delete: false },
-    products: { read: true, write: false, delete: false },
-    orderLists: { read: true, write: false, delete: false },
-    employees: { read: false, write: false, delete: false },
-    attendance: { read: true, write: false, delete: false },
-    leaves: { read: true, write: true, delete: false }, // Can request
-    parties: { read: true, write: false, delete: false },
-    prospects: { read: true, write: false, delete: false },
-    sites: { read: true, write: false, delete: false },
-    rawMaterials: { read: true, write: false, delete: false },
-    analytics: { read: false, write: false, delete: false },
-    beatPlan: { read: true, write: false, delete: false },
-    tourPlan: { read: true, write: false, delete: false },
-    collections: { read: true, write: false, delete: false },
-    expenses: { read: true, write: true, delete: false }, // Can submit
-    odometer: { read: true, write: false, delete: false },
-    notes: { read: true, write: true, delete: false },
-    miscellaneousWork: { read: true, write: false, delete: false },
-    settings: { read: false, write: false, delete: false },
+    dashboard: { view: true, add: false, update: false, delete: false },
+    liveTracking: { view: false, add: false, update: false, delete: false },
+    products: { view: true, add: false, update: false, delete: false },
+    orderLists: { view: true, add: false, update: false, delete: false },
+    employees: { view: false, add: false, update: false, delete: false },
+    attendance: { view: true, add: false, update: false, delete: false },
+    leaves: { view: true, add: true, update: false, delete: false },
+    parties: { view: true, add: false, update: false, delete: false },
+    prospects: { view: true, add: false, update: false, delete: false },
+    sites: { view: true, add: false, update: false, delete: false },
+    rawMaterials: { view: true, add: false, update: false, delete: false },
+    analytics: { view: false, add: false, update: false, delete: false },
+    beatPlan: { view: true, add: false, update: false, delete: false },
+    tourPlan: { view: true, add: false, update: false, delete: false },
+    collections: { view: true, add: false, update: false, delete: false },
+    expenses: { view: true, add: true, update: false, delete: false },
+    odometer: { view: true, add: false, update: false, delete: false },
+    notes: { view: true, add: true, update: false, delete: false },
+    miscellaneousWork: { view: true, add: false, update: false, delete: false },
+    settings: { view: false, add: false, update: false, delete: false },
+    mobileApp: { view: false, add: false, update: false, delete: false }, // Mobile disabled by default
     // No system module access
-    organizations: { read: false, write: false, delete: false },
-    systemUsers: { read: false, write: false, delete: false },
-    subscriptions: { read: false, write: false, delete: false }
+    organizations: { view: false, add: false, update: false, delete: false },
+    systemUsers: { view: false, add: false, update: false, delete: false },
+    subscriptions: { view: false, add: false, update: false, delete: false }
 };
 
 // ============================================
 // ROLE CLASSIFICATION
 // ============================================
 const SYSTEM_ROLES = ['superadmin', 'developer'];
-const ORGANIZATION_ROLES = ['admin', 'manager', 'salesperson', 'user'];
+const ORGANIZATION_ROLES = ['admin', 'user'];
 
 // ============================================
 // ROLE TO PERMISSIONS MAPPING
@@ -217,8 +155,6 @@ const ROLE_PERMISSIONS = {
     superadmin: SUPERADMIN_DEFAULT_PERMISSIONS,
     developer: DEVELOPER_DEFAULT_PERMISSIONS,
     admin: ADMIN_DEFAULT_PERMISSIONS,
-    manager: MANAGER_DEFAULT_PERMISSIONS,
-    salesperson: SALESPERSON_DEFAULT_PERMISSIONS,
     user: USER_DEFAULT_PERMISSIONS
 };
 
@@ -226,35 +162,15 @@ const ROLE_PERMISSIONS = {
 // HELPER FUNCTIONS
 // ============================================
 
-/**
- * Check if role is a system role
- * @param {string} role 
- * @returns {boolean}
- */
 const isSystemRole = (role) => SYSTEM_ROLES.includes(role);
-
-/**
- * Check if role is an organization role
- * @param {string} role 
- * @returns {boolean}
- */
 const isOrganizationRole = (role) => ORGANIZATION_ROLES.includes(role);
+const getDefaultPermissions = (role) => ROLE_PERMISSIONS[role] || USER_DEFAULT_PERMISSIONS;
 
 /**
- * Get default permissions for a role
- * @param {string} role - Role name
- * @returns {Object} Permission object for the role
- */
-const getDefaultPermissions = (role) => {
-    return ROLE_PERMISSIONS[role] || USER_DEFAULT_PERMISSIONS;
-};
-
-/**
- * Check if a role has specific permission
- * @param {Object} permissions - User's permissions object
- * @param {string} module - Module name (e.g., 'products', 'parties')
- * @param {string} action - Action type ('read', 'write', 'delete')
- * @returns {boolean}
+ * Check if permissions object has specific permission
+ * @param {Object} permissions - Permissions object
+ * @param {string} module - Module name
+ * @param {string} action - Action: 'view', 'add', 'update', 'delete'
  */
 const hasPermission = (permissions, module, action) => {
     if (!permissions) return false;
@@ -263,33 +179,21 @@ const hasPermission = (permissions, module, action) => {
 };
 
 /**
- * Check permission by role (uses default permissions)
- * @param {string} role - Role name
- * @param {string} module - Module name
- * @param {string} action - Action type
- * @returns {boolean}
+ * Check permission by role
  */
 const hasPermissionByRole = (role, module, action) => {
     const permissions = ROLE_PERMISSIONS[role];
     return hasPermission(permissions, module, action);
 };
 
-/**
- * Get all module names
- * @returns {string[]}
- */
 const getAllModules = () => ALL_MODULES;
 
 /**
- * Merge custom permissions with default permissions
- * Custom permissions override defaults
- * @param {string} role - Base role
- * @param {Object} customPermissions - Custom permission overrides
- * @returns {Object} Merged permissions
+ * Merge custom permissions with defaults
  */
 const mergePermissions = (role, customPermissions = {}) => {
     const defaults = getDefaultPermissions(role);
-    const merged = JSON.parse(JSON.stringify(defaults)); // Deep clone
+    const merged = JSON.parse(JSON.stringify(defaults));
 
     for (const module in customPermissions) {
         if (merged[module]) {
@@ -298,38 +202,29 @@ const mergePermissions = (role, customPermissions = {}) => {
             merged[module] = customPermissions[module];
         }
     }
-
     return merged;
 };
 
 /**
- * Create empty permissions object (all false)
- * @returns {Object}
+ * Create empty permissions (all false)
  */
 const createEmptyPermissions = () => {
     const permissions = {};
     ALL_MODULES.forEach(module => {
-        permissions[module] = { read: false, write: false, delete: false };
+        permissions[module] = { view: false, add: false, update: false, delete: false };
     });
     return permissions;
 };
 
 module.exports = {
-    // Permission constants
     SUPERADMIN_DEFAULT_PERMISSIONS,
     DEVELOPER_DEFAULT_PERMISSIONS,
     ADMIN_DEFAULT_PERMISSIONS,
-    MANAGER_DEFAULT_PERMISSIONS,
-    SALESPERSON_DEFAULT_PERMISSIONS,
     USER_DEFAULT_PERMISSIONS,
     ROLE_PERMISSIONS,
-
-    // Role classifications
     SYSTEM_ROLES,
     ORGANIZATION_ROLES,
     ALL_MODULES,
-
-    // Helper functions
     isSystemRole,
     isOrganizationRole,
     getDefaultPermissions,
@@ -339,5 +234,5 @@ module.exports = {
     mergePermissions,
     createEmptyPermissions,
     createFullAccess,
-    createReadWriteOnly
+    createNoDeleteAccess
 };

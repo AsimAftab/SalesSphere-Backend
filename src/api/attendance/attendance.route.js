@@ -1,96 +1,45 @@
+// src/api/attendance/attendance.route.js
+// Attendance routes - permission-based access
+
 const express = require('express');
 const {
-    checkIn, // <-- RENAMED
-    checkOut, // <-- NEW
+    checkIn,
+    checkOut,
     getMyStatusToday,
-    getMyMonthlyReport, // <-- NEW
+    getMyMonthlyReport,
     getAttendanceReport,
-    getEmployeeAttendanceByDate, // <-- NEW
+    getEmployeeAttendanceByDate,
     adminMarkAttendance,
-    adminMarkAbsentees, // <-- NEW
-    adminMarkHoliday, // <-- NEW
-    searchAttendance // <-- NEW
+    adminMarkAbsentees,
+    adminMarkHoliday,
+    searchAttendance
 } = require('./attendance.controller');
-const { protect, restrictTo } = require('../../middlewares/auth.middleware');
+const { protect, requirePermission } = require('../../middlewares/auth.middleware');
 
 const router = express.Router();
 
-// Apply 'protect' middleware to all routes
 router.use(protect);
 
-// --- Salesperson / Manager ("App") Routes ---
+// ============================================
+// VIEW OPERATIONS
+// ============================================
+router.get('/status/today', requirePermission('attendance', 'view'), getMyStatusToday);
+router.get('/my-monthly-report', requirePermission('attendance', 'view'), getMyMonthlyReport);
+router.get('/search', requirePermission('attendance', 'view'), searchAttendance);
+router.get('/report', requirePermission('attendance', 'view'), getAttendanceReport);
+router.get('/employee/:employeeId/date/:date', requirePermission('attendance', 'view'), getEmployeeAttendanceByDate);
 
-// Mark my own attendance for today
-router.post(
-    '/check-in', // <-- UPDATED ROUTE
-    restrictTo('salesperson', 'manager'), // Added manager
-    checkIn
-);
+// ============================================
+// ADD OPERATIONS (check-in, mark absentees, mark holiday)
+// ============================================
+router.post('/check-in', requirePermission('attendance', 'add'), checkIn);
+router.post('/admin/mark-absentees', requirePermission('attendance', 'add'), adminMarkAbsentees);
+router.post('/admin/mark-holiday', requirePermission('attendance', 'add'), adminMarkHoliday);
 
-// Add new check-out route
-router.put(
-    '/check-out', // <-- NEW ROUTE
-    restrictTo('salesperson', 'manager'), // Added manager
-    checkOut
-);
-
-// Get my attendance status for today
-router.get(
-    '/status/today',
-    restrictTo('salesperson', 'manager'), // Added manager
-    getMyStatusToday
-);
-
-// Get my monthly attendance report
-router.get(
-    '/my-monthly-report',
-    restrictTo('salesperson', 'manager'),
-    getMyMonthlyReport
-);
-
-// --- Admin/Manager/Salesperson Routes ---
-
-// Search attendance records with filters (status, location, date range)
-// All users can only see their own attendance data (for mobile app usage)
-router.get(
-    '/search',
-    restrictTo('admin', 'manager', 'salesperson'),
-    searchAttendance
-);
-
-// Get the full monthly report for the dashboard
-router.get(
-    '/report',
-    restrictTo('admin', 'manager'),
-    getAttendanceReport
-);
-
-// Get detailed attendance for a specific employee on a specific date
-router.get(
-    '/employee/:employeeId/date/:date',
-    restrictTo('admin', 'manager'),
-    getEmployeeAttendanceByDate
-);
-
-// Admin/Manager manually marks/overrides attendance
-router.put(
-    '/admin/mark',
-    restrictTo('admin', 'manager'),
-    adminMarkAttendance
-);
-
-// Admin manually triggers the "mark absentees" job
-router.post(
-    '/admin/mark-absentees', // <-- NEW ROUTE
-    restrictTo('admin'), // Only Admin should run this
-    adminMarkAbsentees
-);
-
-// Admin marks a holiday for all employees on a specific date
-router.post(
-    '/admin/mark-holiday', 
-    restrictTo('admin','manager'), // Only Admin and manager should run this
-    adminMarkHoliday
-);
+// ============================================
+// UPDATE OPERATIONS (check-out, admin mark)
+// ============================================
+router.put('/check-out', requirePermission('attendance', 'update'), checkOut);
+router.put('/admin/mark', requirePermission('attendance', 'update'), adminMarkAttendance);
 
 module.exports = router;

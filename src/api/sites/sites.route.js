@@ -1,3 +1,6 @@
+// src/api/sites/sites.route.js
+// Site management routes - permission-based access
+
 const express = require('express');
 const multer = require('multer');
 const {
@@ -12,14 +15,13 @@ const {
     getSiteCategories,
     getSiteSubOrganizations
 } = require('./sites.controller');
-const { protect, restrictTo } = require('../../middlewares/auth.middleware');
+const { protect, requirePermission } = require('../../middlewares/auth.middleware');
 
 const router = express.Router();
 
-// Configure multer for site images
 const imageUpload = multer({
     dest: 'tmp/',
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    limits: { fileSize: 5 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
         if (file.mimetype.startsWith('image/')) {
             cb(null, true);
@@ -29,73 +31,32 @@ const imageUpload = multer({
     }
 });
 
-// Apply 'protect' middleware to all routes in this file
 router.use(protect);
 
-// Create a site - Admin, Manager
-router.post(
-    '/',
-    restrictTo('admin', 'manager'),
-    createSite
-);
+// ============================================
+// VIEW OPERATIONS
+// ============================================
+router.get('/', requirePermission('sites', 'view'), getAllSites);
+router.get('/categories', requirePermission('sites', 'view'), getSiteCategories);
+router.get('/sub-organizations', requirePermission('sites', 'view'), getSiteSubOrganizations);
+router.get('/details', requirePermission('sites', 'view'), getAllSitesDetails);
+router.get('/:id', requirePermission('sites', 'view'), getSiteById);
 
-// Get all sites (list view) - Available to all roles
-router.get(
-    '/',
-    getAllSites
+// ============================================
+// ADD OPERATIONS
+// ============================================
+router.post('/', requirePermission('sites', 'add'), createSite);
+router.post('/:id/images', requirePermission('sites', 'add'), imageUpload.single('image'), uploadSiteImage);
 
-);
-// Get all Site Categories
-router.get(
-    '/categories',
-    getSiteCategories
-    
-);
+// ============================================
+// UPDATE OPERATIONS
+// ============================================
+router.put('/:id', requirePermission('sites', 'update'), updateSite);
 
-// Get all Site Sub-Organizations
-router.get(
-    '/sub-organizations',
-    getSiteSubOrganizations
-);
-
-// Get all sites for logged-in user's organization
-router.get(
-    '/details',
-    getAllSitesDetails
-);
-
-// Get single site (detail view) - Available to all roles
-router.get(
-    '/:id',
-    getSiteById
-);
-
-// Update a site - Admin, Manager
-router.put(
-    '/:id',
-    updateSite
-);
-
-// Delete a site - Admin, Manager
-router.delete(
-    '/:id',
-    restrictTo('admin', 'manager'),
-    deleteSite
-);
-
-// Upload or update a site image - Admin, Manager //TODO: Allow salesperson
-router.post(
-    '/:id/images',
-    restrictTo('admin', 'manager'),
-    imageUpload.single('image'),
-    uploadSiteImage
-);
-
-// Delete a site image - Admin, Manager //TODO: Allow salesperson
-router.delete(
-    '/:id/images/:imageNumber',
-    restrictTo('admin', 'manager', 'salesperson'),
-    deleteSiteImage
-);
+// ============================================
+// DELETE OPERATIONS
+// ============================================
+router.delete('/:id', requirePermission('sites', 'delete'), deleteSite);
+router.delete('/:id/images/:imageNumber', requirePermission('sites', 'delete'), deleteSiteImage);
 
 module.exports = router;

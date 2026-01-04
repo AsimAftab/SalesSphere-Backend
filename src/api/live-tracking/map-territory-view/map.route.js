@@ -1,16 +1,17 @@
+// src/api/live-tracking/map-territory-view/map.route.js
+// Live tracking map routes - permission-based access
+
 const express = require('express');
 const { getMapLocations } = require('./map.controller');
-const { protect } = require('../../../middlewares/auth.middleware');
+const { protect, requirePermission } = require('../../../middlewares/auth.middleware');
 
 const router = express.Router();
 
-// Apply 'protect' middleware to all routes in this file
 router.use(protect);
 
-// Get all map locations for the organization
-router.get(
-    '/locations',
-    getMapLocations
-);
+// ============================================
+// VIEW OPERATIONS
+// ============================================
+router.get('/locations', requirePermission('liveTracking', 'view'), getMapLocations);
 
 module.exports = router;

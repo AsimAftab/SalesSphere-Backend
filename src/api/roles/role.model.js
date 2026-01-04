@@ -5,11 +5,12 @@ const mongoose = require('mongoose');
 const { ALL_MODULES, createEmptyPermissions } = require('../../utils/defaultPermissions');
 
 /**
- * Permission Schema - defines read/write/delete for each module
+ * Permission Schema - view/add/update/delete for each module
  */
 const permissionSchema = new mongoose.Schema({
-    read: { type: Boolean, default: false },
-    write: { type: Boolean, default: false },
+    view: { type: Boolean, default: false },
+    add: { type: Boolean, default: false },
+    update: { type: Boolean, default: false },
     delete: { type: Boolean, default: false }
 }, { _id: false });
 
@@ -33,7 +34,6 @@ const roleSchema = new mongoose.Schema({
         ref: 'Organization',
         required: [true, 'Organization ID is required']
     },
-    // Permissions object - one entry per module
     permissions: {
         dashboard: permissionSchema,
         liveTracking: permissionSchema,
@@ -56,80 +56,59 @@ const roleSchema = new mongoose.Schema({
         miscellaneousWork: permissionSchema,
         settings: permissionSchema
     },
-    // Is this role active?
     isActive: {
         type: Boolean,
         default: true
     },
-    // Is this a default/system role that can't be deleted?
     isDefault: {
         type: Boolean,
         default: false
     },
-    // Who created this role
     createdBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
     }
-}, {
-    timestamps: true
-});
+}, { timestamps: true });
 
-// Compound index to ensure unique role names within an organization
+// Unique role names per organization
 roleSchema.index({ name: 1, organizationId: 1 }, { unique: true });
-
-// Index for fast lookups
 roleSchema.index({ organizationId: 1, isActive: 1 });
 
-/**
- * Pre-save middleware to initialize permissions if not set
- */
 roleSchema.pre('save', function (next) {
     if (this.isNew && !this.permissions) {
-        // Initialize with empty permissions
         this.permissions = createEmptyPermissions();
     }
     next();
 });
 
 /**
- * Check if role has specific permission
- * @param {string} module - Module name
- * @param {string} action - Action type ('read', 'write', 'delete')
- * @returns {boolean}
+ * Check permission - actions: 'view', 'add', 'update', 'delete'
  */
 roleSchema.methods.hasPermission = function (module, action) {
     if (!this.permissions || !this.permissions[module]) return false;
     return this.permissions[module][action] === true;
 };
 
-/**
- * Get all permissions as a flat object
- * @returns {Object}
- */
 roleSchema.methods.getPermissions = function () {
     const perms = {};
     for (const module of ALL_MODULES) {
         if (this.permissions && this.permissions[module]) {
             perms[module] = {
-                read: this.permissions[module].read || false,
-                write: this.permissions[module].write || false,
+                view: this.permissions[module].view || false,
+                add: this.permissions[module].add || false,
+                update: this.permissions[module].update || false,
                 delete: this.permissions[module].delete || false
             };
         } else {
-            perms[module] = { read: false, write: false, delete: false };
+            perms[module] = { view: false, add: false, update: false, delete: false };
         }
     }
     return perms;
 };
 
-/**
- * Static method to get available modules for frontend
- */
 roleSchema.statics.getAvailableModules = function () {
     return ALL_MODULES.filter(m => !['organizations', 'systemUsers', 'subscriptions'].includes(m));
 };
 
 const Role = mongoose.model('Role', roleSchema);
-
 module.exports = Role;
