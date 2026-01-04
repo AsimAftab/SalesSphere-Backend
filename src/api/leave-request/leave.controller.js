@@ -112,6 +112,37 @@ exports.createLeaveRequest = async (req, res, next) => {
 
         const startDate = parseDateToOrgTZ(validatedData.startDate, timezone);
         const endDate = validatedData.endDate ? parseDateToOrgTZ(validatedData.endDate, timezone) : startDate;
+
+        // Check for overlapping leave requests
+        const overlappingRequest = await LeaveRequest.findOne({
+            createdBy: userId,
+            organizationId,
+            $or: [
+                // New request starts within existing request
+                { startDate: { $lte: startDate }, endDate: { $gte: startDate } },
+                // New request ends within existing request
+                { startDate: { $lte: endDate }, endDate: { $gte: endDate } },
+                // New request completely contains existing request
+                { startDate: { $gte: startDate }, endDate: { $lte: endDate } }
+            ]
+        });
+
+        if (overlappingRequest) {
+            const existingStart = overlappingRequest.startDate.toISOString().split('T')[0];
+            const existingEnd = overlappingRequest.endDate.toISOString().split('T')[0];
+            return res.status(400).json({
+                success: false,
+                message: `You already have a leave request from ${existingStart} to ${existingEnd}. Please update the existing request or choose different dates.`,
+                existingRequest: {
+                    id: overlappingRequest._id,
+                    startDate: existingStart,
+                    endDate: existingEnd,
+                    status: overlappingRequest.status,
+                    category: overlappingRequest.category
+                }
+            });
+        }
+
         const leaveDays = getLeaveDatesCount(startDate, endDate, weeklyOffDay);
 
         const newLeaveRequest = await LeaveRequest.create({
