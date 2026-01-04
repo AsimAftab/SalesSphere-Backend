@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
-const crypto = require('crypto'); // <-- 1. ADDED: For generating reset tokens
+const crypto = require('crypto');
+const { getDefaultPermissions, isSystemRole, ADMIN_DEFAULT_PERMISSIONS } = require('../../utils/defaultPermissions');
 
 const userSchema = new mongoose.Schema({
     name: {
@@ -17,20 +18,27 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: [true, 'Please provide a password'],
         minlength: 6,
-        select: false, // Don't send password in query results
+        select: false,
     },
+    // Base role - system roles (superadmin, developer) or admin for org owners
     role: {
         type: String,
-        enum: ['superadmin', 'admin', 'manager', 'developer', 'salesperson', 'user'],
+        enum: ['superadmin', 'developer', 'admin', 'user'],
         default: 'user',
+    },
+    // Dynamic role reference - for non-admin org users
+    // When set, permissions come from this role instead of base role defaults
+    customRoleId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Role',
+        default: null
     },
     organizationId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Organization',
-        // Organization is required for everyone except superadmin and developer (system users)
         required: [
-            function() {
-                return this.role !== 'superadmin' && this.role !== 'developer';
+            function () {
+                return !isSystemRole(this.role);
             },
             'Organization ID is required for non-system users'
         ]
@@ -39,6 +47,7 @@ const userSchema = new mongoose.Schema({
         type: Boolean,
         default: true,
     },
+
 
     // --- Employee Detail Fields ---
     avatarUrl: {
@@ -103,13 +112,14 @@ const userSchema = new mongoose.Schema({
 
 }, { timestamps: true });
 
+
 // Middleware to hash password before saving
 userSchema.pre('save', async function (next) {
     if (!this.isModified('password')) return next();
-    
+
     // Combine salt generation and hashing into one step
     this.password = await bcrypt.hash(this.password, 12);
-    
+
     next();
 });
 
@@ -119,7 +129,7 @@ userSchema.methods.matchPassword = async function (enteredPassword) {
 };
 
 // --- 3. ADDED: Method to create and hash password reset token ---
-userSchema.methods.createPasswordResetToken = function() {
+userSchema.methods.createPasswordResetToken = function () {
     // Generate the unhashed token
     const resetToken = crypto.randomBytes(32).toString('hex');
 
@@ -130,44 +140,100 @@ userSchema.methods.createPasswordResetToken = function() {
         .digest('hex');
 
     // Set an expiry time (e.g., 10 minutes from now)
-    this.passwordResetExpires = Date.now() + 10 * 60 * 1000; 
+    this.passwordResetExpires = Date.now() + 10 * 60 * 1000;
 
     // Return the *unhashed* token (this is what you email to the user)
     return resetToken;
 };
 // -------------------------------------------------------------
 
+// --- 4. RBAC Permission Methods ---
+/**
+ * Get effective permissions for this user
+ * Priority: 
+ * 1. System roles (superadmin/developer) - use defaults
+ * 2. Admin - full access within org
+ * 3. Custom Role (if customRoleId is set) - use role's permissions
+ * 4. Default user - minimal permissions
+ * @returns {Object} Complete permissions object
+ */
+userSchema.methods.getEffectivePermissions = function () {
+    // System roles use their defaults
+    if (isSystemRole(this.role)) {
+        return getDefaultPermissions(this.role);
+    }
+
+    // Admin gets full org access
+    if (this.role === 'admin') {
+        return ADMIN_DEFAULT_PERMISSIONS;
+    }
+
+    // If user has a custom role assigned and it's populated
+    if (this.customRoleId && this.customRoleId.permissions) {
+        const rolePerms = {};
+        const customRole = this.customRoleId;
+
+        if (customRole.permissions) {
+            for (const [module, perms] of Object.entries(customRole.permissions.toObject ? customRole.permissions.toObject() : customRole.permissions)) {
+                rolePerms[module] = {
+                    view: perms.view || false,
+                    add: perms.add || false,
+                    update: perms.update || false,
+                    delete: perms.delete || false
+                };
+            }
+        }
+        return rolePerms;
+    }
+
+    // Default: user role with minimal permissions
+    return getDefaultPermissions('user');
+};
+
+/**
+ * Check if user has specific permission
+ * @param {string} module - Module name (e.g., 'products', 'parties')
+ * @param {string} action - Action type ('view', 'add', 'update', 'delete')
+ * @returns {boolean}
+ */
+userSchema.methods.hasPermission = function (module, action) {
+    const permissions = this.getEffectivePermissions();
+    if (!permissions[module]) return false;
+    return permissions[module][action] === true;
+};
+// -----------------------------------------
+
 // --- Optional: Add a virtual property to calculate age ---
-userSchema.virtual('age').get(function() {
-  if (!this.dateOfBirth) return undefined; // Or null, or 0
-  
-  const today = new Date();
-  const birthDate = new Date(this.dateOfBirth);
-  let age = today.getFullYear() - birthDate.getFullYear();
-  const m = today.getMonth() - birthDate.getMonth();
-  if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
-      age--;
-  }
-  return age;
+userSchema.virtual('age').get(function () {
+    if (!this.dateOfBirth) return undefined; // Or null, or 0
+
+    const today = new Date();
+    const birthDate = new Date(this.dateOfBirth);
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const m = today.getMonth() - birthDate.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+    }
+    return age;
 });
 
 userSchema.set('toJSON', {
-  virtuals: true,
-  transform: function (doc, ret) {
-    // Move virtual 'age' to appear right after dateOfBirth
-    if (ret.dateOfBirth && ret.age !== undefined) {
-      const { age, ...rest } = ret;
-      const reordered = {};
-      for (const key in rest) {
-        reordered[key] = rest[key];
-        if (key === 'dateOfBirth') {
-          reordered.age = age; // insert after dateOfBirth
+    virtuals: true,
+    transform: function (doc, ret) {
+        // Move virtual 'age' to appear right after dateOfBirth
+        if (ret.dateOfBirth && ret.age !== undefined) {
+            const { age, ...rest } = ret;
+            const reordered = {};
+            for (const key in rest) {
+                reordered[key] = rest[key];
+                if (key === 'dateOfBirth') {
+                    reordered.age = age; // insert after dateOfBirth
+                }
+            }
+            return reordered;
         }
-      }
-      return reordered;
+        return ret;
     }
-    return ret;
-  }
 });
 // --- End Virtual ---
 

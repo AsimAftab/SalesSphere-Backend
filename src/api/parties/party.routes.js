@@ -1,3 +1,6 @@
+// src/api/parties/party.routes.js
+// Party management routes - permission-based access
+
 const express = require('express');
 const {
     createParty,
@@ -5,21 +8,20 @@ const {
     getAllPartiesDetails,
     getPartyById,
     updateParty,
-    deleteParty, // Use the deleteParty controller function
-    uploadPartyImage, // Import new controller
-    deletePartyImage, // Import new controller
-    bulkImportParties, // Bulk import controller
-    getPartyTypes // Party types controller
+    deleteParty,
+    uploadPartyImage,
+    deletePartyImage,
+    bulkImportParties,
+    getPartyTypes
 } = require('./party.controller');
-const { protect, restrictTo } = require('../../middlewares/auth.middleware');
+const { protect, requirePermission } = require('../../middlewares/auth.middleware');
 const multer = require('multer');
 
 const router = express.Router();
 
-// Configure multer for party images
 const imageUpload = multer({
     dest: 'tmp/',
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    limits: { fileSize: 5 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
         if (file.mimetype.startsWith('image/')) {
             cb(null, true);
@@ -29,77 +31,24 @@ const imageUpload = multer({
     }
 });
 
-// Apply 'protect' middleware to all routes in this file
 router.use(protect);
 
-// Create a party - Admin, Manager, and Salesperson
-router.post(
-    '/',
-    restrictTo('admin', 'manager', 'salesperson'),
-    createParty
-);
+// VIEW operations
+router.get('/', requirePermission('parties', 'view'), getAllParties);
+router.get('/details', requirePermission('parties', 'view'), getAllPartiesDetails);
+router.get('/types', requirePermission('parties', 'view'), getPartyTypes);
+router.get('/:id', requirePermission('parties', 'view'), getPartyById);
 
-// Get all parties (list view) - Available to all roles
-router.get(
-    '/',
-    getAllParties
-);
+// ADD operations
+router.post('/', requirePermission('parties', 'add'), createParty);
+router.post('/bulk-import', requirePermission('parties', 'add'), bulkImportParties);
+router.post('/:id/image', requirePermission('parties', 'add'), imageUpload.single('image'), uploadPartyImage);
 
-// Get all parties for logged-in user's organization
-router.get(
-    '/details',
-    getAllPartiesDetails
-);
+// UPDATE operations
+router.put('/:id', requirePermission('parties', 'update'), updateParty);
 
-// Get all party types - Available to all roles
-router.get(
-    '/types',
-    getPartyTypes
-);
-
-// Bulk import parties - Admin, Manager
-router.post(
-    '/bulk-import',
-    restrictTo('admin', 'manager'),
-    bulkImportParties
-);
-
-// Get single party (detail view) - Available to all roles
-router.get(
-    '/:id',
-    getPartyById
-);
-
-// Update a party - Admin, Manager, and Salesperson
-router.put(
-    '/:id',
-    restrictTo('admin', 'manager', 'salesperson'),
-    updateParty
-);
-
-// --- MODIFIED ROUTE ---
-// Permanently delete a party - Admin, Manager
-router.delete(
-    '/:id',
-    restrictTo('admin', 'manager'),
-    deleteParty // Use the deleteParty controller function
-);
-// --- END MODIFICATION ---
-
-// Upload or update a party image - Admin, Manager, Salesperson
-router.post(
-    '/:id/image',
-    restrictTo('admin', 'manager', 'salesperson'),
-    imageUpload.single('image'),
-    uploadPartyImage
-);
-
-// Delete a party image - Admin, Manager
-router.delete(
-    '/:id/image',
-    restrictTo('admin', 'manager'),
-    deletePartyImage
-);
+// DELETE operations
+router.delete('/:id', requirePermission('parties', 'delete'), deleteParty);
+router.delete('/:id/image', requirePermission('parties', 'delete'), deletePartyImage);
 
 module.exports = router;
-

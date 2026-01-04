@@ -27,6 +27,11 @@ const organizationSchema = new mongoose.Schema({
         required: [true, 'Address is required'],
         trim: true,
     },
+    country: {
+        type: String,
+        trim: true,
+        default: 'India',
+    },
     latitude: {
         type: Number,
         min: -90,
@@ -46,7 +51,7 @@ const organizationSchema = new mongoose.Schema({
         trim: true,
         default: '10:00',
         validate: {
-            validator: function(v) {
+            validator: function (v) {
                 return /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(v);
             },
             message: 'Check-in time must be in HH:MM format (24-hour)'
@@ -57,7 +62,7 @@ const organizationSchema = new mongoose.Schema({
         trim: true,
         default: '18:00',
         validate: {
-            validator: function(v) {
+            validator: function (v) {
                 return /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(v);
             },
             message: 'Check-out time must be in HH:MM format (24-hour)'
@@ -68,7 +73,7 @@ const organizationSchema = new mongoose.Schema({
         trim: true,
         default: '14:00',
         validate: {
-            validator: function(v) {
+            validator: function (v) {
                 return /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(v);
             },
             message: 'Half day check-out time must be in HH:MM format (24-hour)'
@@ -85,7 +90,7 @@ const organizationSchema = new mongoose.Schema({
         default: 'Asia/Kolkata',
         trim: true,
         validate: {
-            validator: function(v) {
+            validator: function (v) {
                 // Basic validation - checks if timezone exists in Intl
                 try {
                     Intl.DateTimeFormat(undefined, { timeZone: v });
@@ -142,7 +147,7 @@ const organizationSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // Pre-save middleware to calculate subscription end date
-organizationSchema.pre('save', function(next) {
+organizationSchema.pre('save', function (next) {
     if (this.isNew || this.isModified('subscriptionType') || this.isModified('subscriptionStartDate')) {
         const startDate = this.subscriptionStartDate || new Date();
         const monthsToAdd = this.subscriptionType === '12months' ? 12 : 6;
@@ -154,7 +159,7 @@ organizationSchema.pre('save', function(next) {
 });
 
 // Virtual property to check if subscription is expired
-organizationSchema.virtual('isSubscriptionActive').get(function() {
+organizationSchema.virtual('isSubscriptionActive').get(function () {
     return this.subscriptionEndDate && new Date() < this.subscriptionEndDate;
 });
 

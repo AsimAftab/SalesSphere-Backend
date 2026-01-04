@@ -2,7 +2,8 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const User = require('../users/user.model');
 const Organization = require('../organizations/organization.model');
-const { sendEmail, sendWelcomeEmail } = require('../../utils/emailSender'); // <-- IMPORTED email utilities
+const { sendEmail, sendWelcomeEmail } = require('../../utils/emailSender');
+const { getDefaultPermissions, isSystemRole, ADMIN_DEFAULT_PERMISSIONS } = require('../../utils/defaultPermissions');
 
 // Function to sign an access token (short-lived)
 const signToken = (id) => {
@@ -77,9 +78,24 @@ const sendTokenResponse = async (
   user.refreshToken = undefined;
   user.refreshTokenExpiry = undefined;
 
+  // Get user's effective permissions
+  let permissions;
+  if (isSystemRole(user.role)) {
+    permissions = getDefaultPermissions(user.role);
+  } else if (user.role === 'admin') {
+    permissions = ADMIN_DEFAULT_PERMISSIONS;
+  } else if (typeof user.getEffectivePermissions === 'function') {
+    permissions = user.getEffectivePermissions();
+  } else {
+    permissions = getDefaultPermissions('user');
+  }
+
   const response = {
     status: 'success',
-    data: { user },
+    data: {
+      user,
+      permissions
+    },
   };
 
   // For mobile clients, include tokens in response
@@ -160,6 +176,7 @@ exports.register = async (req, res) => {
       panVatNumber,
       phone,
       address,
+      country,
       latitude,
       longitude,
       googleMapLink,
@@ -225,6 +242,9 @@ exports.register = async (req, res) => {
     if (googleMapLink) {
       organizationData.googleMapLink = googleMapLink;
     }
+    if (country) {
+      organizationData.country = country;
+    }
 
     // Add optional check-in/check-out times if provided
     if (checkInTime) {
@@ -273,6 +293,7 @@ exports.register = async (req, res) => {
       panVatNumber: newOrganization.panVatNumber,
       phone: newOrganization.phone,
       address: newOrganization.address,
+      country: newOrganization.country,
       checkInTime: newOrganization.checkInTime,
       checkOutTime: newOrganization.checkOutTime,
       halfDayCheckOutTime: newOrganization.halfDayCheckOutTime,

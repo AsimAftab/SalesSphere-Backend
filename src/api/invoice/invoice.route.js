@@ -1,3 +1,6 @@
+// src/api/invoice/invoice.route.js
+// Invoice and estimate routes - permission-based access
+
 const express = require('express');
 const {
     createInvoice,
@@ -7,7 +10,6 @@ const {
     updateInvoiceStatus,
     getPartiesOrderStats,
     getPartyOrderStats,
-    // Estimate endpoints
     createEstimate,
     getAllEstimates,
     getEstimateById,
@@ -15,97 +17,42 @@ const {
     bulkDeleteEstimates,
     convertEstimateToInvoice
 } = require('./invoice.controller');
-const { protect, restrictTo } = require('../../middlewares/auth.middleware');
+const { protect, requirePermission } = require('../../middlewares/auth.middleware');
 
 const router = express.Router();
 
-// Apply 'protect' middleware to all routes
 router.use(protect);
 
 // ============================================
-// ESTIMATE ROUTES (must come before /:id routes)
+// ESTIMATE ROUTES
 // ============================================
 
-// Create a new estimate
-router.post(
-    '/estimates',
-    restrictTo('admin', 'manager', 'salesperson'),
-    createEstimate
-);
+// VIEW
+router.get('/estimates', requirePermission('orderLists', 'view'), getAllEstimates);
+router.get('/estimates/:id', requirePermission('orderLists', 'view'), getEstimateById);
 
-// Get all estimates
-router.get(
-    '/estimates',
-    getAllEstimates
-);
+// ADD
+router.post('/estimates', requirePermission('orderLists', 'add'), createEstimate);
+router.post('/estimates/:id/convert', requirePermission('orderLists', 'add'), convertEstimateToInvoice);
 
-// Get a single estimate by ID
-router.get(
-    '/estimates/:id',
-    getEstimateById
-);
-
-// Bulk delete estimates (must come before /:id route)
-router.delete(
-    '/estimates/bulk-delete',
-    restrictTo('admin', 'manager'),
-    bulkDeleteEstimates
-);
-
-// Delete an estimate
-router.delete(
-    '/estimates/:id',
-    restrictTo('admin', 'manager', 'salesperson'),
-    deleteEstimate
-);
-
-// Convert estimate to invoice
-router.post(
-    '/estimates/:id/convert',
-    restrictTo('admin', 'manager', 'salesperson'),
-    convertEstimateToInvoice
-);
+// DELETE
+router.delete('/estimates/:id', requirePermission('orderLists', 'delete'), deleteEstimate);
+router.delete('/estimates/bulk-delete', requirePermission('orderLists', 'delete'), bulkDeleteEstimates);
 
 // ============================================
 // INVOICE ROUTES
 // ============================================
 
-// Get aggregated order statistics for all parties
-router.get(
-    '/parties/stats',
-    getPartiesOrderStats
-);
+// VIEW
+router.get('/parties/stats', requirePermission('orderLists', 'view'), getPartiesOrderStats);
+router.get('/parties/:partyId/stats', requirePermission('orderLists', 'view'), getPartyOrderStats);
+router.get('/', requirePermission('orderLists', 'view'), getAllInvoices);
+router.get('/:id', requirePermission('orderLists', 'view'), getInvoiceById);
 
-// Get aggregated order statistics for a specific party
-router.get(
-    '/parties/:partyId/stats',
-    getPartyOrderStats
-);
+// ADD
+router.post('/', requirePermission('orderLists', 'add'), createInvoice);
 
-// Create a new invoice
-router.post(
-    '/',
-    restrictTo('admin', 'manager', 'salesperson'),
-    createInvoice
-);
-
-// Get all invoices (filtered by role)
-router.get(
-    '/',
-    getAllInvoices
-);
-
-// Get a single invoice by ID (filtered by role)
-router.get(
-    '/:id',
-    getInvoiceById
-);
-
-// Update an invoice's status
-router.put(
-    '/:id/status',
-    restrictTo('admin', 'manager'),
-    updateInvoiceStatus
-);
+// UPDATE
+router.put('/:id/status', requirePermission('orderLists', 'update'), updateInvoiceStatus);
 
 module.exports = router;

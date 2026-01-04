@@ -1,20 +1,23 @@
+// src/api/dashboard/dashboard.route.js
+// Dashboard routes - permission-based access
+
 const express = require('express');
-const { protect, restrictTo } = require('../../middlewares/auth.middleware');
-const { 
-    getDashboardStats, 
-    getTeamPerformance, 
+const { protect, requirePermission } = require('../../middlewares/auth.middleware');
+const {
+    getDashboardStats,
+    getTeamPerformance,
     getAttendanceSummary,
     getSalesTrend
 } = require('./dashboard.controller');
 
 const router = express.Router();
 
-// All dashboard routes are protected
-router.use(protect, restrictTo('admin', 'manager'));
+router.use(protect);
 
-router.get('/stats', getDashboardStats);
-router.get('/team-performance', getTeamPerformance); 
-router.get('/attendance-summary', getAttendanceSummary); 
-router.get('/sales-trend', getSalesTrend); 
+// All dashboard routes require dashboard.view permission
+router.get('/stats', requirePermission('dashboard', 'view'), getDashboardStats);
+router.get('/team-performance', requirePermission('dashboard', 'view'), getTeamPerformance);
+router.get('/attendance-summary', requirePermission('dashboard', 'view'), getAttendanceSummary);
+router.get('/sales-trend', requirePermission('dashboard', 'view'), getSalesTrend);
 
 module.exports = router;

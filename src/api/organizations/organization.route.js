@@ -1,3 +1,6 @@
+// src/api/organizations/organization.route.js
+// Organization management routes - permission-based access
+
 const express = require('express');
 const {
     getMyOrganization,
@@ -7,29 +10,24 @@ const {
     reactivateOrganization,
     extendSubscription
 } = require('./organization.controller');
-const { protect, restrictTo } = require('../../middlewares/auth.middleware');
+const {
+    protect,
+    requirePermission,
+    requireSystemRole
+} = require('../../middlewares/auth.middleware');
 
 const router = express.Router();
 
-// Apply 'protect' middleware to all routes
 router.use(protect);
 
-// Get my organization details
-router.get('/my-organization', restrictTo('admin', 'manager','superadmin'), getMyOrganization);
+// Get my organization - requires organizations.view
+router.get('/my-organization', requirePermission('organizations', 'view'), getMyOrganization);
 
-// Get specific organization details by ID (superadmin only)
-router.get('/:id', restrictTo('superadmin','developer'), getOrganizationById);
-
-// Update organization details (superadmin only)
-router.put('/:id', restrictTo('superadmin','developer'), updateMyOrganization);
-
-// Superadmin: Deactivate an organization
-router.put('/:id/deactivate', restrictTo('superadmin','developer'), deactivateOrganization);
-
-// Superadmin: Reactivate an organization
-router.put('/:id/reactivate', restrictTo('superadmin','developer'), reactivateOrganization);
-
-// Superadmin, Developer: Extend organization subscription
-router.post('/:id/extend-subscription', restrictTo('superadmin','developer'), extendSubscription);
+// System routes (superadmin/developer only)
+router.get('/:id', requireSystemRole(), getOrganizationById);
+router.put('/:id', requireSystemRole(), updateMyOrganization);
+router.put('/:id/deactivate', requireSystemRole(), deactivateOrganization);
+router.put('/:id/reactivate', requireSystemRole(), reactivateOrganization);
+router.post('/:id/extend-subscription', requireSystemRole(), extendSubscription);
 
 module.exports = router;

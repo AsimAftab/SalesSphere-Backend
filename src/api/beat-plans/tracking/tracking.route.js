@@ -1,3 +1,6 @@
+// src/api/beat-plans/tracking/tracking.route.js
+// Beat plan tracking routes - permission-based access
+
 const express = require('express');
 const {
     getTrackingSession,
@@ -8,32 +11,25 @@ const {
     getActiveTrackingSessions,
     deleteTrackingSession,
 } = require('./tracking.controller');
-const { protect, restrictTo } = require('../../../middlewares/auth.middleware');
+const { protect, requirePermission } = require('../../../middlewares/auth.middleware');
 
 const router = express.Router();
 
-// Apply protect middleware to all routes
 router.use(protect);
 
-// Get all active tracking sessions (Admin, Manager only)
-router.get('/active', restrictTo('admin', 'manager', 'salesperson', 'superadmin'), getActiveTrackingSessions);
+// ============================================
+// VIEW OPERATIONS
+// ============================================
+router.get('/active', requirePermission('liveTracking', 'view'), getActiveTrackingSessions);
+router.get('/:beatPlanId', requirePermission('liveTracking', 'view'), getTrackingSession);
+router.get('/:beatPlanId/history', requirePermission('liveTracking', 'view'), getTrackingHistory);
+router.get('/:beatPlanId/current-location', requirePermission('liveTracking', 'view'), getCurrentLocation);
+router.get('/session/:sessionId/breadcrumbs', requirePermission('liveTracking', 'view'), getBreadcrumbs);
+router.get('/session/:sessionId/summary', requirePermission('liveTracking', 'view'), getTrackingSummary);
 
-// Get current tracking session for a beat plan
-router.get('/:beatPlanId', getTrackingSession);
-
-// Get tracking history for a beat plan
-router.get('/:beatPlanId/history', getTrackingHistory);
-
-// Get current location for an active tracking session
-router.get('/:beatPlanId/current-location', getCurrentLocation);
-
-// Get breadcrumb trail for a specific session
-router.get('/session/:sessionId/breadcrumbs', getBreadcrumbs);
-
-// Get tracking summary for a specific session
-router.get('/session/:sessionId/summary', getTrackingSummary);
-
-// Delete tracking session (Admin only)
-router.delete('/session/:sessionId', restrictTo('admin', 'superadmin'), deleteTrackingSession);
+// ============================================
+// DELETE OPERATIONS
+// ============================================
+router.delete('/session/:sessionId', requirePermission('liveTracking', 'delete'), deleteTrackingSession);
 
 module.exports = router;

@@ -1,3 +1,6 @@
+// src/api/leave-request/leave.route.js
+// Leave request routes - permission-based access
+
 const express = require('express');
 const {
     createLeaveRequest,
@@ -9,70 +12,34 @@ const {
     updateLeaveRequestStatus,
     bulkDeleteLeaveRequests,
 } = require('./leave.controller');
-const { protect, restrictTo } = require('../../middlewares/auth.middleware');
+const { protect, requirePermission } = require('../../middlewares/auth.middleware');
 
 const router = express.Router();
 
-// Apply 'protect' middleware to all routes
 router.use(protect);
 
 // ============================================
-// SPECIALIZED ROUTES (must come before /:id)
+// VIEW OPERATIONS
 // ============================================
-
-// Bulk delete leave requests
-router.delete(
-    '/bulk-delete',
-    restrictTo('admin'),
-    bulkDeleteLeaveRequests
-);
-
-// Get my leave requests
-router.get(
-    '/my-requests',
-    getMyLeaveRequests
-);
+router.get('/my-requests', requirePermission('leaves', 'view'), getMyLeaveRequests);
+router.get('/', requirePermission('leaves', 'view'), getAllLeaveRequests);
+router.get('/:id', requirePermission('leaves', 'view'), getLeaveRequestById);
 
 // ============================================
-// LEAVE REQUEST ROUTES
+// ADD OPERATIONS
 // ============================================
+router.post('/', requirePermission('leaves', 'add'), createLeaveRequest);
 
-// Create a new leave request
-router.post(
-    '/',
-    createLeaveRequest
-);
+// ============================================
+// UPDATE OPERATIONS
+// ============================================
+router.put('/:id', requirePermission('leaves', 'update'), updateLeaveRequest);
+router.patch('/:id/status', requirePermission('leaves', 'update'), updateLeaveRequestStatus);
 
-// Get all leave requests
-router.get(
-    '/',
-    restrictTo('admin', 'manager'),
-    getAllLeaveRequests
-);
-
-// Get a single leave request by ID
-router.get(
-    '/:id',
-    getLeaveRequestById
-);
-
-// Update a leave request
-router.put(
-    '/:id',
-    updateLeaveRequest
-);
-
-// Delete a leave request
-router.delete(
-    '/:id',
-    deleteLeaveRequest
-);
-
-// Update leave request status (approve/reject)
-router.patch(
-    '/:id/status',
-    restrictTo('admin', 'manager'),
-    updateLeaveRequestStatus
-);
+// ============================================
+// DELETE OPERATIONS
+// ============================================
+router.delete('/:id', requirePermission('leaves', 'delete'), deleteLeaveRequest);
+router.delete('/bulk-delete', requirePermission('leaves', 'delete'), bulkDeleteLeaveRequests);
 
 module.exports = router;

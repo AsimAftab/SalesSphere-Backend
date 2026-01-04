@@ -1,3 +1,6 @@
+// src/api/beat-plans/beat-plan.route.js
+// Beat plan routes - permission-based access
+
 const express = require('express');
 const {
     getSalespersons,
@@ -15,101 +18,40 @@ const {
     calculateDistanceToParty,
     optimizeBeatPlanRoute
 } = require('./beat-plan.controller');
-const { protect, restrictTo } = require('../../middlewares/auth.middleware');
+const { protect, requirePermission } = require('../../middlewares/auth.middleware');
 
 const router = express.Router();
 
-// Apply 'protect' middleware to all routes in this file
 router.use(protect);
 
-// Get salespersons for employee dropdown - Available to Admin and Manager
-router.get(
-    '/salesperson',
-    restrictTo('admin', 'manager'),
-    getSalespersons
-);
+// ============================================
+// VIEW OPERATIONS
+// ============================================
+router.get('/salesperson', requirePermission('beatPlan', 'view'), getSalespersons);
+router.get('/available-directories', requirePermission('beatPlan', 'view'), getAvailableDirectories);
+router.get('/data', requirePermission('beatPlan', 'view'), getBeatPlanData);
+router.get('/my-beatplans', requirePermission('beatPlan', 'view'), getMyBeatPlans);
+router.get('/', requirePermission('beatPlan', 'view'), getAllBeatPlans);
+router.get('/:id/details', requirePermission('beatPlan', 'view'), getBeatPlanDetails);
+router.get('/:id', requirePermission('beatPlan', 'view'), getBeatPlanById);
 
-// Get available directories (parties, sites, prospects) for beat plan assignment - Available to Admin and Manager
-router.get(
-    '/available-directories',
-    restrictTo('admin', 'manager'),
-    getAvailableDirectories
-);
+// ============================================
+// ADD OPERATIONS
+// ============================================
+router.post('/', requirePermission('beatPlan', 'add'), createBeatPlan);
+router.post('/calculate-distance', requirePermission('beatPlan', 'view'), calculateDistanceToParty);
+router.post('/:id/optimize-route', requirePermission('beatPlan', 'update'), optimizeBeatPlanRoute);
+router.post('/:id/start', requirePermission('beatPlan', 'update'), startBeatPlan);
+router.post('/:id/visit', requirePermission('beatPlan', 'update'), markPartyVisited);
 
-// Get beat plan data/analytics - Available to Admin and Manager
-router.get(
-    '/data',
-    restrictTo('admin', 'manager'),
-    getBeatPlanData
-);
+// ============================================
+// UPDATE OPERATIONS
+// ============================================
+router.put('/:id', requirePermission('beatPlan', 'update'), updateBeatPlan);
 
-// Get salesperson's assigned beat plans - Available to salesperson (MUST come before /:id)
-router.get(
-    '/my-beatplans',
-    getMyBeatPlans
-);
-
-// Calculate distance from current location to a party - Available to all authenticated users
-router.post(
-    '/calculate-distance',
-    calculateDistanceToParty
-);
-
-// Create a beat plan - Admin and Manager
-router.post(
-    '/',
-    restrictTo('admin', 'manager'),
-    createBeatPlan
-);
-
-// Get all beat plans (list view) - Available to all roles
-router.get(
-    '/',
-    getAllBeatPlans
-);
-
-// Get detailed beatplan information with all parties and visit status (MUST come before /:id)
-router.get(
-    '/:id/details',
-    getBeatPlanDetails
-);
-
-// Optimize beatplan route using nearest neighbor algorithm (MUST come before /:id)
-router.post(
-    '/:id/optimize-route',
-    optimizeBeatPlanRoute
-);
-
-// Start a beat plan (activate) - Salesperson assigned to the beat plan (MUST come before /:id)
-router.post(
-    '/:id/start',
-    startBeatPlan
-);
-
-// Mark a party as visited in beat plan - Salesperson can mark visits (MUST come before /:id)
-router.post(
-    '/:id/visit',
-    markPartyVisited
-);
-
-// Update a beat plan - Admin and Manager
-router.put(
-    '/:id',
-    restrictTo('admin', 'manager'),
-    updateBeatPlan
-);
-
-// Delete a beat plan - Admin and Manager
-router.delete(
-    '/:id',
-    restrictTo('admin', 'manager'),
-    deleteBeatPlan
-);
-
-// Get single beat plan (detail view) - Available to all roles (MUST come LAST)
-router.get(
-    '/:id',
-    getBeatPlanById
-);
+// ============================================
+// DELETE OPERATIONS
+// ============================================
+router.delete('/:id', requirePermission('beatPlan', 'delete'), deleteBeatPlan);
 
 module.exports = router;

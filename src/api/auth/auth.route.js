@@ -1,3 +1,6 @@
+// src/api/auth/auth.route.js
+// Authentication routes - permission-based access
+
 const express = require('express');
 const {
   register,
@@ -11,26 +14,32 @@ const {
   checkAuthStatus,
   refreshToken,
 } = require('./auth.controller');
-const { protect, restrictTo } = require('../../middlewares/auth.middleware');
+const { protect, requireSystemRole } = require('../../middlewares/auth.middleware');
+
 const router = express.Router();
 
-// Authentication Routes
-router.post('/register', protect, restrictTo('superadmin'), register);
-router.post('/register/superadmin', registerSuperAdmin);
+// ============================================
+// PUBLIC ROUTES (no auth required)
+// ============================================
 router.post('/login', login);
-router.post('/logout', protect, logout);
-router.post('/refresh', refreshToken); // Refresh access token
-
-// Password Management Routes
+router.post('/refresh', refreshToken);
 router.post('/forgotpassword', forgotPassword);
 router.patch('/resetpassword/:token', resetPassword);
-
-// Admin Contact Route
 router.post('/contact-admin', contactAdmin);
-// Demo Scheduling Route
 router.post('/schedule-demo', scheduleDemo);
 
-// Check Authentication Status Route
+// ============================================
+// PROTECTED ROUTES (auth required)
+// ============================================
+router.post('/logout', protect, logout);
 router.get('/check-status', protect, checkAuthStatus);
+
+// ============================================
+// SYSTEM ROUTES (superadmin only)
+// ============================================
+// Register new organization - superadmin only
+router.post('/register', protect, requireSystemRole(), register);
+// Register superadmin (first-time setup only)
+router.post('/register/superadmin', registerSuperAdmin);
 
 module.exports = router;

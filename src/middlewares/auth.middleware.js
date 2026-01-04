@@ -1,67 +1,149 @@
-const jwt = require('jsonwebtoken');
-const User = require('../api/users/user.model'); // Adjust path as needed
+// src/middlewares/auth.middleware.js
+// Authentication and permission middleware
 
-// @desc    Protect routes by checking for a valid token
+const jwt = require('jsonwebtoken');
+const User = require('../api/users/user.model');
+const { getDefaultPermissions, isSystemRole, ADMIN_DEFAULT_PERMISSIONS } = require('../utils/defaultPermissions');
+
+// Import permission middleware
+const {
+  requirePermission,
+  requireAllPermissions,
+  requireAnyPermission,
+  requireSystemRole,
+  requireOrgAdmin,
+  attachPermissions
+} = require('./permission.middleware');
+
+/**
+ * @desc    Protect routes by checking for a valid token
+ * @usage   router.use(protect) or router.get('/path', protect, handler)
+ */
 exports.protect = async (req, res, next) => {
   let token;
 
-  // --- HYBRID AUTH: Support both cookies (web) and Bearer token (mobile) ---
+  // Support both cookies (web) and Bearer token (mobile)
   if (req.cookies && req.cookies.token) {
     token = req.cookies.token;
   } else if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
     token = req.headers.authorization.split(' ')[1];
   }
-  // --- END HYBRID AUTH ---
 
   if (!token) {
-    // No token -> don't proceed to restrictTo
-    return res.status(401).json({ message: 'Not authorized, no token provided' });
+    return res.status(401).json({
+      status: 'error',
+      message: 'Not authorized, no token provided'
+    });
   }
 
   try {
     // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Attach user (remove password)
-    const user = await User.findById(decoded.id).select('-password');
+    // Fetch user with customRoleId populated for permission checking
+    const user = await User.findById(decoded.id)
+      .select('-password')
+      .populate('customRoleId');
 
     if (!user) {
-      return res.status(401).json({ message: 'Not authorized, user not found' });
+      return res.status(401).json({
+        status: 'error',
+        message: 'Not authorized, user not found'
+      });
+    }
+
+    // Check if user is active
+    if (!user.isActive) {
+      return res.status(401).json({
+        status: 'error',
+        message: 'Your account has been deactivated. Please contact admin.'
+      });
     }
 
     req.user = user;
+
+    // Attach effective permissions to request
+    req.permissions = user.getEffectivePermissions();
+
     return next();
   } catch (err) {
-    // Helpful debug log — remove or reduce in production
     console.error('Auth protect error:', err && err.message ? err.message : err);
-    return res.status(401).json({ message: 'Not authorized, token invalid or expired' });
+    return res.status(401).json({
+      status: 'error',
+      message: 'Not authorized, token invalid or expired'
+    });
   }
 };
 
-// @desc    Grant access to specific roles
-exports.restrictTo = (...roles) => {
+/**
+ * @desc    Legacy role-based access control (maps old roles to new system)
+ * @note    For transition - gradually migrate to requirePermission()
+ * 
+ * Role mapping:
+ * - superadmin, developer -> System roles (always allowed)
+ * - admin -> Org admin (full access within org)
+ * - manager, salesperson, user -> Check custom role or allow if in list
+ */
+exports.restrictTo = (...allowedRoles) => {
   return (req, res, next) => {
-    // Defensive: ensure protect ran and attached req.user
     if (!req.user) {
       return res.status(401).json({
-        message: 'User information missing from request. Ensure authentication middleware (protect) runs before this middleware.'
+        status: 'error',
+        message: 'User information missing. Ensure protect middleware runs first.'
       });
     }
 
-    // Defensive: ensure role exists on user
-    if (!req.user.role) {
-      // Optionally log this for debugging — user exists but has no role
-      console.warn('restrictTo: req.user exists but no role property found', { userId: req.user._id });
-      return res.status(403).json({ message: 'Access denied: no role assigned to user' });
+    const userRole = req.user.role;
+
+    // Superadmin can do anything
+    if (userRole === 'superadmin') {
+      return next();
     }
 
-    // Authorization check
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).json({
-        message: 'You do not have permission to perform this action'
-      });
+    // Developer has broad access (read/write, limited delete)
+    if (userRole === 'developer') {
+      if (allowedRoles.includes('superadmin') || allowedRoles.includes('developer')) {
+        return next();
+      }
+      // Allow developer to access routes marked for admin/manager
+      if (allowedRoles.includes('admin') || allowedRoles.includes('manager')) {
+        return next();
+      }
     }
 
-    return next();
+    // Admin has full org access
+    if (userRole === 'admin') {
+      if (allowedRoles.includes('admin') || allowedRoles.includes('manager') ||
+        allowedRoles.includes('salesperson') || allowedRoles.includes('user')) {
+        return next();
+      }
+    }
+
+    // For users with custom roles assigned
+    if (req.user.customRoleId && req.user.customRoleId.permissions) {
+      // User has a custom role - check if they have relevant permissions
+      // Map old roles to permission checks
+      if (allowedRoles.includes('manager') || allowedRoles.includes('salesperson') || allowedRoles.includes('user')) {
+        return next();
+      }
+    }
+
+    // Direct base role match
+    if (allowedRoles.includes(userRole)) {
+      return next();
+    }
+
+    return res.status(403).json({
+      status: 'error',
+      message: 'You do not have permission to perform this action'
+    });
   };
 };
+
+// Export permission middleware
+exports.requirePermission = requirePermission;
+exports.requireAllPermissions = requireAllPermissions;
+exports.requireAnyPermission = requireAnyPermission;
+exports.requireSystemRole = requireSystemRole;
+exports.requireOrgAdmin = requireOrgAdmin;
+exports.attachPermissions = attachPermissions;

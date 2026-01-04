@@ -1,3 +1,6 @@
+// src/api/product/product.routes.js
+// Product management routes - permission-based access
+
 const express = require('express');
 const multer = require('multer');
 const {
@@ -9,15 +12,13 @@ const {
     bulkDeleteProducts,
     bulkImportProducts
 } = require('./product.controller');
-const { protect, restrictTo } = require('../../middlewares/auth.middleware');
+const { protect, requirePermission } = require('../../middlewares/auth.middleware');
 
 const router = express.Router();
 
-// --- Multer Configuration ---
-// Configure multer for product images
 const imageUpload = multer({
-    dest: 'tmp/', // Temporary folder for uploads
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    dest: 'tmp/',
+    limits: { fileSize: 5 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
         if (file.mimetype.startsWith('image/')) {
             cb(null, true);
@@ -27,60 +28,29 @@ const imageUpload = multer({
     }
 });
 
-// Apply 'protect' middleware to all routes
 router.use(protect);
 
-// --- Product CRUD Routes ---
+// ============================================
+// VIEW OPERATIONS
+// ============================================
+router.get('/', requirePermission('products', 'view'), getAllProducts);
+router.get('/:id', requirePermission('products', 'view'), getProductById);
 
-// Bulk import products (must be before /:id route)
-router.post(
-    '/bulk-import',
-    restrictTo('admin', 'manager'),
-    bulkImportProducts
-);
+// ============================================
+// ADD OPERATIONS
+// ============================================
+router.post('/', requirePermission('products', 'add'), imageUpload.single('image'), createProduct);
+router.post('/bulk-import', requirePermission('products', 'add'), bulkImportProducts);
 
-// Bulk delete products (must be before /:id route)
-router.delete(
-    '/bulk-delete',
-    restrictTo('admin', 'manager'),
-    bulkDeleteProducts
-);
+// ============================================
+// UPDATE OPERATIONS
+// ============================================
+router.put('/:id', requirePermission('products', 'update'), imageUpload.single('image'), updateProduct);
 
-// Create a product
-// Now uses multer to handle image upload
-router.post(
-    '/',
-    restrictTo('admin', 'manager'),
-    imageUpload.single('image'), // Field name from form-data must be 'image'
-    createProduct
-);
-
-// Get all active products
-router.get(
-    '/',
-    getAllProducts
-);
-
-// Get a single product by ID
-router.get(
-    '/:id',
-    getProductById
-);
-
-// Update a product
-// Also uses multer in case the image is being replaced
-router.put(
-    '/:id',
-    restrictTo('admin', 'manager'),
-    imageUpload.single('image'), // Field name from form-data must be 'image'
-    updateProduct
-);
-
-// Deactivate (soft delete) a product
-router.delete(
-    '/:id',
-    restrictTo('admin', 'manager'),
-    deleteProduct
-);
+// ============================================
+// DELETE OPERATIONS
+// ============================================
+router.delete('/:id', requirePermission('products', 'delete'), deleteProduct);
+router.delete('/bulk-delete', requirePermission('products', 'delete'), bulkDeleteProducts);
 
 module.exports = router;

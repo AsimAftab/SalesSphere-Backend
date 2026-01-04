@@ -1,3 +1,6 @@
+// src/api/notes/notes.route.js
+// Notes management routes - permission-based access
+
 const express = require('express');
 const multer = require('multer');
 const {
@@ -12,11 +15,10 @@ const {
     deleteNoteImage,
     getNoteImages
 } = require('./notes.controller');
-const { protect, restrictTo } = require('../../middlewares/auth.middleware');
+const { protect, requirePermission } = require('../../middlewares/auth.middleware');
 
 const router = express.Router();
 
-// Multer Config (Moved to a separate utility usually, but kept here for now)
 const imageUpload = multer({
     dest: 'tmp/',
     limits: { fileSize: 5 * 1024 * 1024 },
@@ -26,36 +28,32 @@ const imageUpload = multer({
     }
 });
 
-// 1. Global Authentication
 router.use(protect);
 
 // ============================================
-// NOTES ROUTES
+// VIEW OPERATIONS
 // ============================================
-
-// Specialized & Administrative Routes
-router.get('/my-notes', getMyNotes);
-router.delete('/bulk-delete', restrictTo('admin', 'manager'), bulkDeleteNotes);
-
-// Collection Routes
-router.route('/')
-    .get(restrictTo('admin', 'manager'), getAllNotes)
-    .post(createNote);
-
-// Specific Note ID Routes
-router.route('/:id')
-    .get(getNoteById)
-    .patch(updateNote) // Changed to PATCH for partial updates
-    .delete(restrictTo('admin', 'manager'), deleteNote);
+router.get('/my-notes', requirePermission('notes', 'view'), getMyNotes);
+router.get('/', requirePermission('notes', 'view'), getAllNotes);
+router.get('/:id', requirePermission('notes', 'view'), getNoteById);
+router.get('/:id/images', requirePermission('notes', 'view'), getNoteImages);
 
 // ============================================
-// IMAGE MANAGEMENT ROUTES
+// ADD OPERATIONS
 // ============================================
+router.post('/', requirePermission('notes', 'add'), createNote);
+router.post('/:id/images', requirePermission('notes', 'add'), imageUpload.single('image'), uploadNoteImage);
 
-router.route('/:id/images')
-    .get(getNoteImages)
-    .post(imageUpload.single('image'), uploadNoteImage);
+// ============================================
+// UPDATE OPERATIONS
+// ============================================
+router.patch('/:id', requirePermission('notes', 'update'), updateNote);
 
-router.delete('/:id/images/:imageNumber', deleteNoteImage);
+// ============================================
+// DELETE OPERATIONS
+// ============================================
+router.delete('/:id', requirePermission('notes', 'delete'), deleteNote);
+router.delete('/bulk-delete', requirePermission('notes', 'delete'), bulkDeleteNotes);
+router.delete('/:id/images/:imageNumber', requirePermission('notes', 'delete'), deleteNoteImage);
 
 module.exports = router;
