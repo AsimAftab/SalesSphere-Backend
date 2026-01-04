@@ -94,7 +94,9 @@ const sendTokenResponse = async (
     status: 'success',
     data: {
       user,
-      permissions
+      permissions,
+      mobileAppAccess: typeof user.hasMobileAccess === 'function' ? user.hasMobileAccess() : false,
+      webPortalAccess: typeof user.hasWebAccess === 'function' ? user.hasWebAccess() : false
     },
   };
 
@@ -336,7 +338,9 @@ exports.login = async (req, res) => {
       return res.status(400).json({ message: 'Invalid email format' });
     }
 
-    const user = await User.findOne({ email: { $eq: email } }).select('+password');
+    const user = await User.findOne({ email: { $eq: email } })
+      .select('+password')
+      .populate('customRoleId');
 
     if (!user || !(await user.matchPassword(password))) {
       return res.status(401).json({ message: 'Incorrect email or password' });
@@ -349,27 +353,25 @@ exports.login = async (req, res) => {
     }
 
     // Check if this is a mobile client
-    const isMobileClient = req.headers['x-client-type'] === 'mobile';
+    // Check if this is a mobile client (header or body flag)
+    const isMobileClient = req.headers['x-client-type'] === 'mobile' || req.body.isMobileApp === true;
 
-    // Restrict web access to specific roles
-    const allowedWebRoles = ['admin', 'superadmin', 'manager', 'developer'];
-    // Restrict mobile access - deny admin on mobile
-    const deniedMobileRoles = ['admin'];
-
-    // If this is a web login (NOT mobile) AND the user's role is NOT allowed on web
-    if (!isMobileClient && !allowedWebRoles.includes(user.role)) {
-      return res.status(403).json({
-        status: 'error',
-        message: 'Access denied. Please use the mobile application.'
-      });
-    }
-
-    // If this is a mobile login AND the user's role is NOT allowed on mobile
-    if (isMobileClient && deniedMobileRoles.includes(user.role)) {
-      return res.status(403).json({
-        status: 'error',
-        message: 'Access denied. Please use the web application.'
-      });
+    // Mobile App Access Check
+    if (isMobileClient) {
+      if (!user.hasMobileAccess()) {
+        return res.status(403).json({
+          status: 'error',
+          message: 'Mobile app access is disabled for your account. Please contact your administrator.'
+        });
+      }
+    } else {
+      // 2. Web Portal Access Check
+      if (typeof user.hasWebAccess === 'function' && !user.hasWebAccess()) {
+        return res.status(403).json({
+          status: 'error',
+          message: 'Web portal access is disabled for your account. Please use the mobile application.'
+        });
+      }
     }
 
     // Send token response (cookie for web, JSON for mobile if X-Client-Type header present)
