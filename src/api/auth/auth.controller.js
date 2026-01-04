@@ -160,6 +160,7 @@ exports.register = async (req, res) => {
       panVatNumber,
       phone,
       address,
+      country,
       latitude,
       longitude,
       googleMapLink,
@@ -225,6 +226,9 @@ exports.register = async (req, res) => {
     if (googleMapLink) {
       organizationData.googleMapLink = googleMapLink;
     }
+    if (country) {
+      organizationData.country = country;
+    }
 
     // Add optional check-in/check-out times if provided
     if (checkInTime) {
@@ -273,6 +277,7 @@ exports.register = async (req, res) => {
       panVatNumber: newOrganization.panVatNumber,
       phone: newOrganization.phone,
       address: newOrganization.address,
+      country: newOrganization.country,
       checkInTime: newOrganization.checkInTime,
       checkOutTime: newOrganization.checkOutTime,
       halfDayCheckOutTime: newOrganization.halfDayCheckOutTime,

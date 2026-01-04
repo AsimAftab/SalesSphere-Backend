@@ -1,8 +1,17 @@
+// src/api/users/user.route.js
+// User management routes - migrated to permission-based access
+
 const express = require('express');
-const multer = require('multer'); // Import multer
+const multer = require('multer');
 const userController = require('./user.controller');
-const { protect, restrictTo } = require('../../middlewares/auth.middleware');
+const {
+    protect,
+    requirePermission,
+    requireSystemRole,
+    requireOrgAdmin
+} = require('../../middlewares/auth.middleware');
 const handleMulterErrors = require('../../middlewares/multerError.middleware');
+
 const router = express.Router();
 
 // Configure multer for DOCUMENTS: PDF only, 2MB limit
@@ -18,7 +27,7 @@ const documentUpload = multer({
     }
 });
 
-// Configure a SEPARATE multer for IMAGES
+// Configure multer for IMAGES: 5MB limit
 const imageUpload = multer({
     dest: 'tmp/',
     limits: { fileSize: 5 * 1024 * 1024 },
@@ -31,94 +40,115 @@ const imageUpload = multer({
     }
 });
 
-
-// Apply the 'protect' middleware to ALL routes below this point
+// Apply protect middleware to all routes
 router.use(protect);
 
-// --- SUPERADMIN ONLY: System Overview ---
-router.get('/system-overview', restrictTo('superadmin', 'developer'), userController.getSystemOverview);
+// ============================================
+// SYSTEM ROUTES (superadmin/developer only)
+// ============================================
 
-// --- SUPERADMIN ONLY: System User Management ---
+// System overview - system roles only
+router.get('/system-overview', requireSystemRole(), userController.getSystemOverview);
+
+// System user CRUD - requires systemUsers permission
 router.post(
     '/system-user',
-    restrictTo('superadmin'),
+    requirePermission('systemUsers', 'write'),
     imageUpload.single('avatar'),
     userController.addSystemUser
 );
 
 router.get(
     '/system-users',
-    restrictTo('superadmin'),
+    requirePermission('systemUsers', 'read'),
     userController.getAllSystemUsers
 );
 
 router.get(
     '/system-user/:id',
-    restrictTo('superadmin'),
+    requirePermission('systemUsers', 'read'),
     userController.getSystemUserById
 );
 
 router.put(
     '/system-user/:id',
-    restrictTo('superadmin'),
+    requirePermission('systemUsers', 'write'),
     imageUpload.single('avatar'),
     userController.updateSystemUser
 );
-// --- END System User Management ---
 
-// --- SUPERADMIN/DEVELOPER: Create user in any organization ---
+// Create user in any organization - system roles only
 router.post(
     '/org-user',
-    restrictTo('superadmin', 'developer'),
+    requireSystemRole(),
     imageUpload.single('avatar'),
     userController.createOrgUser
 );
-// --- END Organization User Management ---
 
-// --- NEW: Routes for the logged-in user ('/me') ---
-// These do NOT need restrictTo, as users manage their own profile
+// ============================================
+// SELF-MANAGEMENT ROUTES (/me)
+// No special permissions needed - users manage their own profile
+// ============================================
+
 router.route('/me')
-    .get(userController.getMyProfile)       // Get own profile
-    .put(userController.updateMyProfile);   // Update own profile details
+    .get(userController.getMyProfile)
+    .put(userController.updateMyProfile);
 
-router.put('/me/password', userController.updateMyPassword); // Update own password
+router.put('/me/password', userController.updateMyPassword);
 
 router.put(
-    '/me/profile-image', // Update own profile image
+    '/me/profile-image',
     imageUpload.single('profileImage'),
     userController.updateMyProfileImage
 );
-// --- END NEW /me ROUTES ---
 
+// ============================================
+// ORGANIZATION USER MANAGEMENT
+// Requires employees permission
+// ============================================
 
-// --- Routes for managing OTHER users (Admin/Manager only) ---
+// Create/List users in organization
 router.route('/')
-    .post(restrictTo('admin', 'manager'), imageUpload.single('avatar'), userController.createUser)
+    .post(
+        requirePermission('employees', 'write'),
+        imageUpload.single('avatar'),
+        userController.createUser
+    )
+    .get(
+        requirePermission('employees', 'read'),
+        userController.getAllUsers
+    );
 
-    .get(restrictTo('admin', 'manager'), userController.getAllUsers);
-
+// Get/Update/Delete specific user
 router.route('/:id')
-    .get(restrictTo('admin', 'manager', 'superadmin'), userController.getUserById)
-    .put(restrictTo('admin', 'manager'), imageUpload.single('avatar'), userController.updateUser)
-    .delete(restrictTo('admin', 'manager'), userController.deleteUser);
+    .get(requirePermission('employees', 'read'), userController.getUserById)
+    .put(
+        requirePermission('employees', 'write'),
+        imageUpload.single('avatar'),
+        userController.updateUser
+    )
+    .delete(requirePermission('employees', 'delete'), userController.deleteUser);
 
-// --- Attendance Summary for Specific Employee ---
-router.get('/:employeeId/attendance-summary', userController.getEmployeeAttendanceSummary);
+// Employee attendance summary - requires attendance read
+router.get(
+    '/:employeeId/attendance-summary',
+    requirePermission('attendance', 'read'),
+    userController.getEmployeeAttendanceSummary
+);
 
+// Upload/Delete user documents - requires employees write
 router.post(
     '/:id/documents',
-    restrictTo('admin', 'manager'),
+    requirePermission('employees', 'write'),
     documentUpload.array('documents', 2),
     handleMulterErrors,
     userController.uploadUserDocuments
 );
-// --- END Admin/Manager Routes ---
 
 router.delete(
     '/:id/documents/:documentId',
-    restrictTo('admin', 'manager'),
+    requirePermission('employees', 'delete'),
     userController.deleteUserDocument
 );
 
 module.exports = router;
-

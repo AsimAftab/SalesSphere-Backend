@@ -1,3 +1,6 @@
+// src/api/parties/party.routes.js
+// Party management routes - migrated to permission-based access
+
 const express = require('express');
 const {
     createParty,
@@ -5,13 +8,13 @@ const {
     getAllPartiesDetails,
     getPartyById,
     updateParty,
-    deleteParty, // Use the deleteParty controller function
-    uploadPartyImage, // Import new controller
-    deletePartyImage, // Import new controller
-    bulkImportParties, // Bulk import controller
-    getPartyTypes // Party types controller
+    deleteParty,
+    uploadPartyImage,
+    deletePartyImage,
+    bulkImportParties,
+    getPartyTypes
 } = require('./party.controller');
-const { protect, restrictTo } = require('../../middlewares/auth.middleware');
+const { protect, requirePermission } = require('../../middlewares/auth.middleware');
 const multer = require('multer');
 
 const router = express.Router();
@@ -19,7 +22,7 @@ const router = express.Router();
 // Configure multer for party images
 const imageUpload = multer({
     dest: 'tmp/',
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    limits: { fileSize: 5 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
         if (file.mimetype.startsWith('image/')) {
             cb(null, true);
@@ -29,77 +32,54 @@ const imageUpload = multer({
     }
 });
 
-// Apply 'protect' middleware to all routes in this file
+// Apply protect middleware to all routes
 router.use(protect);
 
-// Create a party - Admin, Manager, and Salesperson
-router.post(
-    '/',
-    restrictTo('admin', 'manager', 'salesperson'),
-    createParty
-);
+// ============================================
+// READ OPERATIONS - requires parties.read
+// ============================================
 
-// Get all parties (list view) - Available to all roles
-router.get(
-    '/',
-    getAllParties
-);
+// Get all parties (list view)
+router.get('/', requirePermission('parties', 'read'), getAllParties);
 
-// Get all parties for logged-in user's organization
-router.get(
-    '/details',
-    getAllPartiesDetails
-);
+// Get all parties with details
+router.get('/details', requirePermission('parties', 'read'), getAllPartiesDetails);
 
-// Get all party types - Available to all roles
-router.get(
-    '/types',
-    getPartyTypes
-);
+// Get party types
+router.get('/types', requirePermission('parties', 'read'), getPartyTypes);
 
-// Bulk import parties - Admin, Manager
-router.post(
-    '/bulk-import',
-    restrictTo('admin', 'manager'),
-    bulkImportParties
-);
+// Get single party
+router.get('/:id', requirePermission('parties', 'read'), getPartyById);
 
-// Get single party (detail view) - Available to all roles
-router.get(
-    '/:id',
-    getPartyById
-);
+// ============================================
+// WRITE OPERATIONS - requires parties.write
+// ============================================
 
-// Update a party - Admin, Manager, and Salesperson
-router.put(
-    '/:id',
-    restrictTo('admin', 'manager', 'salesperson'),
-    updateParty
-);
+// Create a party
+router.post('/', requirePermission('parties', 'write'), createParty);
 
-// --- MODIFIED ROUTE ---
-// Permanently delete a party - Admin, Manager
-router.delete(
-    '/:id',
-    restrictTo('admin', 'manager'),
-    deleteParty // Use the deleteParty controller function
-);
-// --- END MODIFICATION ---
+// Update a party
+router.put('/:id', requirePermission('parties', 'write'), updateParty);
 
-// Upload or update a party image - Admin, Manager, Salesperson
+// Bulk import parties
+router.post('/bulk-import', requirePermission('parties', 'write'), bulkImportParties);
+
+// Upload party image
 router.post(
     '/:id/image',
-    restrictTo('admin', 'manager', 'salesperson'),
+    requirePermission('parties', 'write'),
     imageUpload.single('image'),
     uploadPartyImage
 );
 
-// Delete a party image - Admin, Manager
-router.delete(
-    '/:id/image',
-    restrictTo('admin', 'manager'),
-    deletePartyImage
-);
+// ============================================
+// DELETE OPERATIONS - requires parties.delete
+// ============================================
+
+// Delete a party
+router.delete('/:id', requirePermission('parties', 'delete'), deleteParty);
+
+// Delete party image
+router.delete('/:id/image', requirePermission('parties', 'delete'), deletePartyImage);
 
 module.exports = router;
-

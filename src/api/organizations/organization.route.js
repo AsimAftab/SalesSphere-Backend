@@ -1,3 +1,6 @@
+// src/api/organizations/organization.route.js
+// Organization management routes - migrated to permission-based access
+
 const express = require('express');
 const {
     getMyOrganization,
@@ -7,29 +10,41 @@ const {
     reactivateOrganization,
     extendSubscription
 } = require('./organization.controller');
-const { protect, restrictTo } = require('../../middlewares/auth.middleware');
+const {
+    protect,
+    requirePermission,
+    requireSystemRole
+} = require('../../middlewares/auth.middleware');
 
 const router = express.Router();
 
 // Apply 'protect' middleware to all routes
 router.use(protect);
 
-// Get my organization details
-router.get('/my-organization', restrictTo('admin', 'manager','superadmin'), getMyOrganization);
+// ============================================
+// ORGANIZATION ROUTES
+// ============================================
 
-// Get specific organization details by ID (superadmin only)
-router.get('/:id', restrictTo('superadmin','developer'), getOrganizationById);
+// Get my organization details - requires read permission on organizations
+router.get('/my-organization', requirePermission('organizations', 'read'), getMyOrganization);
 
-// Update organization details (superadmin only)
-router.put('/:id', restrictTo('superadmin','developer'), updateMyOrganization);
+// ============================================
+// SYSTEM ROUTES (superadmin/developer only)
+// ============================================
 
-// Superadmin: Deactivate an organization
-router.put('/:id/deactivate', restrictTo('superadmin','developer'), deactivateOrganization);
+// Get specific organization details by ID
+router.get('/:id', requireSystemRole(), getOrganizationById);
 
-// Superadmin: Reactivate an organization
-router.put('/:id/reactivate', restrictTo('superadmin','developer'), reactivateOrganization);
+// Update organization details
+router.put('/:id', requireSystemRole(), updateMyOrganization);
 
-// Superadmin, Developer: Extend organization subscription
-router.post('/:id/extend-subscription', restrictTo('superadmin','developer'), extendSubscription);
+// Deactivate an organization
+router.put('/:id/deactivate', requireSystemRole(), deactivateOrganization);
+
+// Reactivate an organization
+router.put('/:id/reactivate', requireSystemRole(), reactivateOrganization);
+
+// Extend organization subscription
+router.post('/:id/extend-subscription', requireSystemRole(), extendSubscription);
 
 module.exports = router;
