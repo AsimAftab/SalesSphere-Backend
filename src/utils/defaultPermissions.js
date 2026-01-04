@@ -40,7 +40,6 @@ const ALL_MODULES = [
     'notes',
     'miscellaneousWork',
     'settings',
-    'mobileApp', // Mobile app access permission
     // System-level modules
     'organizations',
     'systemUsers',
@@ -103,7 +102,6 @@ const ADMIN_DEFAULT_PERMISSIONS = {
     notes: { view: true, add: true, update: true, delete: true },
     miscellaneousWork: { view: true, add: true, update: true, delete: true },
     settings: { view: true, add: true, update: true, delete: true },
-    mobileApp: { view: true, add: false, update: false, delete: false }, // Mobile app access
     // System modules - limited
     organizations: { view: true, add: false, update: true, delete: false },
     systemUsers: { view: false, add: false, update: false, delete: false },

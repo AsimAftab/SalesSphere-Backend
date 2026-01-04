@@ -56,6 +56,16 @@ const roleSchema = new mongoose.Schema({
         miscellaneousWork: permissionSchema,
         settings: permissionSchema
     },
+    mobileAppAccess: {
+        type: Boolean,
+        default: false,
+        required: true
+    },
+    webPortalAccess: {
+        type: Boolean,
+        default: false, // Default to false for standard roles (e.g. salesperson)
+        required: true
+    },
     isActive: {
         type: Boolean,
         default: true

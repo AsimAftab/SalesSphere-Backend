@@ -47,6 +47,16 @@ const userSchema = new mongoose.Schema({
         type: Boolean,
         default: true,
     },
+    // Mobile app access override (null/undefined = inherit from role)
+    mobileAppAccess: {
+        type: Boolean,
+        default: undefined
+    },
+    // Web portal access override (null/undefined = inherit from role)
+    webPortalAccess: {
+        type: Boolean,
+        default: undefined
+    },
 
 
     // --- Employee Detail Fields ---
@@ -200,6 +210,70 @@ userSchema.methods.hasPermission = function (module, action) {
     const permissions = this.getEffectivePermissions();
     if (!permissions[module]) return false;
     return permissions[module][action] === true;
+};
+// -----------------------------------------
+
+/**
+ * Check if user has mobile app access
+ * Priority:
+ * 1. User-specific override (if defined)
+ * 2. System/Admin roles (Always allowed)
+ * 3. Custom Role default (if assigned)
+ * 4. Default User (Allowed/Blocked based on policy - currently Blocked by default)
+ */
+userSchema.methods.hasMobileAccess = function () {
+    // 1. User specific override (takes precedence over everything)
+    if (this.mobileAppAccess !== undefined && this.mobileAppAccess !== null) {
+        return this.mobileAppAccess;
+    }
+
+    // 2. System roles & Admin always have access (unless explicitly overridden above)
+    if (isSystemRole(this.role) || this.role === 'admin') {
+        return true;
+    }
+
+    // 3. Custom Role inheritance
+    if (this.customRoleId) {
+        // Handle if customRoleId is populated object or just ID
+        // If it's just ID, we can't check permissions, so we default to false (safe fail)
+        // ideally populate('customRoleId') should be used before calling this
+        if (this.customRoleId.mobileAppAccess !== undefined) {
+            return this.customRoleId.mobileAppAccess;
+        }
+    }
+
+    // 4. Default fallback for standard users without valid role/override
+    return false;
+};
+
+/**
+ * Check if user has web portal access
+ * Priority:
+ * 1. User-specific override
+ * 2. System/Admin roles (Always allowed)
+ * 3. Custom Role default
+ * 4. Default User (Blocked by default)
+ */
+userSchema.methods.hasWebAccess = function () {
+    // 1. User specific override
+    if (this.webPortalAccess !== undefined && this.webPortalAccess !== null) {
+        return this.webPortalAccess;
+    }
+
+    // 2. System roles & Admin always have access
+    if (isSystemRole(this.role) || this.role === 'admin') {
+        return true;
+    }
+
+    // 3. Custom Role inheritance
+    if (this.customRoleId) {
+        if (this.customRoleId.webPortalAccess !== undefined) {
+            return this.customRoleId.webPortalAccess;
+        }
+    }
+
+    // 4. Default fallback: NO web access for standard users
+    return false;
 };
 // -----------------------------------------
 

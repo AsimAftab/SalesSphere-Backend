@@ -53,6 +53,8 @@ exports.createRole = async (req, res) => {
             description,
             organizationId,
             permissions: permissions || {},
+            mobileAppAccess: req.body.mobileAppAccess || false,
+            webPortalAccess: req.body.webPortalAccess || false,
             createdBy: req.user._id
         });
 
@@ -210,6 +212,8 @@ exports.updateRole = async (req, res) => {
         if (name) role.name = name;
         if (description !== undefined) role.description = description;
         if (permissions) role.permissions = permissions;
+        if (req.body.mobileAppAccess !== undefined) role.mobileAppAccess = req.body.mobileAppAccess;
+        if (req.body.webPortalAccess !== undefined) role.webPortalAccess = req.body.webPortalAccess;
         if (isActive !== undefined) role.isActive = isActive;
 
         await role.save();
