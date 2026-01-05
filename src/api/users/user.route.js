@@ -7,7 +7,8 @@ const userController = require('./user.controller');
 const {
     protect,
     requirePermission,
-    requireSystemRole
+    requireSystemRole,
+    requireOrgAdmin
 } = require('../../middlewares/auth.middleware');
 const handleMulterErrors = require('../../middlewares/multerError.middleware');
 
@@ -76,6 +77,9 @@ router.route('/:id')
     .delete(requirePermission('employees', 'delete'), userController.deleteUser);
 
 router.get('/:employeeId/attendance-summary', requirePermission('attendance', 'view'), userController.getEmployeeAttendanceSummary);
+
+// Toggle user access (Mobile/Web)
+router.patch('/:id/access', requireOrgAdmin(), userController.toggleUserAccess);
 
 router.post('/:id/documents', requirePermission('employees', 'add'), documentUpload.array('documents', 2), handleMulterErrors, userController.uploadUserDocuments);
 router.delete('/:id/documents/:documentId', requirePermission('employees', 'delete'), userController.deleteUserDocument);

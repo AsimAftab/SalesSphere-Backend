@@ -586,6 +586,54 @@ exports.getUserById = async (req, res, next) => {
     } catch (error) { next(error); }
 };
 
+// Toggle user access (Mobile/Web) override
+exports.toggleUserAccess = async (req, res, next) => {
+    try {
+        const userIdToUpdate = req.params.id;
+        const { mobileAppAccess, webPortalAccess } = req.body;
+
+        // Validation - at least one field must be provided
+        if (mobileAppAccess === undefined && webPortalAccess === undefined) {
+            return res.status(400).json({
+                success: false,
+                message: 'Please provide either mobileAppAccess or webPortalAccess'
+            });
+        }
+
+        const userToUpdate = await User.findOne({ _id: userIdToUpdate, organizationId: req.user.organizationId });
+        if (!userToUpdate) return res.status(404).json({ success: false, message: 'User not found' });
+
+        // --- Permission Checks ---
+        // Only Admin can toggle access for now (or Manager if allowed later)
+        if (req.user.role !== 'admin') {
+            return res.status(403).json({ success: false, message: 'Only admins can toggle user access.' });
+        }
+
+        if (userToUpdate.role === 'admin') {
+            return res.status(403).json({ success: false, message: 'Cannot specific toggle access for admin accounts (they always have access).' });
+        }
+        // --- End Permission Checks ---
+
+        // Update fields if provided
+        if (mobileAppAccess !== undefined) userToUpdate.mobileAppAccess = mobileAppAccess;
+        if (webPortalAccess !== undefined) userToUpdate.webPortalAccess = webPortalAccess;
+
+        await userToUpdate.save({ validateBeforeSave: false });
+
+        res.status(200).json({
+            success: true,
+            message: 'User access updated successfully',
+            data: {
+                _id: userToUpdate._id,
+                mobileAppAccess: userToUpdate.mobileAppAccess,
+                webPortalAccess: userToUpdate.webPortalAccess
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
 // Update a user, enforcing role permissions
 exports.updateUser = async (req, res, next) => {
     let tempAvatarPath = req.file ? req.file.path : null; // Track potential new avatar file
