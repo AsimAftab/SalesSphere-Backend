@@ -2,27 +2,18 @@
 // RBAC Permission middleware for route-level access control
 
 const { isSystemRole, hasPermissionByRole } = require('../utils/defaultPermissions');
+const Organization = require('../api/organizations/organization.model');
 
 /**
- * Middleware to check if user has required permission
- * Works with the new RBAC system - checks user's effective permissions
+ * Middleware to check if user has required permission AND organization's plan has the feature
+ * Implements the Intersection Logic: Effective = RolePermission AND PlanFeature
  * 
  * @param {string} module - Module name (e.g., 'products', 'parties', 'employees')
- * @param {string} action - Action type ('read', 'write', 'delete')
+ * @param {string} action - Action type ('view', 'add', 'update', 'delete')
  * @returns {Function} Express middleware
- * 
- * @example
- * // Require read access to products
- * router.get('/products', requirePermission('products', 'read'), getProducts);
- * 
- * // Require write access to parties
- * router.post('/parties', requirePermission('parties', 'write'), createParty);
- * 
- * // Require delete access to invoices
- * router.delete('/invoices/:id', requirePermission('orderLists', 'delete'), deleteInvoice);
  */
 const requirePermission = (module, action) => {
-    return (req, res, next) => {
+    return async (req, res, next) => {
         // Ensure protect middleware ran first
         if (!req.user) {
             return res.status(401).json({
@@ -31,20 +22,20 @@ const requirePermission = (module, action) => {
             });
         }
 
-        // Get user's effective permissions
-        // If user has hasPermission method (from model), use it
-        // Otherwise fallback to role-based check
-        let hasAccess = false;
-
-        if (typeof req.user.hasPermission === 'function') {
-            // Use instance method (supports custom permissions)
-            hasAccess = req.user.hasPermission(module, action);
-        } else {
-            // Fallback: use role defaults
-            hasAccess = hasPermissionByRole(req.user.role, module, action);
+        // 1. SYSTEM ROLES: superadmin/developer bypass all checks
+        if (isSystemRole(req.user.role)) {
+            return next();
         }
 
-        if (!hasAccess) {
+        // 2. CHECK ROLE-BASED PERMISSION
+        let hasRoleAccess = false;
+        if (typeof req.user.hasPermission === 'function') {
+            hasRoleAccess = req.user.hasPermission(module, action);
+        } else {
+            hasRoleAccess = hasPermissionByRole(req.user.role, module, action);
+        }
+
+        if (!hasRoleAccess) {
             return res.status(403).json({
                 status: 'error',
                 message: `Access denied. You do not have ${action} permission for ${module}.`,
@@ -52,9 +43,59 @@ const requirePermission = (module, action) => {
             });
         }
 
-        return next();
+        // 3. CHECK SUBSCRIPTION PLAN FEATURE (Intersection Logic)
+        // Skip plan check for system-level modules or if user is admin (they manage the org)
+        const systemModules = ['organizations', 'systemUsers', 'subscriptions', 'settings'];
+        if (systemModules.includes(module)) {
+            return next();
+        }
+
+        try {
+            // Fetch organization with populated subscription plan
+            const org = await Organization.findById(req.user.organizationId)
+                .populate('subscriptionPlanId')
+                .lean();
+
+            if (!org) {
+                return res.status(403).json({
+                    status: 'error',
+                    message: 'Organization not found. Please contact support.'
+                });
+            }
+
+            // Check if subscription is active
+            if (org.subscriptionEndDate && new Date() > new Date(org.subscriptionEndDate)) {
+                return res.status(403).json({
+                    status: 'error',
+                    message: 'Your subscription has expired. Please renew to continue.',
+                    code: 'SUBSCRIPTION_EXPIRED'
+                });
+            }
+
+            // Check if plan includes this module
+            const plan = org.subscriptionPlanId;
+            if (plan && plan.enabledModules && !plan.enabledModules.includes(module)) {
+                return res.status(403).json({
+                    status: 'error',
+                    message: `This feature (${module}) is not available in your current plan. Please upgrade to access it.`,
+                    code: 'PLAN_FEATURE_UNAVAILABLE',
+                    currentPlan: plan.name,
+                    requiredModule: module
+                });
+            }
+
+            // All checks passed!
+            return next();
+        } catch (error) {
+            console.error('Permission middleware error:', error);
+            return res.status(500).json({
+                status: 'error',
+                message: 'Error checking permissions. Please try again.'
+            });
+        }
     };
 };
+
 
 /**
  * Middleware to check multiple permissions (user must have ALL)

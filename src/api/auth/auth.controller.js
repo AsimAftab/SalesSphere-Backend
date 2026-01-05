@@ -27,7 +27,7 @@ const sendTokenResponse = async (
   includeTokenInResponse = false,
   options = {}
 ) => {
-  const { setCookie = true } = options; // default true for login flows
+  const { setCookie = true, orgWithPlan = null } = options; // orgWithPlan for subscription intersection
   const accessToken = signToken(user._id);
   const refreshToken = signRefreshToken(user._id);
 
@@ -78,10 +78,12 @@ const sendTokenResponse = async (
   user.refreshToken = undefined;
   user.refreshTokenExpiry = undefined;
 
-  // Get user's effective permissions
+  // Get user's effective permissions (intersected with plan if org provided)
   let permissions;
   if (isSystemRole(user.role)) {
     permissions = getDefaultPermissions(user.role);
+  } else if (typeof user.getEffectivePermissionsWithPlan === 'function' && orgWithPlan) {
+    permissions = user.getEffectivePermissionsWithPlan(orgWithPlan);
   } else if (user.role === 'admin') {
     permissions = ADMIN_DEFAULT_PERMISSIONS;
   } else if (typeof user.getEffectivePermissions === 'function') {
@@ -90,13 +92,28 @@ const sendTokenResponse = async (
     permissions = getDefaultPermissions('user');
   }
 
+  // Build subscription info for response
+  let subscriptionInfo = null;
+  if (orgWithPlan && orgWithPlan.subscriptionPlanId) {
+    const plan = orgWithPlan.subscriptionPlanId;
+    subscriptionInfo = {
+      planName: plan.name,
+      tier: plan.tier,
+      maxEmployees: plan.maxEmployees,
+      enabledModules: plan.enabledModules,
+      subscriptionEndDate: orgWithPlan.subscriptionEndDate,
+      isActive: orgWithPlan.subscriptionEndDate ? new Date() < new Date(orgWithPlan.subscriptionEndDate) : true
+    };
+  }
+
   const response = {
     status: 'success',
     data: {
       user,
       permissions,
       mobileAppAccess: typeof user.hasMobileAccess === 'function' ? user.hasMobileAccess() : false,
-      webPortalAccess: typeof user.hasWebAccess === 'function' ? user.hasWebAccess() : false
+      webPortalAccess: typeof user.hasWebAccess === 'function' ? user.hasWebAccess() : false,
+      subscription: subscriptionInfo
     },
   };
 
@@ -183,6 +200,7 @@ exports.register = async (req, res) => {
       longitude,
       googleMapLink,
       subscriptionType,
+      subscriptionPlanId,
       checkInTime,
       checkOutTime,
       halfDayCheckOutTime,
@@ -210,6 +228,22 @@ exports.register = async (req, res) => {
       });
     }
 
+    // Validate subscription plan
+    if (!subscriptionPlanId) {
+      return res.status(400).json({
+        message: 'Please provide a subscription plan ID'
+      });
+    }
+
+    // Verify that the subscription plan exists
+    const SubscriptionPlan = require('../subscriptions/subscriptionPlan.model');
+    const planExists = await SubscriptionPlan.findById(subscriptionPlanId);
+    if (!planExists || !planExists.isActive) {
+      return res.status(400).json({
+        message: 'Invalid or inactive subscription plan'
+      });
+    }
+
     // Check if email already exists
     const existingUser = await User.findOne({ email: { $eq: email } });
     if (existingUser) {
@@ -232,6 +266,7 @@ exports.register = async (req, res) => {
       phone,
       address,
       subscriptionType,
+      subscriptionPlanId,
     };
 
     // Add optional location fields if provided
@@ -374,8 +409,16 @@ exports.login = async (req, res) => {
       }
     }
 
+    // Fetch organization with subscription plan for permission intersection
+    let orgWithPlan = null;
+    if (user.organizationId && !isSystemRole(user.role)) {
+      orgWithPlan = await Organization.findById(user.organizationId)
+        .populate('subscriptionPlanId')
+        .lean();
+    }
+
     // Send token response (cookie for web, JSON for mobile if X-Client-Type header present)
-    sendTokenResponse(user, 200, res, isMobileClient);
+    sendTokenResponse(user, 200, res, isMobileClient, { orgWithPlan });
   } catch (error) {
     res.status(500).json({ message: 'Server Error', error: error.message });
   }

@@ -211,6 +211,51 @@ userSchema.methods.hasPermission = function (module, action) {
     if (!permissions[module]) return false;
     return permissions[module][action] === true;
 };
+
+/**
+ * Get effective permissions intersected with organization's subscription plan
+ * Async because it needs to fetch organization and plan from DB
+ * @param {Object} orgWithPlan - Organization object with subscriptionPlanId populated
+ * @returns {Object} Permissions filtered by plan features
+ */
+userSchema.methods.getEffectivePermissionsWithPlan = function (orgWithPlan) {
+    const basePermissions = this.getEffectivePermissions();
+
+    // System roles bypass plan restrictions
+    if (isSystemRole(this.role)) {
+        return basePermissions;
+    }
+
+    // If no org or plan provided, return base permissions
+    if (!orgWithPlan || !orgWithPlan.subscriptionPlanId) {
+        return basePermissions;
+    }
+
+    const plan = orgWithPlan.subscriptionPlanId;
+    const enabledModules = plan.enabledModules || [];
+
+    // Intersect: only include modules that are both in permissions AND in plan
+    const intersectedPermissions = {};
+
+    for (const [module, perms] of Object.entries(basePermissions)) {
+        // Always include system modules (settings, etc.)
+        const systemModules = ['organizations', 'systemUsers', 'subscriptions', 'settings'];
+
+        if (systemModules.includes(module) || enabledModules.includes(module)) {
+            intersectedPermissions[module] = perms;
+        } else {
+            // Module not in plan - set all to false
+            intersectedPermissions[module] = {
+                view: false,
+                add: false,
+                update: false,
+                delete: false
+            };
+        }
+    }
+
+    return intersectedPermissions;
+};
 // -----------------------------------------
 
 /**
