@@ -102,6 +102,13 @@ const organizationSchema = new mongoose.Schema({
             message: 'Invalid timezone. Use IANA timezone format (e.g., Asia/Kolkata, America/New_York)'
         }
     },
+    // Reference to the subscription plan (for feature access)
+    subscriptionPlanId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'SubscriptionPlan',
+        required: [true, 'Subscription plan is required']
+    },
+    // Duration of the subscription (for billing/expiry)
     subscriptionType: {
         type: String,
         enum: ['6months', '12months'],
@@ -162,6 +169,34 @@ organizationSchema.pre('save', function (next) {
 organizationSchema.virtual('isSubscriptionActive').get(function () {
     return this.subscriptionEndDate && new Date() < this.subscriptionEndDate;
 });
+
+/**
+ * Check if organization's plan includes a specific module
+ * Requires subscriptionPlanId to be populated
+ * @param {string} moduleName - Module to check
+ * @returns {boolean}
+ */
+organizationSchema.methods.hasFeature = function (moduleName) {
+    if (!this.subscriptionPlanId) return false;
+    // If populated, use the method; if just ID, can't check
+    if (typeof this.subscriptionPlanId.hasModule === 'function') {
+        return this.subscriptionPlanId.hasModule(moduleName);
+    }
+    return false;
+};
+
+/**
+ * Check if organization can add more employees based on plan limit
+ * @param {number} currentEmployeeCount - Current number of employees
+ * @returns {boolean}
+ */
+organizationSchema.methods.canAddEmployee = function (currentEmployeeCount) {
+    if (!this.subscriptionPlanId) return false;
+    if (typeof this.subscriptionPlanId.canAddEmployee === 'function') {
+        return this.subscriptionPlanId.canAddEmployee(currentEmployeeCount);
+    }
+    return false;
+};
 
 organizationSchema.set('toJSON', { virtuals: true });
 organizationSchema.set('toObject', { virtuals: true });
