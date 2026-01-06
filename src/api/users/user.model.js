@@ -33,6 +33,12 @@ const userSchema = new mongoose.Schema({
         ref: 'Role',
         default: null
     },
+    // Direct supervisor (User ID)
+    reportsTo: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        default: null
+    },
     organizationId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Organization',

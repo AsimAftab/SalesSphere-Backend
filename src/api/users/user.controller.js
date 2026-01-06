@@ -267,7 +267,7 @@ exports.createOrgUser = async (req, res, next) => {
 
         let {
             name, email, role, phone, address, gender, dateOfBirth,
-            panNumber, citizenshipNumber, dateJoined, organizationId
+            panNumber, citizenshipNumber, dateJoined, organizationId, reportsTo
         } = req.body;
 
         // Trim all string fields
@@ -282,13 +282,21 @@ exports.createOrgUser = async (req, res, next) => {
         citizenshipNumber = citizenshipNumber?.trim();
         organizationId = organizationId?.trim();
 
-        // Validate required fields
-        if (!name || !email || !role || !organizationId) {
+        // Validation (basic)
+        if (!name || !email || !role) {
             cleanupTempFile(tempAvatarPath);
             return res.status(400).json({
                 success: false,
-                message: 'Required fields: name, email, role, organizationId'
+                message: 'Name, email, and role are required'
             });
+        }
+
+        // Validate reportsTo if provided
+        if (reportsTo) {
+            if (!require('mongoose').Types.ObjectId.isValid(reportsTo)) {
+                cleanupTempFile(tempAvatarPath);
+                return res.status(400).json({ success: false, message: 'Invalid reportsTo user ID' });
+            }
         }
 
         // Validate organization exists
@@ -327,7 +335,8 @@ exports.createOrgUser = async (req, res, next) => {
             citizenshipNumber,
             dateJoined: dateJoined ? new Date(dateJoined) : new Date(),
             password: temporaryPassword,
-            organizationId
+            organizationId,
+            reportsTo: req.body.reportsTo ? new mongoose.Types.ObjectId(req.body.reportsTo) : null // Assign supervisor
         });
 
         let avatarUrl = newUser.avatarUrl;
@@ -674,6 +683,23 @@ exports.updateUser = async (req, res, next) => {
                 } else if (value !== null && typeof value !== 'string') return res.status(400).json({ success: false, message: `Invalid type for ${field}. Expected string.` });
                 else if (value !== null) updateData[field] = value;
             }
+        }
+
+        // Supervisor Update (reportsTo)
+        if (req.body.reportsTo !== undefined) {
+            // Validate if valid ObjectId or null
+            const supervisorId = req.body.reportsTo;
+            if (supervisorId && !mongoose.Types.ObjectId.isValid(supervisorId)) {
+                return res.status(400).json({ success: false, message: 'Invalid reportsTo user ID' });
+            }
+
+            // Prevent self-reporting
+            if (supervisorId && supervisorId.toString() === userIdToUpdate) {
+                return res.status(400).json({ success: false, message: 'User cannot report to themselves' });
+            }
+
+            // Circular check could be added here (A->B->A), but for now simple self-check
+            updateData.reportsTo = supervisorId;
         }
 
         // Role update logic (Security: prevent role escalation)

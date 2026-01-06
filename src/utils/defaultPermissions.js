@@ -8,6 +8,7 @@
  * - add: Can create new records
  * - update: Can modify existing records
  * - delete: Can remove records
+ * - approve: Can approve requests (leaves, expenses, etc.)
  * 
  * ROLE TYPES:
  * - superadmin: Full system access
@@ -52,7 +53,7 @@ const ALL_MODULES = [
 const createFullAccess = () => {
     const permissions = {};
     ALL_MODULES.forEach(module => {
-        permissions[module] = { view: true, add: true, update: true, delete: true };
+        permissions[module] = { view: true, add: true, update: true, delete: true, approve: true };
     });
     return permissions;
 };
@@ -63,7 +64,7 @@ const createFullAccess = () => {
 const createNoDeleteAccess = () => {
     const permissions = {};
     ALL_MODULES.forEach(module => {
-        permissions[module] = { view: true, add: true, update: true, delete: false };
+        permissions[module] = { view: true, add: true, update: true, delete: false, approve: false };
     });
     return permissions;
 };
@@ -209,7 +210,7 @@ const mergePermissions = (role, customPermissions = {}) => {
 const createEmptyPermissions = () => {
     const permissions = {};
     ALL_MODULES.forEach(module => {
-        permissions[module] = { view: false, add: false, update: false, delete: false };
+        permissions[module] = { view: false, add: false, update: false, delete: false, approve: false };
     });
     return permissions;
 };
