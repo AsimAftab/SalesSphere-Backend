@@ -11,7 +11,8 @@ const permissionSchema = new mongoose.Schema({
     view: { type: Boolean, default: false },
     add: { type: Boolean, default: false },
     update: { type: Boolean, default: false },
-    delete: { type: Boolean, default: false }
+    delete: { type: Boolean, default: false },
+    approve: { type: Boolean, default: false } // Authorization to approve requests
 }, { _id: false });
 
 /**

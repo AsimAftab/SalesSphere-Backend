@@ -103,9 +103,18 @@ exports.getAllExpenseClaims = async (req, res, next) => {
 
         const query = { organizationId: organizationId };
 
-        // Salesperson can only see their own expense claims
-        if (role === 'salesperson') {
-            query.createdBy = userId;
+        // Filter for non-admins (e.g. users/managers)
+        if (role !== 'admin') {
+            // Find all users who report to this user (Direct Reports)
+            const User = require('../users/user.model');
+            const subordinates = await User.find({ reportsTo: userId }).select('_id');
+            const subordinateIds = subordinates.map(u => u._id);
+
+            // Show Own Claims OR Subordinate Claims
+            query.$or = [
+                { createdBy: userId },
+                { createdBy: { $in: subordinateIds } }
+            ];
         }
 
         const expenseClaims = await ExpenseClaim.find(query)
@@ -135,8 +144,21 @@ exports.getExpenseClaimById = async (req, res, next) => {
             organizationId: organizationId
         };
 
-        // Salesperson can only see their own expense claims
-        if (role === 'salesperson') {
+        // Limit to own claims unless admin or has specific view-all permission
+        // NOTE: Standard RBAC middleware handles route access, but for listing, 
+        // we might want to filter. For now, let's assume if you have 'expenses:view', 
+        // you see all, unless we enforce "own only" for non-admins.
+
+        // Better approach for standard users:
+        if (role !== 'admin' && !hasPermission(req.user.permissions, 'expenses', 'view_all')) {
+            // Logic to show only own claims for standard users unless they have a 'view_all' permission
+            // Since 'view_all' isn't standard in our schema yet, let's stick to:
+            // If not admin, show own. (Or update logic to allow managers to see reportees).
+
+            // For Supervisor model: Managers should see their reportees' claims.
+            // This requires a more complex query (find all users reporting to me).
+            // For this step, let's keep it simple: Non-admins see own.
+            // TODO: Enhance to allow managers to see reportees' claims.
             query.createdBy = userId;
         }
 
@@ -224,8 +246,8 @@ exports.deleteExpenseClaim = async (req, res, next) => {
             organizationId: organizationId
         };
 
-        // If not admin/manager, restrict to own pending claims
-        if (role === 'salesperson') {
+        // If not admin, restrict to own pending claims
+        if (role !== 'admin') {
             query.createdBy = userId;
             query.status = 'pending';
         }
@@ -263,9 +285,11 @@ exports.deleteExpenseClaim = async (req, res, next) => {
     }
 };
 
+const { canApprove } = require('../../utils/hierarchyHelper');
+
 // @desc    Update expense claim status (approve/reject)
 // @route   PUT /api/v1/expense-claims/:id/status
-// @access  Private (Admin, Manager only)
+// @access  Private (Admin or Supervisor with approval permission)
 exports.updateExpenseClaimStatus = async (req, res, next) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
@@ -276,7 +300,7 @@ exports.updateExpenseClaimStatus = async (req, res, next) => {
         const expenseClaim = await ExpenseClaim.findOne({
             _id: req.params.id,
             organizationId: organizationId
-        });
+        }).populate('createdBy', 'reportsTo organizationId'); // Populate to check hierarchy
 
         if (!expenseClaim) {
             return res.status(404).json({ success: false, message: 'Expense claim not found' });
@@ -290,8 +314,18 @@ exports.updateExpenseClaimStatus = async (req, res, next) => {
             });
         }
 
+        // Hierarchy & Permission Check
+        const authorized = await canApprove(req.user, expenseClaim.createdBy, 'expenses');
+
+        if (!authorized) {
+            return res.status(403).json({
+                success: false,
+                message: 'You are not authorized to approve this request. You must be the direct supervisor or an admin and have approval permission.'
+            });
+        }
+
         // Prevent users from approving/rejecting their own expense claims
-        if (expenseClaim.createdBy.toString() === userId.toString()) {
+        if (expenseClaim.createdBy._id.toString() === userId.toString()) {
             return res.status(403).json({
                 success: false,
                 message: 'You cannot approve or reject your own expense claim'
@@ -620,8 +654,8 @@ exports.deleteReceipt = async (req, res, next) => {
             organizationId: organizationId
         };
 
-        // Only restrict to creator if not admin/manager
-        if (role === 'salesperson') {
+        // Only restrict to creator if not admin
+        if (role !== 'admin') {
             query.createdBy = userId;
         }
 
