@@ -1,7 +1,8 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
-const { getDefaultPermissions, isSystemRole, ADMIN_DEFAULT_PERMISSIONS } = require('../../utils/defaultPermissions');
+const { isSystemRole, getRoleDefaultFeatures, ADMIN_GRANULAR_PERMISSIONS, USER_GRANULAR_PERMISSIONS } = require('../../utils/defaultPermissions');
+const { FEATURE_REGISTRY } = require('../../config/featureRegistry');
 
 const userSchema = new mongoose.Schema({
     name: {
@@ -165,62 +166,84 @@ userSchema.methods.createPasswordResetToken = function () {
 
 // --- 4. RBAC Permission Methods ---
 /**
- * Get effective permissions for this user
- * Priority: 
- * 1. System roles (superadmin/developer) - use defaults
- * 2. Admin - full access within org
- * 3. Custom Role (if customRoleId is set) - use role's permissions
+ * Get effective granular permissions for this user
+ * Priority:
+ * 1. System roles (superadmin/developer) - all features enabled
+ * 2. Admin - all features enabled
+ * 3. Custom Role (if customRoleId is set) - use role's granular permissions
  * 4. Default user - minimal permissions
- * @returns {Object} Complete permissions object
+ * @returns {Object} Complete granular permissions object
  */
 userSchema.methods.getEffectivePermissions = function () {
-    // System roles use their defaults
+    // System roles have all permissions
     if (isSystemRole(this.role)) {
-        return getDefaultPermissions(this.role);
+        const allPerms = {};
+        for (const moduleName of Object.keys(FEATURE_REGISTRY)) {
+            allPerms[moduleName] = getRoleDefaultFeatures('admin', moduleName);
+        }
+        return allPerms;
     }
 
     // Admin gets full org access
     if (this.role === 'admin') {
-        return ADMIN_DEFAULT_PERMISSIONS;
+        return ADMIN_GRANULAR_PERMISSIONS;
     }
 
     // If user has a custom role assigned and it's populated
     if (this.customRoleId && this.customRoleId.permissions) {
-        const rolePerms = {};
-        const customRole = this.customRoleId;
-
-        if (customRole.permissions) {
-            for (const [module, perms] of Object.entries(customRole.permissions.toObject ? customRole.permissions.toObject() : customRole.permissions)) {
-                rolePerms[module] = {
-                    view: perms.view || false,
-                    add: perms.add || false,
-                    update: perms.update || false,
-                    delete: perms.delete || false
-                };
-            }
-        }
-        return rolePerms;
+        return this.customRoleId.getPermissions();
     }
 
     // Default: user role with minimal permissions
-    return getDefaultPermissions('user');
+    return USER_GRANULAR_PERMISSIONS;
 };
 
 /**
- * Check if user has specific permission
+ * Check if user has specific granular feature permission
+ * @param {string} moduleName - Module name (e.g., 'attendance', 'products')
+ * @param {string} featureKey - Feature key (e.g., 'webCheckIn', 'exportPdf')
+ * @returns {boolean}
+ */
+userSchema.methods.hasFeature = function (moduleName, featureKey) {
+    // System roles have all features
+    if (isSystemRole(this.role)) {
+        return true;
+    }
+
+    // Check custom role first
+    if (this.customRoleId && this.customRoleId.permissions) {
+        return this.customRoleId.permissions[moduleName]?.[featureKey] === true;
+    }
+
+    // Fall back to built-in role defaults
+    const roleFeatures = getRoleDefaultFeatures(this.role, moduleName);
+    return roleFeatures?.[featureKey] === true;
+};
+
+/**
+ * Legacy method: Check if user has specific permission (action-based)
+ * Maps to granular features for backward compatibility
  * @param {string} module - Module name (e.g., 'products', 'parties')
- * @param {string} action - Action type ('view', 'add', 'update', 'delete')
+ * @param {string} action - Action type ('view', 'add', 'update', 'delete', 'approve')
  * @returns {boolean}
  */
 userSchema.methods.hasPermission = function (module, action) {
-    const permissions = this.getEffectivePermissions();
-    if (!permissions[module]) return false;
-    return permissions[module][action] === true;
+    const actionToFeatureMap = {
+        view: 'view',
+        add: 'create',
+        update: 'update',
+        delete: 'delete',
+        approve: 'approve'
+    };
+
+    const featureKey = actionToFeatureMap[action];
+    if (!featureKey) return false;
+
+    return this.hasFeature(module, featureKey);
 };
 
 /**
  * Get effective permissions intersected with organization's subscription plan
- * Async because it needs to fetch organization and plan from DB
  * @param {Object} orgWithPlan - Organization object with subscriptionPlanId populated
  * @returns {Object} Permissions filtered by plan features
  */
@@ -243,20 +266,20 @@ userSchema.methods.getEffectivePermissionsWithPlan = function (orgWithPlan) {
     // Intersect: only include modules that are both in permissions AND in plan
     const intersectedPermissions = {};
 
-    for (const [module, perms] of Object.entries(basePermissions)) {
-        // Always include system modules (settings, etc.)
+    for (const [moduleName, perms] of Object.entries(basePermissions)) {
         const systemModules = ['organizations', 'systemUsers', 'subscriptions', 'settings'];
 
-        if (systemModules.includes(module) || enabledModules.includes(module)) {
-            intersectedPermissions[module] = perms;
+        if (systemModules.includes(moduleName) || enabledModules.includes(moduleName)) {
+            // Module is in plan - include permissions (further filter by features if needed)
+            intersectedPermissions[moduleName] = perms;
         } else {
-            // Module not in plan - set all to false
-            intersectedPermissions[module] = {
-                view: false,
-                add: false,
-                update: false,
-                delete: false
-            };
+            // Module not in plan - set all features to false
+            const allFalse = {};
+            const features = FEATURE_REGISTRY[moduleName] || {};
+            for (const featureKey of Object.keys(features)) {
+                allFalse[featureKey] = false;
+            }
+            intersectedPermissions[moduleName] = allFalse;
         }
     }
 

@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const User = require('../users/user.model');
 const Organization = require('../organizations/organization.model');
 const { sendEmail, sendWelcomeEmail } = require('../../utils/emailSender');
-const { getDefaultPermissions, isSystemRole, ADMIN_DEFAULT_PERMISSIONS } = require('../../utils/defaultPermissions');
+const { isSystemRole } = require('../../utils/defaultPermissions');
 
 // Function to sign an access token (short-lived)
 const signToken = (id) => {
@@ -80,16 +80,12 @@ const sendTokenResponse = async (
 
   // Get user's effective permissions (intersected with plan if org provided)
   let permissions;
-  if (isSystemRole(user.role)) {
-    permissions = getDefaultPermissions(user.role);
-  } else if (typeof user.getEffectivePermissionsWithPlan === 'function' && orgWithPlan) {
-    permissions = user.getEffectivePermissionsWithPlan(orgWithPlan);
-  } else if (user.role === 'admin') {
-    permissions = ADMIN_DEFAULT_PERMISSIONS;
-  } else if (typeof user.getEffectivePermissions === 'function') {
-    permissions = user.getEffectivePermissions();
+  if (typeof user.getEffectivePermissions === 'function') {
+    permissions = orgWithPlan
+      ? user.getEffectivePermissionsWithPlan(orgWithPlan)
+      : user.getEffectivePermissions();
   } else {
-    permissions = getDefaultPermissions('user');
+    permissions = {};
   }
 
   // Build subscription info for response
