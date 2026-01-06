@@ -2,7 +2,7 @@ const Invoice = require('../invoice/invoice.model');
 
 // @desc    Get monthly analytics overview
 // @route   GET /api/v1/analytics/monthly-overview?month=11&year=2025
-// @access  Private (Admin, Manager)
+// @access  Private (analytics:view permission)
 exports.getMonthlyOverview = async (req, res) => {
     try {
         const { organizationId } = req.user;
@@ -18,7 +18,7 @@ exports.getMonthlyOverview = async (req, res) => {
         // Calculate date range for the selected month
         const monthInt = parseInt(month);
         const yearInt = parseInt(year);
-        
+
         const monthStart = new Date(yearInt, monthInt - 1, 1);
         const monthEnd = new Date(yearInt, monthInt, 1);
 
@@ -58,17 +58,17 @@ exports.getMonthlyOverview = async (req, res) => {
         });
     } catch (error) {
         console.error('Error fetching monthly overview:', error);
-        res.status(500).json({ 
+        res.status(500).json({
             success: false,
-            message: 'Server Error', 
-            error: error.message 
+            message: 'Server Error',
+            error: error.message
         });
     }
 };
 
 // @desc    Get sales trend by week for selected month
 // @route   GET /api/v1/analytics/sales-trend?month=11&year=2025
-// @access  Private (Admin, Manager)
+// @access  Private (analytics:view permission)
 exports.getSalesTrend = async (req, res) => {
     try {
         const { organizationId } = req.user;
@@ -160,7 +160,7 @@ exports.getSalesTrend = async (req, res) => {
 
 // @desc    Get products sold by category for selected month
 // @route   GET /api/v1/analytics/products-by-category?month=11&year=2025
-// @access  Private (Admin, Manager)
+// @access  Private (analytics:view permission)
 exports.getProductsByCategory = async (req, res) => {
     try {
         const { organizationId } = req.user;
@@ -175,7 +175,7 @@ exports.getProductsByCategory = async (req, res) => {
 
         const monthInt = parseInt(month);
         const yearInt = parseInt(year);
-        
+
         const monthStart = new Date(yearInt, monthInt - 1, 1);
         const monthEnd = new Date(yearInt, monthInt, 1);
 
@@ -244,17 +244,17 @@ exports.getProductsByCategory = async (req, res) => {
         });
     } catch (error) {
         console.error('Error fetching products by category:', error);
-        res.status(500).json({ 
+        res.status(500).json({
             success: false,
-            message: 'Server Error', 
-            error: error.message 
+            message: 'Server Error',
+            error: error.message
         });
     }
 };
 
 // @desc    Get top products sold for selected month
 // @route   GET /api/v1/analytics/top-products?month=11&year=2025
-// @access  Private (Admin, Manager)
+// @access  Private (analytics:view permission)
 exports.getTopProducts = async (req, res) => {
     try {
         const { organizationId } = req.user;
@@ -269,7 +269,7 @@ exports.getTopProducts = async (req, res) => {
 
         const monthInt = parseInt(month);
         const yearInt = parseInt(year);
-        
+
         const monthStart = new Date(yearInt, monthInt - 1, 1);
         const monthEnd = new Date(yearInt, monthInt, 1);
 
@@ -319,17 +319,17 @@ exports.getTopProducts = async (req, res) => {
         });
     } catch (error) {
         console.error('Error fetching top products:', error);
-        res.status(500).json({ 
+        res.status(500).json({
             success: false,
-            message: 'Server Error', 
-            error: error.message 
+            message: 'Server Error',
+            error: error.message
         });
     }
 };
 
 // @desc    Get top 5 parties of the month
 // @route   GET /api/v1/analytics/top-parties?month=11&year=2025
-// @access  Private (Admin, Manager)
+// @access  Private (analytics:view permission)
 exports.getTopParties = async (req, res) => {
     try {
         const { organizationId } = req.user;
@@ -344,7 +344,7 @@ exports.getTopParties = async (req, res) => {
 
         const monthInt = parseInt(month);
         const yearInt = parseInt(year);
-        
+
         const monthStart = new Date(yearInt, monthInt - 1, 1);
         const monthEnd = new Date(yearInt, monthInt, 1);
 
@@ -388,10 +388,10 @@ exports.getTopParties = async (req, res) => {
         });
     } catch (error) {
         console.error('Error fetching top parties:', error);
-        res.status(500).json({ 
+        res.status(500).json({
             success: false,
-            message: 'Server Error', 
-            error: error.message 
+            message: 'Server Error',
+            error: error.message
         });
     }
 };

@@ -308,15 +308,15 @@ exports.transferToParty = async (req, res, next) => {
         // 4. Delete the original prospect
         await Prospect.findByIdAndDelete(prospectId);
 
-        // 5. Send email notification to Admins and Managers
+        // 5. Send email notification to Admins
         try {
-            const adminsAndManagers = await User.find({
+            const admins = await User.find({
                 organizationId: organizationId,
-                role: { $in: ['admin', 'manager'] }
+                role: 'admin'
             });
 
-            if (adminsAndManagers.length > 0) {
-                const emailList = adminsAndManagers.map(user => user.email);
+            if (admins.length > 0) {
+                const emailList = admins.map(user => user.email);
                 const subject = `Action Required: Please Update PAN/VAT for ${newParty.partyName}`; // This is correct
                 const message = `
 <div style="font-family: 'Segoe UI', Arial, sans-serif; color: #333; line-height: 1.6; padding: 20px;">
