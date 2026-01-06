@@ -1,10 +1,11 @@
 const User = require('./user.model');
-const Organization = require('../organizations/organization.model'); // Import Organization model
+const Organization = require('../organizations/organization.model');
+const { getDefaultPermissions, isSystemRole, isOrganizationRole, ADMIN_DEFAULT_PERMISSIONS } = require('../../utils/defaultPermissions');
 const cloudinary = require('../../config/cloudinary');
 const crypto = require('crypto');
 const { sendWelcomeEmail } = require('../../utils/emailSender');
 const path = require('path');
-const fs = require('fs'); // Import fs for cleanup
+const fs = require('fs');
 
 // Helper function to safely delete a file
 const cleanupTempFile = (filePath) => {
@@ -26,10 +27,15 @@ exports.createUser = async (req, res, next) => {
             panNumber, citizenshipNumber, dateJoined
         } = req.body;
 
-        // --- Permission Checks ---
-        if (role === 'superadmin') return res.status(403).json({ success: false, message: 'Cannot create superadmin via this route.' });
-        if (role === 'admin') return res.status(403).json({ success: false, message: 'Cannot create another admin account for this organization.' });
-        if ((role === 'manager' || role === 'admin') && req.user.role !== 'admin') return res.status(403).json({ success: false, message: 'Only admins can create manager accounts.' });
+        // --- Permission Checks (Security: Prevent role escalation) ---
+        // These are security checks, not permission-based - they prevent creating privileged roles
+        if (isSystemRole(role)) {
+            return res.status(403).json({ success: false, message: 'Cannot create system role users via this route.' });
+        }
+        if (role === 'admin') {
+            return res.status(403).json({ success: false, message: 'Cannot create another admin account for this organization.' });
+        }
+        // All org users (except admin) should be 'user' role with customRoleId for permissions
         // --- End Permission Check ---
 
         const temporaryPassword = crypto.randomBytes(8).toString('hex');
@@ -296,13 +302,12 @@ exports.createOrgUser = async (req, res, next) => {
             });
         }
 
-        // Role validation - cannot create superadmin or admin via this route
-        const allowedRoles = ['manager', 'salesperson', 'user'];
-        if (!allowedRoles.includes(role)) {
+        // Role validation - only 'user' role allowed (permissions via customRoleId)
+        if (role && role !== 'user') {
             cleanupTempFile(tempAvatarPath);
             return res.status(400).json({
                 success: false,
-                message: `Invalid role: "${role}". Allowed roles: ${allowedRoles.join(', ')}`
+                message: 'Only "user" role is allowed. Assign permissions via customRoleId.'
             });
         }
 
@@ -604,13 +609,10 @@ exports.toggleUserAccess = async (req, res, next) => {
         if (!userToUpdate) return res.status(404).json({ success: false, message: 'User not found' });
 
         // --- Permission Checks ---
-        // Only Admin can toggle access for now (or Manager if allowed later)
-        if (req.user.role !== 'admin') {
-            return res.status(403).json({ success: false, message: 'Only admins can toggle user access.' });
-        }
-
+        // Access toggle is protected by requireOrgAdmin middleware in route
+        // Additional security: prevent modifying admin accounts
         if (userToUpdate.role === 'admin') {
-            return res.status(403).json({ success: false, message: 'Cannot specific toggle access for admin accounts (they always have access).' });
+            return res.status(403).json({ success: false, message: 'Cannot toggle access for admin accounts (they always have access).' });
         }
         // --- End Permission Checks ---
 
@@ -643,10 +645,16 @@ exports.updateUser = async (req, res, next) => {
         const userToUpdate = await User.findOne({ _id: userIdToUpdate, organizationId: req.user.organizationId });
         if (!userToUpdate) return res.status(404).json({ success: false, message: 'User not found' });
 
-        // --- Permission Checks ---
-        if (req.user.id === userIdToUpdate) return res.status(403).json({ success: false, message: 'Use the /me endpoint to update your own profile.' });
-        if (req.user.role === 'manager' && (userToUpdate.role === 'admin' || userToUpdate.role === 'manager')) return res.status(403).json({ success: false, message: 'Managers cannot modify admin or other manager accounts.' });
-        if (userToUpdate.role === 'admin' && req.user.role !== 'admin') return res.status(403).json({ success: false, message: 'Only the organization admin can modify another admin account.' });
+        // --- Permission Checks (Protected by requirePermission('employees', 'update') in route) ---
+        // Additional security checks for role hierarchy:
+        if (req.user.id === userIdToUpdate) {
+            return res.status(403).json({ success: false, message: 'Use the /me endpoint to update your own profile.' });
+        }
+        // Non-admin users cannot modify admin accounts
+        if (userToUpdate.role === 'admin' && req.user.role !== 'admin') {
+            return res.status(403).json({ success: false, message: 'Only the organization admin can modify admin accounts.' });
+        }
+        // Non-admin users with employees:update permission can update lower roles
         // --- End Permission Checks ---
 
         // Whitelist fields & Validate Types
@@ -668,14 +676,25 @@ exports.updateUser = async (req, res, next) => {
             }
         }
 
-        // Role update logic
+        // Role update logic (Security: prevent role escalation)
         if (req.body.role) {
-            if (typeof req.body.role !== 'string') return res.status(400).json({ success: false, message: 'Invalid type for field: role' });
-            if (req.body.role === 'superadmin' || req.body.role === 'admin') return res.status(403).json({ success: false, message: 'Cannot assign admin or superadmin role.' });
-            if (req.body.role === 'manager' && req.user.role !== 'admin') return res.status(403).json({ success: false, message: 'Only admins can assign the manager role.' });
-            if (!User.schema.path('role').enumValues.includes(req.body.role)) return res.status(400).json({ success: false, message: 'Invalid role specified.' });
-            if (userToUpdate.role === 'admin') return res.status(403).json({ success: false, message: 'Cannot change the role of an admin account.' });
-            updateData.role = req.body.role;
+            const newRole = req.body.role;
+            if (typeof newRole !== 'string') {
+                return res.status(400).json({ success: false, message: 'Invalid type for field: role' });
+            }
+            // Prevent assigning system roles or admin
+            if (isSystemRole(newRole) || newRole === 'admin') {
+                return res.status(403).json({ success: false, message: 'Cannot assign admin or system roles.' });
+            }
+            // Only 'user' role allowed - permissions come from customRoleId
+            if (newRole !== 'user') {
+                return res.status(400).json({ success: false, message: 'Only "user" role can be assigned. Use customRoleId for permissions.' });
+            }
+            // Cannot change admin role
+            if (userToUpdate.role === 'admin') {
+                return res.status(403).json({ success: false, message: 'Cannot change the role of an admin account.' });
+            }
+            updateData.role = newRole;
         }
 
         // --- Handle Optional Avatar Update ---
@@ -730,9 +749,14 @@ exports.deleteUser = async (req, res, next) => {
         const userToDeactivate = await User.findOne({ _id: req.params.id, organizationId: req.user.organizationId });
         if (!userToDeactivate) return res.status(404).json({ success: false, message: 'User not found' });
 
-        // --- Permission Checks ---
-        if (userToDeactivate.role === 'admin' && req.user.role !== 'admin') return res.status(403).json({ success: false, message: 'Managers cannot deactivate admin accounts.' });
-        if (req.user.id === req.params.id) return res.status(403).json({ success: false, message: 'Cannot deactivate own account via this endpoint.' });
+        // --- Permission Checks (Protected by requirePermission('employees', 'delete') in route) ---\n        // Cannot deactivate own account
+        if (req.user.id === req.params.id) {
+            return res.status(403).json({ success: false, message: 'Cannot deactivate your own account via this endpoint.' });
+        }
+        // Non-admin users cannot deactivate admin accounts
+        if (userToDeactivate.role === 'admin' && req.user.role !== 'admin') {
+            return res.status(403).json({ success: false, message: 'Only admin can deactivate admin accounts.' });
+        }
         // --- End Permission Checks ---
 
         const user = await User.findByIdAndUpdate(req.params.id, { isActive: false }, { new: true });
@@ -1061,8 +1085,8 @@ exports.getEmployeeAttendanceSummary = async (req, res, next) => {
             });
         }
 
-        // Permission check: Only admin, manager, or the employee themselves can view
-        if (requestorRole !== 'admin' && requestorRole !== 'manager' && requestorId.toString() !== employeeId) {
+        // Permission check: Admin or the employee themselves can view (protected by route middleware)
+        if (requestorRole !== 'admin' && requestorId.toString() !== employeeId) {
             return res.status(403).json({
                 success: false,
                 message: 'You do not have permission to view this employee\'s attendance'

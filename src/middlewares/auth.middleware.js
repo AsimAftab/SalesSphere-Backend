@@ -82,7 +82,7 @@ exports.protect = async (req, res, next) => {
  * Role mapping:
  * - superadmin, developer -> System roles (always allowed)
  * - admin -> Org admin (full access within org)
- * - manager, salesperson, user -> Check custom role or allow if in list
+ * - user -> Check custom role permissions
  */
 exports.restrictTo = (...allowedRoles) => {
   return (req, res, next) => {
@@ -105,25 +105,23 @@ exports.restrictTo = (...allowedRoles) => {
       if (allowedRoles.includes('superadmin') || allowedRoles.includes('developer')) {
         return next();
       }
-      // Allow developer to access routes marked for admin/manager
-      if (allowedRoles.includes('admin') || allowedRoles.includes('manager')) {
+      // Allow developer to access routes marked for admin
+      if (allowedRoles.includes('admin')) {
         return next();
       }
     }
 
     // Admin has full org access
     if (userRole === 'admin') {
-      if (allowedRoles.includes('admin') || allowedRoles.includes('manager') ||
-        allowedRoles.includes('salesperson') || allowedRoles.includes('user')) {
+      if (allowedRoles.includes('admin') || allowedRoles.includes('user')) {
         return next();
       }
     }
 
     // For users with custom roles assigned
     if (req.user.customRoleId && req.user.customRoleId.permissions) {
-      // User has a custom role - check if they have relevant permissions
-      // Map old roles to permission checks
-      if (allowedRoles.includes('manager') || allowedRoles.includes('salesperson') || allowedRoles.includes('user')) {
+      // User has a custom role - allow access (permissions checked via requirePermission)
+      if (allowedRoles.includes('user')) {
         return next();
       }
     }

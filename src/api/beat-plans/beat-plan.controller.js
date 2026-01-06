@@ -33,31 +33,51 @@ const updateBeatPlanValidation = z.object({
     prospects: z.array(z.string()).optional(),
 });
 
-// @desc    Get salespersons for employee dropdown
-// @route   GET /api/v1/beat-plans/salespersons
+// @desc    Get employees assignable to beat plans
+// @route   GET /api/v1/beat-plans/salesperson
 // @access  Protected
+// @query   ?withBeatPlanPermission=true - Filter only users with beatPlan permission
 exports.getSalespersons = async (req, res, next) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId } = req.user;
+        const { withBeatPlanPermission } = req.query;
 
-        // Fetch only active salespersons from the organization
-        const salespersons = await User.find({
+        // Base query: active non-admin users
+        const query = {
             organizationId,
-            role: 'salesperson',
+            role: 'user',
             isActive: true
-        }).select('name email phone avatarUrl')
-          .sort({ name: 1 });
+        };
+
+        // Optionally filter by users with beatPlan permission in their customRole
+        if (withBeatPlanPermission === 'true') {
+            // Find roles that have beatPlan permissions
+            const Role = require('../roles/role.model');
+            const rolesWithBeatPlan = await Role.find({
+                organizationId,
+                'permissions.beatPlan': { $exists: true }
+            }).select('_id').lean();
+
+            const roleIds = rolesWithBeatPlan.map(r => r._id);
+            query.customRoleId = { $in: roleIds };
+        }
+
+        const employees = await User.find(query)
+            .select('name email phone avatarUrl customRoleId')
+            .populate('customRoleId', 'name')
+            .sort({ name: 1 });
 
         res.status(200).json({
             success: true,
-            data: salespersons
+            count: employees.length,
+            data: employees
         });
     } catch (error) {
-        console.error('Error fetching salespersons:', error);
+        console.error('Error fetching assignable employees:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to fetch salespersons',
+            message: 'Failed to fetch employees',
             error: error.message
         });
     }
@@ -215,18 +235,18 @@ exports.createBeatPlan = async (req, res, next) => {
         // Validate request body using simple validation
         const validatedData = createBeatPlanValidation.parse(req.body);
 
-        // Verify the employee exists and is a salesperson
+        // Verify the employee exists and is active (excludes admin)
         const employee = await User.findOne({
             _id: validatedData.employeeId,
             organizationId,
-            role: 'salesperson',
+            role: 'user',
             isActive: true
         });
 
         if (!employee) {
             return res.status(400).json({
                 success: false,
-                message: 'Invalid employee. Employee must be an active salesperson in your organization.'
+                message: 'Invalid employee. Employee must be an active user in your organization.'
             });
         }
 
@@ -452,14 +472,14 @@ exports.updateBeatPlan = async (req, res, next) => {
             const employee = await User.findOne({
                 _id: validatedData.employeeId,
                 organizationId,
-                role: 'salesperson',
+                role: 'user',
                 isActive: true
             });
 
             if (!employee) {
                 return res.status(400).json({
                     success: false,
-                    message: 'Invalid employee. Employee must be an active salesperson in your organization.'
+                    message: 'Invalid employee. Employee must be an active user in your organization.'
                 });
             }
 
@@ -627,7 +647,7 @@ exports.deleteBeatPlan = async (req, res, next) => {
 
 // @desc    Get salesperson's assigned beat plans (minimal data for list view)
 // @route   GET /api/v1/beat-plans/my-beatplans
-// @access  Protected (Salesperson)
+// @access  Private (beatPlan:view permission)
 exports.getMyBeatPlans = async (req, res, next) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
@@ -697,7 +717,7 @@ exports.getMyBeatPlans = async (req, res, next) => {
 
 // @desc    Get detailed beatplan information with all parties and visit status
 // @route   GET /api/v1/beat-plans/:id/details
-// @access  Protected (Salesperson assigned to this beat plan or Admin/Manager)
+// @access  Private (beatPlan:view permission)
 exports.getBeatPlanDetails = async (req, res, next) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
@@ -715,11 +735,11 @@ exports.getBeatPlanDetails = async (req, res, next) => {
             return res.status(404).json({ success: false, message: 'Beat plan not found' });
         }
 
-        // Check access - either assigned salesperson or admin/manager
+        // Check access - either assigned employee or admin
         const isAssigned = beatPlan.employees.some(emp => emp._id.toString() === userId.toString());
-        const isAdminOrManager = ['admin', 'manager'].includes(role);
+        const isAdmin = role === 'admin';
 
-        if (!isAssigned && !isAdminOrManager) {
+        if (!isAssigned && !isAdmin) {
             return res.status(403).json({
                 success: false,
                 message: 'You do not have access to this beat plan'
@@ -831,7 +851,7 @@ exports.getBeatPlanDetails = async (req, res, next) => {
 
 // @desc    Start a beat plan (change status to active)
 // @route   POST /api/v1/beat-plans/:id/start
-// @access  Protected (Salesperson assigned to this beat plan)
+// @access  Private (beatPlan:update permission)
 exports.startBeatPlan = async (req, res, next) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
@@ -902,7 +922,7 @@ exports.startBeatPlan = async (req, res, next) => {
 
 // @desc    Optimize beatplan route using nearest neighbor algorithm
 // @route   POST /api/v1/beat-plans/:id/optimize-route
-// @access  Protected (Admin, Manager, or assigned Salesperson)
+// @access  Private (beatPlan:update permission)
 exports.optimizeBeatPlanRoute = async (req, res, next) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
@@ -923,11 +943,11 @@ exports.optimizeBeatPlanRoute = async (req, res, next) => {
             return res.status(404).json({ success: false, message: 'Beat plan not found' });
         }
 
-        // Check access - either assigned salesperson or admin/manager
+        // Check access - either assigned employee or admin (permissions via route middleware)
         const isAssigned = beatPlan.employees.some(emp => emp._id.toString() === userId.toString());
-        const isAdminOrManager = ['admin', 'manager'].includes(role);
+        const isAdmin = role === 'admin';
 
-        if (!isAssigned && !isAdminOrManager) {
+        if (!isAssigned && !isAdmin) {
             return res.status(403).json({
                 success: false,
                 message: 'You do not have access to this beat plan'
@@ -1017,7 +1037,7 @@ exports.optimizeBeatPlanRoute = async (req, res, next) => {
 
 // @desc    Calculate distance from current location to a party
 // @route   POST /api/v1/beat-plans/calculate-distance
-// @access  Protected
+// @access  Private (beatPlan:view permission)
 exports.calculateDistanceToParty = async (req, res, next) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
@@ -1088,7 +1108,7 @@ exports.calculateDistanceToParty = async (req, res, next) => {
 
 // @desc    Mark a directory (party/site/prospect) as visited in beat plan
 // @route   POST /api/v1/beat-plans/:id/visit
-// @access  Protected (Salesperson)
+// @access  Private (beatPlan:view permission)
 exports.markPartyVisited = async (req, res, next) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });

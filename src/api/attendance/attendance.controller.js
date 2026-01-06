@@ -536,7 +536,7 @@ exports.checkOut = async (req, res, next) => {
 
 // @desc    Get the logged-in user's attendance status for today
 // @route   GET /api/v1/attendance/status/today
-// @access  Private (Salesperson, Manager)
+// @access  Private (attendance:view permission)
 exports.getMyStatusToday = async (req, res, next) => {
   try {
     if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
@@ -580,7 +580,7 @@ exports.getMyStatusToday = async (req, res, next) => {
 
 // @desc    Get the logged-in user's monthly attendance report
 // @route   GET /api/v1/attendance/my-monthly-report
-// @access  Private (Salesperson, Manager)
+// @access  Private (attendance:view permission)
 exports.getMyMonthlyReport = async (req, res, next) => {
   const reportQuerySchema = z.object({
     month: z.coerce.number().int().min(1).max(12),
@@ -682,7 +682,7 @@ exports.getMyMonthlyReport = async (req, res, next) => {
 
 // @desc    Get the monthly attendance report
 // @route   GET /api/v1/attendance/report
-// @access  Private (Admin, Manager)
+// @access  Private (attendance:view permission)
 exports.getAttendanceReport = async (req, res, next) => {
   const reportQuerySchema = z.object({
     month: z.coerce.number().int().min(1).max(12),
@@ -710,7 +710,7 @@ exports.getAttendanceReport = async (req, res, next) => {
 
     const employees = await User.find({
       organizationId: orgObjectId,
-      role: { $in: ['salesperson', 'manager'] }
+      role: 'user'  // All non-admin employees
     }).select('name email role').lean();
 
     if (employees.length === 0) {
@@ -791,7 +791,7 @@ exports.getAttendanceReport = async (req, res, next) => {
 
 // @desc    Get detailed attendance for a specific employee on a specific date
 // @route   GET /api/v1/attendance/employee/:employeeId/date/:date
-// @access  Private (Admin, Manager)
+// @access  Private (attendance:view permission)
 exports.getEmployeeAttendanceByDate = async (req, res, next) => {
   const dateParamSchema = z.object({
     employeeId: z.string().refine(val => mongoose.Types.ObjectId.isValid(val), { message: "Invalid employee ID" }),
@@ -886,7 +886,7 @@ exports.getEmployeeAttendanceByDate = async (req, res, next) => {
 
 // @desc    Admin manually marks attendance
 // @route   PUT /api/v1/attendance/admin/mark
-// @access  Private (Admin, Manager)
+// @access  Private (attendance:update permission)
 exports.adminMarkAttendance = async (req, res, next) => {
   const adminMarkSchema = z.object({
     employeeId: z.string().refine(val => mongoose.Types.ObjectId.isValid(val), { message: "Invalid employee ID format" }),
@@ -905,10 +905,7 @@ exports.adminMarkAttendance = async (req, res, next) => {
     const employee = await User.findOne({ _id: employeeId, organizationId: orgObjectId }).select('role name');
     if (!employee) return res.status(404).json({ success: false, message: "Employee not found in your organization." });
 
-    if (adminRole === 'manager' && employee.role === 'manager') {
-      return res.status(403).json({ success: false, message: "Managers are not authorized to modify the attendance of other managers." });
-    }
-
+    // Permissions checked via requirePermission('attendance', 'update') in route
     const organization = await Organization.findById(orgObjectId).select('checkInTime checkOutTime halfDayCheckOutTime weeklyOffDay timezone');
     if (!organization) return res.status(404).json({ success: false, message: "Organization not found." });
 
@@ -1000,7 +997,7 @@ exports.adminMarkAttendance = async (req, res, next) => {
 
 // @desc    Mark all un-marked employees as 'Absent' for today (Admin only)
 // @route   POST /api/v1/attendance/admin/mark-absentees
-// @access  Private (Admin)
+// @access  Private (attendance:add permission)
 exports.adminMarkAbsentees = async (req, res, next) => {
   try {
     if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
@@ -1011,10 +1008,10 @@ exports.adminMarkAbsentees = async (req, res, next) => {
     const timezone = organization?.timezone || 'Asia/Kolkata';
     const today = getStartOfTodayInOrgTZ(timezone);
 
-    // 1) All employees in org
+    // 1) All employees in org (excludes admin)
     const allEmployees = await User.find({
       organizationId: orgObjectId,
-      role: { $in: ['salesperson', 'manager'] }
+      role: 'user'  // All non-admin employees
     }).select('_id').lean();
 
     if (allEmployees.length === 0) return res.status(200).json({ success: true, message: "No employees found to mark." });
@@ -1053,7 +1050,7 @@ exports.adminMarkAbsentees = async (req, res, next) => {
 
 // @desc    Mark all employees as on holiday for a specific date (bulk holiday marking)
 // @route   POST /api/v1/attendance/admin/mark-holiday
-// @access  Private (Admin only)
+// @access  Private (attendance:add permission)
 exports.adminMarkHoliday = async (req, res, next) => {
   const holidaySchema = z.object({
     date: z.string().refine(val => isValidDateString(val), { message: "Invalid date format. Expected YYYY-MM-DD or ISO 8601 format" }),
@@ -1102,7 +1099,7 @@ exports.adminMarkHoliday = async (req, res, next) => {
     // Find all active employees
     const allEmployees = await User.find({
       organizationId: orgObjectId,
-      role: { $in: ['salesperson', 'manager', 'developer', 'user', 'admin'] },
+      role: { $in: ['user', 'admin'] },  // All org employees including admin
       isActive: true
     }).select('_id name').lean();
 
@@ -1159,7 +1156,7 @@ exports.adminMarkHoliday = async (req, res, next) => {
 
 // @desc    Search own attendance records with filters (status, location, date range)
 // @route   GET /api/v1/attendance/search
-// @access  Private (Admin, Manager, Salesperson) - users can only see their own data
+// @access  Private (attendance:view permission)
 exports.searchAttendance = async (req, res, next) => {
   const searchSchema = z.object({
     // Status filter - can be single status or comma-separated list
@@ -1278,8 +1275,8 @@ exports.searchAttendance = async (req, res, next) => {
     if (hasLocationFilter && records.length > 0) {
       records = records.filter(record => {
         if (!record.checkInLocation ||
-            record.checkInLocation.latitude === undefined ||
-            record.checkInLocation.longitude === undefined) {
+          record.checkInLocation.latitude === undefined ||
+          record.checkInLocation.longitude === undefined) {
           return false;
         }
 
@@ -1378,8 +1375,8 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
   const dLon = toRadians(lon2 - lon1);
 
   const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) *
-            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
 
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   const distance = R * c;

@@ -10,7 +10,8 @@ const BASIC_MODULES = [
     'leaves',
     'products',
     'parties',
-    'orderLists'
+    'orderLists',
+    'employees' // Basic employee management (limited by maxEmployees)
 ];
 
 const STANDARD_MODULES = [

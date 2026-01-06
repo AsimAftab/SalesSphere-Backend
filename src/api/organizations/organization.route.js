@@ -20,8 +20,8 @@ const router = express.Router();
 
 router.use(protect);
 
-// Get my organization - requires organizations.view
-router.get('/my-organization', requirePermission('organizations', 'view'), getMyOrganization);
+// Get my organization - any authenticated org member can view
+router.get('/my-organization', getMyOrganization);
 
 // System routes (superadmin/developer only)
 router.get('/:id', requireSystemRole(), getOrganizationById);

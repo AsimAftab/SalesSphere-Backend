@@ -310,14 +310,12 @@ exports.updateLeaveRequestStatus = async (req, res, next) => {
 
         const creatorRole = leaveRequest.createdBy.role;
 
-        // Role-based approval checks
+        // Role-based approval checks (permissions handled by route middleware)
         const isSelf = leaveRequest.createdBy._id.toString() === userId.toString();
         if (isSelf && approverRole !== 'admin') {
             return res.status(403).json({ success: false, message: 'Cannot approve own request' });
         }
-        if (creatorRole === 'manager' && approverRole !== 'admin') {
-            return res.status(403).json({ success: false, message: 'Manager leave requests can only be approved by admin' });
-        }
+        // Only admin can approve any request (non-admins can only approve if they have leaves:update permission)
 
         leaveRequest.status = status;
         leaveRequest.approvedBy = userId;
