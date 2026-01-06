@@ -1,19 +1,21 @@
 // src/middlewares/auth.middleware.js
-// Authentication and permission middleware
+// Authentication middleware
+// For granular permissions, use compositeAccess.middleware.js directly
 
 const jwt = require('jsonwebtoken');
 const User = require('../api/users/user.model');
+const Organization = require('../api/organizations/organization.model');
 const { isSystemRole } = require('../utils/defaultPermissions');
 
-// Import permission middleware
+// Import from compositeAccess (the new unified permission system)
 const {
-  requirePermission,
-  requireAllPermissions,
-  requireAnyPermission,
+  checkAccess,
+  checkAnyAccess,
+  checkAllAccess,
+  checkModuleAccess,
   requireSystemRole,
-  requireOrgAdmin,
-  attachPermissions
-} = require('./permission.middleware');
+  requireOrgAdmin
+} = require('./compositeAccess.middleware');
 
 /**
  * @desc    Protect routes by checking for a valid token
@@ -65,6 +67,17 @@ exports.protect = async (req, res, next) => {
     // Attach effective permissions to request
     req.permissions = user.getEffectivePermissions();
 
+    // For org users, attach organization with subscription plan (prevents redundant DB queries)
+    if (user.organizationId && !isSystemRole(user.role)) {
+      const org = await Organization.findById(user.organizationId)
+        .populate('subscriptionPlanId')
+        .lean();
+
+      if (org) {
+        req.organization = org;
+      }
+    }
+
     return next();
   } catch (err) {
     console.error('Auth protect error:', err && err.message ? err.message : err);
@@ -76,13 +89,8 @@ exports.protect = async (req, res, next) => {
 };
 
 /**
- * @desc    Legacy role-based access control (maps old roles to new system)
- * @note    For transition - gradually migrate to requirePermission()
- * 
- * Role mapping:
- * - superadmin, developer -> System roles (always allowed)
- * - admin -> Org admin (full access within org)
- * - user -> Check custom role permissions
+ * @desc    Legacy role-based access control
+ * @deprecated Use checkAccess() from compositeAccess.middleware.js for granular features
  */
 exports.restrictTo = (...allowedRoles) => {
   return (req, res, next) => {
@@ -100,13 +108,9 @@ exports.restrictTo = (...allowedRoles) => {
       return next();
     }
 
-    // Developer has broad access (read/write, limited delete)
+    // Developer has broad access
     if (userRole === 'developer') {
-      if (allowedRoles.includes('superadmin') || allowedRoles.includes('developer')) {
-        return next();
-      }
-      // Allow developer to access routes marked for admin
-      if (allowedRoles.includes('admin')) {
+      if (allowedRoles.includes('superadmin') || allowedRoles.includes('developer') || allowedRoles.includes('admin')) {
         return next();
       }
     }
@@ -118,9 +122,8 @@ exports.restrictTo = (...allowedRoles) => {
       }
     }
 
-    // For users with custom roles assigned
+    // For users with custom roles
     if (req.user.customRoleId && req.user.customRoleId.permissions) {
-      // User has a custom role - allow access (permissions checked via requirePermission)
       if (allowedRoles.includes('user')) {
         return next();
       }
@@ -138,10 +141,10 @@ exports.restrictTo = (...allowedRoles) => {
   };
 };
 
-// Export permission middleware
-exports.requirePermission = requirePermission;
-exports.requireAllPermissions = requireAllPermissions;
-exports.requireAnyPermission = requireAnyPermission;
+// Export compositeAccess middleware (the new granular permission system)
+exports.checkAccess = checkAccess;
+exports.checkAnyAccess = checkAnyAccess;
+exports.checkAllAccess = checkAllAccess;
+exports.checkModuleAccess = checkModuleAccess;
 exports.requireSystemRole = requireSystemRole;
 exports.requireOrgAdmin = requireOrgAdmin;
-exports.attachPermissions = attachPermissions;

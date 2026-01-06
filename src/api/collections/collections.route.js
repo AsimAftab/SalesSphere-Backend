@@ -1,5 +1,5 @@
 // src/api/collections/collections.route.js
-// Collections routes - permission-based access
+// Collections routes - granular feature-based access control
 
 const express = require('express');
 const multer = require('multer');
@@ -15,7 +15,7 @@ const {
     uploadChequeImage,
     deleteChequeImage,
 } = require('./collections.controller');
-const { protect, requirePermission } = require('../../middlewares/auth.middleware');
+const { protect, checkAccess } = require('../../middlewares/auth.middleware');
 
 const router = express.Router();
 
@@ -36,27 +36,74 @@ router.use(protect);
 // ============================================
 // VIEW OPERATIONS
 // ============================================
-router.get('/my-collections', requirePermission('collections', 'view'), getMyCollections);
-router.get('/', requirePermission('collections', 'view'), getAllCollections);
-router.get('/:id', requirePermission('collections', 'view'), getCollectionById);
+// GET /my-collections - View own collection entries
+router.get('/my-collections',
+    checkAccess('collections', 'view'),
+    getMyCollections
+);
+
+// GET / - View all collection entries
+router.get('/',
+    checkAccess('collections', 'view'),
+    getAllCollections
+);
+
+// GET /:id - View specific collection details
+router.get('/:id',
+    checkAccess('collections', 'view'),
+    getCollectionById
+);
 
 // ============================================
-// ADD OPERATIONS
+// CREATE OPERATIONS
 // ============================================
-router.post('/', requirePermission('collections', 'add'), createCollection);
-router.post('/:id/cheque-images', requirePermission('collections', 'add'), imageUpload.single('chequeImage'), uploadChequeImage);
+// POST / - Add new payment collection entry
+router.post('/',
+    checkAccess('collections', 'collectPayment'),
+    createCollection
+);
+
+// POST /:id/cheque-images - Upload cheque image
+router.post('/:id/cheque-images',
+    checkAccess('collections', 'collectPayment'),
+    imageUpload.single('chequeImage'),
+    uploadChequeImage
+);
 
 // ============================================
 // UPDATE OPERATIONS
 // ============================================
-router.put('/:id', requirePermission('collections', 'update'), updateCollection);
-router.patch('/:id/cheque-status', requirePermission('collections', 'update'), updateChequeStatus);
+// PUT /:id - Update collection details
+router.put('/:id',
+    checkAccess('collections', 'verifyPayment'),
+    updateCollection
+);
+
+// PATCH /:id/cheque-status - Update cheque status (cleared/bounced)
+router.patch('/:id/cheque-status',
+    checkAccess('collections', 'updateChequeStatus'),
+    updateChequeStatus
+);
 
 // ============================================
 // DELETE OPERATIONS
 // ============================================
-router.delete('/:id', requirePermission('collections', 'delete'), deleteCollection);
-router.delete('/bulk-delete', requirePermission('collections', 'delete'), bulkDeleteCollections);
-router.delete('/:id/cheque-images/:imageNumber', requirePermission('collections', 'delete'), deleteChequeImage);
+// DELETE /:id - Delete collection entry
+router.delete('/:id',
+    checkAccess('collections', 'delete'),
+    deleteCollection
+);
+
+// DELETE /bulk-delete - Bulk delete collection entries
+router.delete('/bulk-delete',
+    checkAccess('collections', 'delete'),
+    bulkDeleteCollections
+);
+
+// DELETE /:id/cheque-images/:imageNumber - Delete cheque image
+router.delete('/:id/cheque-images/:imageNumber',
+    checkAccess('collections', 'delete'),
+    deleteChequeImage
+);
 
 module.exports = router;

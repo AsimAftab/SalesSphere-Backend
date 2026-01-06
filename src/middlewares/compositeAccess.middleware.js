@@ -57,7 +57,7 @@ const checkAccess = (moduleName, featureKey) => {
         }
 
         // 3. CHECK PLAN: Is feature enabled in organization's subscription?
-        const planCheckResult = await checkPlanFeatureForOrg(req.user.organizationId, moduleName, featureKey);
+        const planCheckResult = await checkPlanFeatureForOrg(req, req.user.organizationId, moduleName, featureKey);
         if (!planCheckResult.allowed) {
             return res.status(403).json({
                 status: 'error',
@@ -88,16 +88,27 @@ const checkAccess = (moduleName, featureKey) => {
 
 /**
  * Check if feature is enabled in organization's subscription plan
- * @param {string} organizationId - Organization ID
+ *
+ * OPTIMIZATION: Uses req.organization (attached by protect middleware) to avoid
+ * redundant database queries. Falls back to DB query only if not attached.
+ *
+ * @param {Object} req - Express request object (may have req.organization)
+ * @param {string} organizationId - Organization ID (fallback)
  * @param {string} moduleName - Module name
  * @param {string} featureKey - Feature key
  * @returns {Object} { allowed: boolean, message?: string, code?: string, planName?: string }
  */
-async function checkPlanFeatureForOrg(organizationId, moduleName, featureKey) {
+async function checkPlanFeatureForOrg(req, organizationId, moduleName, featureKey) {
     try {
-        const org = await Organization.findById(organizationId)
-            .populate('subscriptionPlanId')
-            .lean();
+        // Use cached organization from protect middleware if available
+        let org = req.organization;
+
+        // Fallback: Query DB if not cached (shouldn't happen in normal flow)
+        if (!org) {
+            org = await Organization.findById(organizationId)
+                .populate('subscriptionPlanId')
+                .lean();
+        }
 
         if (!org) {
             return {
@@ -136,9 +147,20 @@ async function checkPlanFeatureForOrg(organizationId, moduleName, featureKey) {
         }
 
         // Check if specific feature is enabled
-        const hasFeature = plan.moduleFeatures &&
-                           plan.moduleFeatures.get &&
-                           plan.moduleFeatures.get(moduleName)?.get(featureKey) === true;
+        let hasFeature = false;
+
+        if (plan.moduleFeatures) {
+            // Handle Mongoose Map (if not lean) or Plain Object (if lean)
+            const moduleFeatures = plan.moduleFeatures.get
+                ? plan.moduleFeatures.get(moduleName)
+                : plan.moduleFeatures[moduleName];
+
+            if (moduleFeatures) {
+                hasFeature = moduleFeatures.get
+                    ? moduleFeatures.get(featureKey) === true
+                    : moduleFeatures[featureKey] === true;
+            }
+        }
 
         if (!hasFeature) {
             return {
@@ -163,6 +185,16 @@ async function checkPlanFeatureForOrg(organizationId, moduleName, featureKey) {
 
 /**
  * Check if user's role has a specific feature permission
+ * 
+ * FALLBACK LOGIC: When a feature key is MISSING (undefined) from a custom role,
+ * we fall back to built-in role defaults. This handles the "Maintenance Challenge"
+ * where new features are added to code but existing roles in DB don't have those keys.
+ * 
+ * Priority:
+ * 1. Custom role explicit value (true/false) - use it
+ * 2. Custom role missing key (undefined) - fall back to role defaults
+ * 3. No custom role - use built-in role defaults
+ * 
  * @param {Object} user - User object
  * @param {string} moduleName - Module name
  * @param {string} featureKey - Feature key
@@ -170,21 +202,53 @@ async function checkPlanFeatureForOrg(organizationId, moduleName, featureKey) {
  */
 function checkRoleFeaturePermission(user, moduleName, featureKey) {
     const { role, customRoleId } = user;
+    const { getRoleDefaultFeatures } = require('../utils/defaultPermissions');
 
     // 1. Check custom role first (highest priority)
     if (customRoleId && customRoleId.permissions) {
-        if (customRoleId.permissions[moduleName]?.[featureKey] === true) {
+        // Handle both Map and plain object (for backward compatibility)
+        let customValue;
+
+        if (customRoleId.permissions instanceof Map || customRoleId.permissions.get) {
+            // Map-based permissions (new format)
+            const modulePerms = customRoleId.permissions.get(moduleName);
+            customValue = modulePerms?.get?.(featureKey);
+        } else {
+            // Plain object permissions (legacy or populated as object)
+            customValue = customRoleId.permissions[moduleName]?.[featureKey];
+        }
+
+        // Explicit TRUE in custom role - ALLOW
+        if (customValue === true) {
             return { allowed: true };
         }
-        // Custom role exists but doesn't have the feature
+
+        // Explicit FALSE in custom role - DENY
+        if (customValue === false) {
+            return {
+                allowed: false,
+                message: `Your custom role does not have permission for "${featureKey}" in ${moduleName}.`
+            };
+        }
+
+        // UNDEFINED (key missing from DB) - FALLBACK to role defaults
+        // This handles new features added after role was created
+        const roleDefaults = getRoleDefaultFeatures(role, moduleName);
+        const defaultValue = roleDefaults?.[featureKey];
+
+        if (defaultValue === true) {
+            // Role default grants this - allow (self-healing for admins)
+            return { allowed: true };
+        }
+
+        // Role default denies or key doesn't exist in defaults either
         return {
             allowed: false,
-            message: `Your custom role does not have permission for "${featureKey}" in ${moduleName}.`
+            message: `Your role does not have permission for "${featureKey}" in ${moduleName}.`
         };
     }
 
-    // 2. Check built-in role permissions
-    const { getRoleDefaultFeatures } = require('../utils/defaultPermissions');
+    // 2. No custom role - Check built-in role permissions directly
     const roleFeatures = getRoleDefaultFeatures(role, moduleName);
 
     if (roleFeatures && roleFeatures[featureKey] === true) {
@@ -231,7 +295,7 @@ const checkAnyAccess = (features) => {
         for (const { module, feature } of features) {
             if (!isValidFeature(module, feature)) continue;
 
-            const planCheck = await checkPlanFeatureForOrg(req.user.organizationId, module, feature);
+            const planCheck = await checkPlanFeatureForOrg(req, req.user.organizationId, module, feature);
             if (!planCheck.allowed) continue;
 
             const roleCheck = checkRoleFeaturePermission(req.user, module, feature);
@@ -291,7 +355,7 @@ const checkAllAccess = (features) => {
                 });
             }
 
-            const planCheck = await checkPlanFeatureForOrg(req.user.organizationId, module, feature);
+            const planCheck = await checkPlanFeatureForOrg(req, req.user.organizationId, module, feature);
             if (!planCheck.allowed) {
                 return res.status(403).json({
                     status: 'error',
@@ -317,19 +381,21 @@ const checkAllAccess = (features) => {
 };
 
 /**
- * Module-level access check (coarse, no feature-level check)
- * Checks if module is enabled in plan AND user has basic view access
+ * Module-level access check (coarse, single feature check)
+ * Checks if module is enabled in plan AND user has the specified view access
  *
  * @param {string} moduleName - Module name
+ * @param {string} [viewKey='view'] - The view feature key to check (e.g., 'view', 'viewList', 'viewDetails')
  * @returns {Function} Express middleware
  *
  * @example
- * router.get('/products',
- *   checkModuleAccess('products'),
- *   getProducts
- * );
+ * // Using default 'view' key
+ * router.get('/settings', checkModuleAccess('settings'), getSettings);
+ * 
+ * // Using custom view key for modules with 'viewList'
+ * router.get('/expenses', checkModuleAccess('expenses', 'viewList'), getExpenses);
  */
-const checkModuleAccess = (moduleName) => {
+const checkModuleAccess = (moduleName, viewKey = 'view') => {
     return async (req, res, next) => {
         if (!req.user) {
             return res.status(401).json({
@@ -343,8 +409,18 @@ const checkModuleAccess = (moduleName) => {
             return next();
         }
 
+        // Validate the view key exists in registry
+        if (!isValidFeature(moduleName, viewKey)) {
+            console.error(`Invalid module access check: ${moduleName}.${viewKey}`);
+            return res.status(500).json({
+                status: 'error',
+                message: 'Invalid module configuration. Please contact support.',
+                code: 'INVALID_MODULE_CONFIG'
+            });
+        }
+
         // Check plan module access
-        const planCheck = await checkPlanFeatureForOrg(req.user.organizationId, moduleName, 'view');
+        const planCheck = await checkPlanFeatureForOrg(req, req.user.organizationId, moduleName, viewKey);
         if (!planCheck.allowed) {
             return res.status(403).json({
                 status: 'error',
@@ -355,7 +431,7 @@ const checkModuleAccess = (moduleName) => {
         }
 
         // Check role view permission
-        const roleCheck = checkRoleFeaturePermission(req.user, moduleName, 'view');
+        const roleCheck = checkRoleFeaturePermission(req.user, moduleName, viewKey);
         if (!roleCheck.allowed) {
             return res.status(403).json({
                 status: 'error',
@@ -369,9 +445,76 @@ const checkModuleAccess = (moduleName) => {
     };
 };
 
+/**
+ * Middleware to check if user is a system role (superadmin/developer)
+ * Use for system-level operations that shouldn't be available to org users
+ * @returns {Function} Express middleware
+ * 
+ * @example
+ * router.post('/plans', requireSystemRole(), createPlan);
+ */
+const requireSystemRole = () => {
+    return (req, res, next) => {
+        if (!req.user) {
+            return res.status(401).json({
+                status: 'error',
+                message: 'Authentication required.',
+                code: 'AUTHENTICATION_REQUIRED'
+            });
+        }
+
+        if (!isSystemRole(req.user.role)) {
+            return res.status(403).json({
+                status: 'error',
+                message: 'Access denied. This action requires system-level access.',
+                code: 'SYSTEM_ROLE_REQUIRED'
+            });
+        }
+
+        return next();
+    };
+};
+
+/**
+ * Middleware to check if user is organization admin
+ * System roles (superadmin/developer) also pass this check
+ * @returns {Function} Express middleware
+ * 
+ * @example
+ * router.post('/roles', requireOrgAdmin(), createRole);
+ */
+const requireOrgAdmin = () => {
+    return (req, res, next) => {
+        if (!req.user) {
+            return res.status(401).json({
+                status: 'error',
+                message: 'Authentication required.',
+                code: 'AUTHENTICATION_REQUIRED'
+            });
+        }
+
+        // System roles can also act as org admin for any org
+        if (isSystemRole(req.user.role)) {
+            return next();
+        }
+
+        if (req.user.role !== 'admin') {
+            return res.status(403).json({
+                status: 'error',
+                message: 'Access denied. This action requires organization admin privileges.',
+                code: 'ORG_ADMIN_REQUIRED'
+            });
+        }
+
+        return next();
+    };
+};
+
 module.exports = {
     checkAccess,
     checkAnyAccess,
     checkAllAccess,
-    checkModuleAccess
+    checkModuleAccess,
+    requireSystemRole,
+    requireOrgAdmin
 };

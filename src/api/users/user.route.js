@@ -6,11 +6,11 @@ const multer = require('multer');
 const userController = require('./user.controller');
 const {
     protect,
-    requirePermission,
+    checkAccess,
+    checkAnyAccess,
     requireSystemRole,
     requireOrgAdmin
 } = require('../../middlewares/auth.middleware');
-const { checkAccess, checkAnyAccess } = require('../../middlewares/compositeAccess.middleware');
 const handleMulterErrors = require('../../middlewares/multerError.middleware');
 
 const router = express.Router();

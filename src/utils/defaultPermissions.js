@@ -23,7 +23,7 @@ const ORGANIZATION_ROLES = ['admin', 'user'];
 
 /**
  * SUPERADMIN GRANULAR DEFAULT PERMISSIONS
- * Superadmin has ALL features enabled for all modules EXCEPT delete
+ * Superadmin has ALL features enabled for all modules (including delete)
  */
 const SUPERADMIN_GRANULAR_PERMISSIONS = {
     attendance: {
@@ -43,9 +43,9 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         viewDetails: true,
         create: true,
         update: true,
-        delete: false,
+        delete: true,
         bulkUpload: true,
-        bulkDelete: false,
+        bulkDelete: true,
         exportPdf: true,
         exportExcel: true,
         viewCategories: true,
@@ -58,8 +58,8 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         create: true,
         update: true,
         uploadImage: true,
-        delete: false,
-        deleteImage: false,
+        delete: true,
+        deleteImage: true,
         transferToParty: true,
         manageCategories: true,
         import: true,
@@ -71,8 +71,8 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         viewDetails: true,
         create: true,
         convertToInvoice: true,
-        delete: false,
-        bulkDelete: false,
+        delete: true,
+        bulkDelete: true,
         exportPdf: true,
         exportDetailPdf: true
     },
@@ -81,8 +81,8 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         viewDetails: true,
         create: true,
         updateStatus: true,
-        delete: false,
-        bulkDelete: false,
+        delete: true,
+        bulkDelete: true,
         viewPartyStats: true,
         exportPdf: true,
         exportDetailPdf: true
@@ -92,7 +92,7 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         collectPayment: true,
         verifyPayment: true,
         updateChequeStatus: true,
-        delete: false
+        delete: true
     },
     beatPlan: {
         viewList: true,
@@ -106,7 +106,7 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         markVisit: true,
         optimizeRoute: true,
         calculateDistance: true,
-        delete: false
+        delete: true
     },
     tourPlan: {
         viewList: true,
@@ -115,8 +115,8 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         create: true,
         update: true,
         updateStatus: true,
-        delete: false,
-        bulkDelete: false,
+        delete: true,
+        bulkDelete: true,
         exportPdf: true,
         exportExcel: true
     },
@@ -127,7 +127,7 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         viewSessionHistory: true,
         viewCurrentLocation: true,
         historyPlayback: true,
-        deleteSession: false
+        deleteSession: true
     },
     expenses: {
         viewList: true,
@@ -135,15 +135,15 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         create: true,
         update: true,
         updateStatus: true,
-        delete: false,
-        bulkDelete: false,
+        delete: true,
+        bulkDelete: true,
         exportPdf: true,
         exportExcel: true,
         uploadReceipt: true,
         viewCategories: true,
         createCategory: true,
         updateCategory: true,
-        deleteCategory: false
+        deleteCategory: true
     },
     leaves: {
         viewList: true,
@@ -152,8 +152,8 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         create: true,
         update: true,
         updateStatus: true,
-        delete: false,
-        bulkDelete: false,
+        delete: true,
+        bulkDelete: true,
         exportPdf: true,
         exportExcel: true
     },
@@ -164,8 +164,8 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         create: true,
         update: true,
         uploadImage: true,
-        delete: false,
-        deleteImage: false,
+        delete: true,
+        deleteImage: true,
         bulkImport: true,
         manageTypes: true,
         exportPdf: true,
@@ -180,8 +180,8 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         create: true,
         update: true,
         uploadImage: true,
-        delete: false,
-        deleteImage: false,
+        delete: true,
+        deleteImage: true,
         assign: true,
         manageCategories: true,
         exportPdf: true,
@@ -207,8 +207,8 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         create: true,
         update: true,
         uploadImage: true,
-        delete: false,
-        bulkDelete: false,
+        delete: true,
+        bulkDelete: true,
         exportPdf: true,
         exportExcel: true
     },
@@ -219,8 +219,8 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         create: true,
         update: true,
         uploadImage: true,
-        delete: false,
-        bulkDelete: false,
+        delete: true,
+        bulkDelete: true,
         exportPdf: true,
         exportExcel: true
     },
@@ -237,11 +237,11 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         viewDetails: true,
         create: true,
         update: true,
-        delete: false,
+        delete: true,
         assignSupervisor: true,
         viewAttendance: true,
         uploadDocuments: true,
-        deleteDocuments: false,
+        deleteDocuments: true,
         exportPdf: true,
         exportExcel: true
     },
@@ -257,19 +257,19 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         viewDetails: true,
         create: true,
         update: true,
-        delete: false
+        delete: true
     },
     organizations: {
         view: true,
         create: true,
         update: true,
-        delete: false
+        delete: true
     },
     subscriptions: {
         view: true,
         create: true,
         update: true,
-        delete: false
+        delete: true
     }
 };
 
