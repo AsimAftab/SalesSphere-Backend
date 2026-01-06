@@ -1,5 +1,5 @@
 // src/api/prospect/prospect.route.js
-// Prospect management routes - permission-based access
+// Prospect management routes - granular feature-based access control
 
 const express = require('express');
 const multer = require('multer');
@@ -16,7 +16,8 @@ const {
     uploadProspectImage,
     deleteProspectImage
 } = require('./prospect.controller');
-const { protect, requirePermission } = require('../../middlewares/auth.middleware');
+const { protect } = require('../../middlewares/auth.middleware');
+const { checkAccess, checkAnyAccess } = require('../../middlewares/compositeAccess.middleware');
 
 const router = express.Router();
 
@@ -37,27 +38,107 @@ router.use(protect);
 // ============================================
 // VIEW OPERATIONS
 // ============================================
-router.get('/', requirePermission('prospects', 'view'), getAllProspects);
-router.get('/details', requirePermission('prospects', 'view'), getAllProspectsDetails);
-router.get('/categories', requirePermission('prospects', 'view'), getProspectCategories);
-router.get('/:id', requirePermission('prospects', 'view'), getProspectById);
+// GET / - View the list of potential leads and prospects
+router.get('/',
+    checkAccess('prospects', 'viewList'),
+    getAllProspects
+);
+
+// GET /details - View all prospects with full details
+router.get('/details',
+    checkAccess('prospects', 'viewDetails'),
+    getAllProspectsDetails
+);
+
+// GET /categories - View prospect categories (needed for create/import)
+router.get('/categories',
+    checkAnyAccess([
+        { module: 'prospects', feature: 'viewList' },
+        { module: 'prospects', feature: 'manageCategories' }
+    ]),
+    getProspectCategories
+);
+
+// GET /:id - View specific prospect details
+router.get('/:id',
+    checkAccess('prospects', 'viewDetails'),
+    getProspectById
+);
 
 // ============================================
-// ADD OPERATIONS
+// CREATE OPERATIONS
 // ============================================
-router.post('/', requirePermission('prospects', 'add'), createProspect);
-router.post('/:id/images', requirePermission('prospects', 'add'), imageUpload.single('image'), uploadProspectImage);
+// POST / - Add new prospective clients to the system
+router.post('/',
+    checkAccess('prospects', 'create'),
+    createProspect
+);
+
+// POST /:id/images - Upload profile photos for the prospect
+router.post('/:id/images',
+    checkAccess('prospects', 'uploadImage'),
+    imageUpload.single('image'),
+    uploadProspectImage
+);
 
 // ============================================
 // UPDATE OPERATIONS
 // ============================================
-router.put('/:id', requirePermission('prospects', 'update'), updateProspect);
-router.post('/:id/transfer', requirePermission('prospects', 'update'), transferToParty);
+// PUT /:id - Edit prospect contact information and lead details
+router.put('/:id',
+    checkAccess('prospects', 'update'),
+    updateProspect
+);
+
+// POST /:id/transfer - Convert prospect to a formal Party/Client
+router.post('/:id/transfer',
+    checkAccess('prospects', 'transferToParty'),
+    transferToParty
+);
 
 // ============================================
 // DELETE OPERATIONS
 // ============================================
-router.delete('/:id', requirePermission('prospects', 'delete'), deleteProspect);
-router.delete('/:id/images/:imageNumber', requirePermission('prospects', 'delete'), deleteProspectImage);
+// DELETE /:id - Remove prospect records from the system
+router.delete('/:id',
+    checkAccess('prospects', 'delete'),
+    deleteProspect
+);
+
+// DELETE /:id/images/:imageNumber - Permanently remove images from prospect profile
+router.delete('/:id/images/:imageNumber',
+    checkAccess('prospects', 'deleteImage'),
+    deleteProspectImage
+);
+
+// ============================================
+// CATEGORY MANAGEMENT
+// ============================================
+// POST /categories - Create new prospect category
+router.post('/categories',
+    checkAccess('prospects', 'manageCategories'),
+    createProspectCategory
+);
+
+// ============================================
+// IMPORT/EXPORT ROUTES (Future)
+// ============================================
+// POST /import - Import prospects via CSV
+// router.post('/import',
+//     checkAccess('prospects', 'import'),
+//     importProspects
+// );
+
+// GET /export/pdf - Export prospects list as PDF
+// router.get('/export/pdf',
+//     checkAccess('prospects', 'exportPdf'),
+//     exportProspectsPdf
+// );
+
+// GET /export/excel - Export prospect data to Excel
+// router.get('/export/excel',
+//     checkAccess('prospects', 'exportExcel'),
+//     exportProspectsExcel
+// );
 
 module.exports = router;

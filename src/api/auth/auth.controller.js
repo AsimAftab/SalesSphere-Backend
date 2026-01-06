@@ -337,8 +337,11 @@ exports.register = async (req, res) => {
       isSubscriptionActive: newOrganization.isSubscriptionActive,
     };
 
+    // Fetch organization with populated subscription plan for response
+    const orgWithPlan = await Organization.findById(newOrganization._id).populate('subscriptionPlanId');
+
     const isMobileClient = req.headers['x-client-type'] === 'mobile';
-    sendTokenResponse(newUser, 201, res, isMobileClient, { setCookie: false });
+    sendTokenResponse(newUser, 201, res, isMobileClient, { setCookie: false, orgWithPlan });
   } catch (error) {
     console.error('❌ Registration error:', error);
 

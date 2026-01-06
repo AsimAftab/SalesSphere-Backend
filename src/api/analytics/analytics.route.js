@@ -1,9 +1,10 @@
 // src/api/analytics/analytics.route.js
-// Analytics routes - permission-based access
+// Analytics routes - granular feature-based access control
 
 const express = require('express');
 const router = express.Router();
-const { protect, requirePermission } = require('../../middlewares/auth.middleware');
+const { protect } = require('../../middlewares/auth.middleware');
+const { checkAccess } = require('../../middlewares/compositeAccess.middleware');
 const {
     getMonthlyOverview,
     getSalesTrend,
@@ -14,11 +15,37 @@ const {
 
 router.use(protect);
 
-// All analytics routes require analytics.view permission
-router.get('/monthly-overview', requirePermission('analytics', 'view'), getMonthlyOverview);
-router.get('/sales-trend', requirePermission('analytics', 'view'), getSalesTrend);
-router.get('/products-by-category', requirePermission('analytics', 'view'), getProductsByCategory);
-router.get('/top-products', requirePermission('analytics', 'view'), getTopProducts);
-router.get('/top-parties', requirePermission('analytics', 'view'), getTopParties);
+// ============================================
+// ANALYTICS REPORTS
+// ============================================
+// GET /monthly-overview - View month-over-month performance summaries and KPIs
+router.get('/monthly-overview',
+    checkAccess('analytics', 'viewMonthlyOverview'),
+    getMonthlyOverview
+);
+
+// GET /sales-trend - Access detailed revenue charts and growth trends
+router.get('/sales-trend',
+    checkAccess('analytics', 'viewSalesTrend'),
+    getSalesTrend
+);
+
+// GET /products-by-category - View breakdown of products sold by specific categories
+router.get('/products-by-category',
+    checkAccess('analytics', 'viewCategorySales'),
+    getProductsByCategory
+);
+
+// GET /top-products - Analyze the highest performing products by volume and value
+router.get('/top-products',
+    checkAccess('analytics', 'viewTopProducts'),
+    getTopProducts
+);
+
+// GET /top-parties - Identify and view the top 5 customers/parties of the month
+router.get('/top-parties',
+    checkAccess('analytics', 'viewTopParties'),
+    getTopParties
+);
 
 module.exports = router;

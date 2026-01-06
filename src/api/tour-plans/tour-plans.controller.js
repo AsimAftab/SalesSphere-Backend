@@ -2,6 +2,7 @@ const TourPlan = require('./tour-plans.model');
 const mongoose = require('mongoose');
 const { z } = require('zod');
 const { DateTime } = require('luxon');
+const { isSystemRole } = require('../../utils/defaultPermissions');
 
 // --- Zod Validation Schema ---
 const tourPlanSchemaValidation = z.object({
@@ -71,8 +72,11 @@ exports.getAllTourPlans = async (req, res, next) => {
 
         const query = { organizationId: organizationId };
 
-        // Salesperson can only see their own tour plans
-        if (role === 'salesperson') {
+        // Non-system users (without viewList permission) can only see their own tour plans
+        // Note: Permission check happens at route level, this is for data filtering
+        if (!isSystemRole(role)) {
+            // Check if user has explicit viewList permission via custom role
+            // For non-admin roles without viewList, restrict to own tours
             query.createdBy = userId;
         }
 
@@ -141,8 +145,9 @@ exports.getTourPlanById = async (req, res, next) => {
             organizationId: organizationId
         };
 
-        // Salesperson can only see their own tour plans
-        if (role === 'salesperson') {
+        // Non-system users can only see their own tour plans
+        // Note: Permission check happens at route level for viewList/viewDetails
+        if (!isSystemRole(role)) {
             query.createdBy = userId;
         }
 
@@ -231,8 +236,9 @@ exports.deleteTourPlan = async (req, res, next) => {
             organizationId: organizationId
         };
 
-        // If not admin/manager, restrict to own pending plans
-        if (role === 'salesperson') {
+        // If not system role, restrict to own pending plans
+        // Note: Permission check happens at route level for delete permission
+        if (!isSystemRole(role)) {
             query.createdBy = userId;
             query.status = 'pending';
         }
