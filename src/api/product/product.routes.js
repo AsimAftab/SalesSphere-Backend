@@ -1,5 +1,5 @@
 // src/api/product/product.routes.js
-// Product management routes - permission-based access
+// Product management routes - granular feature-based access control
 
 const express = require('express');
 const multer = require('multer');
@@ -12,7 +12,8 @@ const {
     bulkDeleteProducts,
     bulkImportProducts
 } = require('./product.controller');
-const { protect, requirePermission } = require('../../middlewares/auth.middleware');
+const { protect } = require('../../middlewares/auth.middleware');
+const { checkAccess } = require('../../middlewares/compositeAccess.middleware');
 
 const router = express.Router();
 
@@ -33,24 +34,73 @@ router.use(protect);
 // ============================================
 // VIEW OPERATIONS
 // ============================================
-router.get('/', requirePermission('products', 'view'), getAllProducts);
-router.get('/:id', requirePermission('products', 'view'), getProductById);
+// GET / - View the complete product catalog
+router.get('/',
+    checkAccess('products', 'viewList'),
+    getAllProducts
+);
+
+// GET /:id - View detailed information about a specific product
+router.get('/:id',
+    checkAccess('products', 'viewDetails'),
+    getProductById
+);
 
 // ============================================
-// ADD OPERATIONS
+// CREATE OPERATIONS
 // ============================================
-router.post('/', requirePermission('products', 'add'), imageUpload.single('image'), createProduct);
-router.post('/bulk-import', requirePermission('products', 'add'), bulkImportProducts);
+// POST / - Add new products to the inventory
+router.post('/',
+    checkAccess('products', 'create'),
+    imageUpload.single('image'),
+    createProduct
+);
+
+// POST /bulk-import - Import multiple products at once via CSV/Excel
+// Note: This also auto-creates categories, so requires manageCategories access
+router.post('/bulk-import',
+    checkAccess('products', 'bulkUpload'),
+    bulkImportProducts
+);
 
 // ============================================
 // UPDATE OPERATIONS
 // ============================================
-router.put('/:id', requirePermission('products', 'update'), imageUpload.single('image'), updateProduct);
+// PUT /:id - Edit existing product details and pricing
+router.put('/:id',
+    checkAccess('products', 'update'),
+    imageUpload.single('image'),
+    updateProduct
+);
 
 // ============================================
 // DELETE OPERATIONS
 // ============================================
-router.delete('/:id', requirePermission('products', 'delete'), deleteProduct);
-router.delete('/bulk-delete', requirePermission('products', 'delete'), bulkDeleteProducts);
+// DELETE /:id - Remove products from the system
+router.delete('/:id',
+    checkAccess('products', 'delete'),
+    deleteProduct
+);
+
+// DELETE /bulk-delete - Perform mass deletion of selected products
+router.delete('/bulk-delete',
+    checkAccess('products', 'bulkDelete'),
+    bulkDeleteProducts
+);
+
+// ============================================
+// EXPORT ROUTES (Future)
+// ============================================
+// GET /export/pdf - Generate and download product list as PDF
+// router.get('/export/pdf',
+//     checkAccess('products', 'exportPdf'),
+//     exportProductsPdf
+// );
+
+// GET /export/excel - Export product data to Excel
+// router.get('/export/excel',
+//     checkAccess('products', 'exportExcel'),
+//     exportProductsExcel
+// );
 
 module.exports = router;

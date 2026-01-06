@@ -1,5 +1,5 @@
 // src/api/beat-plans/tracking/tracking.route.js
-// Beat plan tracking routes - permission-based access
+// Beat plan tracking routes - granular feature-based access control
 
 const express = require('express');
 const {
@@ -11,7 +11,8 @@ const {
     getActiveTrackingSessions,
     deleteTrackingSession,
 } = require('./tracking.controller');
-const { protect, requirePermission } = require('../../../middlewares/auth.middleware');
+const { protect } = require('../../../middlewares/auth.middleware');
+const { checkAccess } = require('../../../middlewares/compositeAccess.middleware');
 
 const router = express.Router();
 
@@ -20,16 +21,49 @@ router.use(protect);
 // ============================================
 // VIEW OPERATIONS
 // ============================================
-router.get('/active', requirePermission('liveTracking', 'view'), getActiveTrackingSessions);
-router.get('/:beatPlanId', requirePermission('liveTracking', 'view'), getTrackingSession);
-router.get('/:beatPlanId/history', requirePermission('liveTracking', 'view'), getTrackingHistory);
-router.get('/:beatPlanId/current-location', requirePermission('liveTracking', 'view'), getCurrentLocation);
-router.get('/session/:sessionId/breadcrumbs', requirePermission('liveTracking', 'view'), getBreadcrumbs);
-router.get('/session/:sessionId/summary', requirePermission('liveTracking', 'view'), getTrackingSummary);
+// GET /active - View all active tracking sessions
+router.get('/active',
+    checkAccess('liveTracking', 'viewActiveSessions'),
+    getActiveTrackingSessions
+);
+
+// GET /:beatPlanId - Get tracking session for a beat plan (view live tracking)
+router.get('/:beatPlanId',
+    checkAccess('liveTracking', 'viewLiveTracking'),
+    getTrackingSession
+);
+
+// GET /:beatPlanId/history - Get tracking history for a beat plan
+router.get('/:beatPlanId/history',
+    checkAccess('liveTracking', 'viewSessionHistory'),
+    getTrackingHistory
+);
+
+// GET /:beatPlanId/current-location - Get current location for active tracking session
+router.get('/:beatPlanId/current-location',
+    checkAccess('liveTracking', 'viewCurrentLocation'),
+    getCurrentLocation
+);
+
+// GET /session/:sessionId/breadcrumbs - Get location breadcrumb trail for tracking session
+router.get('/session/:sessionId/breadcrumbs',
+    checkAccess('liveTracking', 'viewSessionHistory'),
+    getBreadcrumbs
+);
+
+// GET /session/:sessionId/summary - Get tracking summary/analytics for a session
+router.get('/session/:sessionId/summary',
+    checkAccess('liveTracking', 'viewSessionHistory'),
+    getTrackingSummary
+);
 
 // ============================================
 // DELETE OPERATIONS
 // ============================================
-router.delete('/session/:sessionId', requirePermission('liveTracking', 'delete'), deleteTrackingSession);
+// DELETE /session/:sessionId - Delete tracking session (admin only)
+router.delete('/session/:sessionId',
+    checkAccess('liveTracking', 'deleteSession'),
+    deleteTrackingSession
+);
 
 module.exports = router;

@@ -1,5 +1,5 @@
 // src/api/beat-plans/beat-plan.route.js
-// Beat plan routes - permission-based access
+// Beat plan routes - granular feature-based access control
 
 const express = require('express');
 const {
@@ -18,7 +18,8 @@ const {
     calculateDistanceToParty,
     optimizeBeatPlanRoute
 } = require('./beat-plan.controller');
-const { protect, requirePermission } = require('../../middlewares/auth.middleware');
+const { protect } = require('../../middlewares/auth.middleware');
+const { checkAccess, checkAnyAccess } = require('../../middlewares/compositeAccess.middleware');
 
 const router = express.Router();
 
@@ -27,31 +28,104 @@ router.use(protect);
 // ============================================
 // VIEW OPERATIONS
 // ============================================
-router.get('/salesperson', requirePermission('beatPlan', 'view'), getSalespersons);
-router.get('/available-directories', requirePermission('beatPlan', 'view'), getAvailableDirectories);
-router.get('/data', requirePermission('beatPlan', 'view'), getBeatPlanData);
-router.get('/my-beatplans', requirePermission('beatPlan', 'view'), getMyBeatPlans);
-router.get('/', requirePermission('beatPlan', 'view'), getAllBeatPlans);
-router.get('/:id/details', requirePermission('beatPlan', 'view'), getBeatPlanDetails);
-router.get('/:id', requirePermission('beatPlan', 'view'), getBeatPlanById);
+// GET /salesperson - View list of salespersons for beat plan assignment
+router.get('/salesperson',
+    checkAccess('beatPlan', 'viewSalespersons'),
+    getSalespersons
+);
+
+// GET /available-directories - View available beat plan directories/categories
+router.get('/available-directories',
+    checkAccess('beatPlan', 'viewDirectories'),
+    getAvailableDirectories
+);
+
+// GET /data - Get beat plan data (needs list or details access)
+router.get('/data',
+    checkAnyAccess([
+        { module: 'beatPlan', feature: 'viewList' },
+        { module: 'beatPlan', feature: 'viewOwn' },
+        { module: 'beatPlan', feature: 'viewDetails' }
+    ]),
+    getBeatPlanData
+);
+
+// GET /my-beatplans - View own assigned beat plans
+router.get('/my-beatplans',
+    checkAccess('beatPlan', 'viewOwn'),
+    getMyBeatPlans
+);
+
+// GET / - View all beat plans and routes
+router.get('/',
+    checkAccess('beatPlan', 'viewList'),
+    getAllBeatPlans
+);
+
+// GET /:id/details - View detailed beat plan information including parties and visits
+router.get('/:id/details',
+    checkAccess('beatPlan', 'viewDetails'),
+    getBeatPlanDetails
+);
+
+// GET /:id - View specific beat plan (details access)
+router.get('/:id',
+    checkAccess('beatPlan', 'viewDetails'),
+    getBeatPlanById
+);
 
 // ============================================
-// ADD OPERATIONS
+// CREATE OPERATIONS
 // ============================================
-router.post('/', requirePermission('beatPlan', 'add'), createBeatPlan);
-router.post('/calculate-distance', requirePermission('beatPlan', 'view'), calculateDistanceToParty);
-router.post('/:id/optimize-route', requirePermission('beatPlan', 'update'), optimizeBeatPlanRoute);
-router.post('/:id/start', requirePermission('beatPlan', 'update'), startBeatPlan);
-router.post('/:id/visit', requirePermission('beatPlan', 'update'), markPartyVisited);
+// POST / - Create new beat plans and assign to users
+router.post('/',
+    checkAccess('beatPlan', 'create'),
+    createBeatPlan
+);
+
+// POST /calculate-distance - Calculate distance to parties from current location
+router.post('/calculate-distance',
+    checkAccess('beatPlan', 'calculateDistance'),
+    calculateDistanceToParty
+);
+
+// ============================================
+// EXECUTION OPERATIONS
+// ============================================
+// POST /:id/start - Start/resume beat plan execution
+router.post('/:id/start',
+    checkAccess('beatPlan', 'startExecution'),
+    startBeatPlan
+);
+
+// POST /:id/visit - Mark parties as visited during beat execution
+router.post('/:id/visit',
+    checkAccess('beatPlan', 'markVisit'),
+    markPartyVisited
+);
 
 // ============================================
 // UPDATE OPERATIONS
 // ============================================
-router.put('/:id', requirePermission('beatPlan', 'update'), updateBeatPlan);
+// PUT /:id - Edit beat plan details (parties, dates, etc.)
+router.put('/:id',
+    checkAccess('beatPlan', 'update'),
+    updateBeatPlan
+);
+
+// POST /:id/optimize-route - Optimize beat plan route for efficiency
+router.post('/:id/optimize-route',
+    checkAccess('beatPlan', 'optimizeRoute'),
+    optimizeBeatPlanRoute
+);
 
 // ============================================
 // DELETE OPERATIONS
 // ============================================
-router.delete('/:id', requirePermission('beatPlan', 'delete'), deleteBeatPlan);
+// DELETE /:id - Delete beat plans
+router.delete('/:id',
+    checkAccess('beatPlan', 'delete'),
+    deleteBeatPlan
+);
 
 module.exports = router;

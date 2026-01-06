@@ -169,10 +169,11 @@ exports.getTeamPerformance = async (req, res) => {
 // =============================
 exports.getAttendanceSummary = async (req, res) => {
   try {
-    const { organizationId } = req.user;
+    const { organizationId, role } = req.user;
     if (!organizationId) return res.status(400).json({ success: false, message: 'organizationId missing' });
 
     const orgObjectId = toObjectIdIfNeeded(organizationId);
+    const { isSystemRole } = require('../../utils/defaultPermissions');
 
     const Attendance = require('../attendance/attendance.model');
     const Organization = require('../organizations/organization.model');
@@ -184,12 +185,19 @@ exports.getAttendanceSummary = async (req, res) => {
     // Get UTC range for today in org timezone
     const { startUTC: today, endUTC: tomorrow } = getUTCRangeForDateInTimeZone(new Date(), timezone);
 
-    // Get total team strength (active employees in organization, excluding admin/superadmin/developer)
-    const teamStrength = await User.countDocuments({
+    // Get total team strength (active employees in organization)
+    // System roles see everyone, non-admins see regular employees only
+    const teamStrengthQuery = {
       organizationId: orgObjectId,
-      isActive: true,
-      role: { $nin: ['superadmin', 'developer', 'admin'] }
-    });
+      isActive: true
+    };
+
+    // Only exclude system roles for non-system users
+    if (!isSystemRole(role)) {
+      teamStrengthQuery.role = { $nin: ['superadmin', 'developer', 'admin'] };
+    }
+
+    const teamStrength = await User.countDocuments(teamStrengthQuery);
 
     // Get today's attendance records
     const attendanceRecords = await Attendance.aggregate([

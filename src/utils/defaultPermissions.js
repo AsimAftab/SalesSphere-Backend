@@ -22,6 +22,510 @@ const ORGANIZATION_ROLES = ['admin', 'user'];
 // ============================================
 
 /**
+ * SUPERADMIN GRANULAR DEFAULT PERMISSIONS
+ * Superadmin has ALL features enabled for all modules EXCEPT delete
+ */
+const SUPERADMIN_GRANULAR_PERMISSIONS = {
+    attendance: {
+        viewMyAttendance: true,
+        viewTeamAttendance: true,
+        exportPdf: true,
+        exportExcel: true,
+        webCheckIn: true,
+        mobileCheckIn: true,
+        remoteCheckIn: true,
+        markHoliday: true,
+        updateAttendance: true,
+        biometricSync: true
+    },
+    products: {
+        viewList: true,
+        viewDetails: true,
+        create: true,
+        update: true,
+        delete: false,
+        bulkUpload: true,
+        bulkDelete: false,
+        exportPdf: true,
+        exportExcel: true,
+        viewCategories: true,
+        manageCategories: true
+    },
+    prospects: {
+        viewList: true,
+        viewDetails: true,
+        viewInterests: true,
+        create: true,
+        update: true,
+        uploadImage: true,
+        delete: false,
+        deleteImage: false,
+        transferToParty: true,
+        manageCategories: true,
+        import: true,
+        exportPdf: true,
+        exportExcel: true
+    },
+    estimates: {
+        viewList: true,
+        viewDetails: true,
+        create: true,
+        convertToInvoice: true,
+        delete: false,
+        bulkDelete: false,
+        exportPdf: true,
+        exportDetailPdf: true
+    },
+    invoices: {
+        viewList: true,
+        viewDetails: true,
+        create: true,
+        updateStatus: true,
+        delete: false,
+        bulkDelete: false,
+        viewPartyStats: true,
+        exportPdf: true,
+        exportDetailPdf: true
+    },
+    collections: {
+        view: true,
+        collectPayment: true,
+        verifyPayment: true,
+        updateChequeStatus: true,
+        delete: false
+    },
+    beatPlan: {
+        viewList: true,
+        viewOwn: true,
+        viewDetails: true,
+        viewSalespersons: true,
+        viewDirectories: true,
+        create: true,
+        update: true,
+        startExecution: true,
+        markVisit: true,
+        optimizeRoute: true,
+        calculateDistance: true,
+        delete: false
+    },
+    tourPlan: {
+        viewList: true,
+        viewOwn: true,
+        viewDetails: true,
+        create: true,
+        update: true,
+        updateStatus: true,
+        delete: false,
+        bulkDelete: false,
+        exportPdf: true,
+        exportExcel: true
+    },
+    liveTracking: {
+        viewLocations: true,
+        viewLiveTracking: true,
+        viewActiveSessions: true,
+        viewSessionHistory: true,
+        viewCurrentLocation: true,
+        historyPlayback: true,
+        deleteSession: false
+    },
+    expenses: {
+        viewList: true,
+        viewDetails: true,
+        create: true,
+        update: true,
+        updateStatus: true,
+        delete: false,
+        bulkDelete: false,
+        exportPdf: true,
+        exportExcel: true,
+        uploadReceipt: true,
+        viewCategories: true,
+        createCategory: true,
+        updateCategory: true,
+        deleteCategory: false
+    },
+    leaves: {
+        viewList: true,
+        viewOwn: true,
+        viewDetails: true,
+        create: true,
+        update: true,
+        updateStatus: true,
+        delete: false,
+        bulkDelete: false,
+        exportPdf: true,
+        exportExcel: true
+    },
+    parties: {
+        viewList: true,
+        viewDetails: true,
+        viewTypes: true,
+        create: true,
+        update: true,
+        uploadImage: true,
+        delete: false,
+        deleteImage: false,
+        bulkImport: true,
+        manageTypes: true,
+        exportPdf: true,
+        exportExcel: true,
+        viewOrders: true
+    },
+    sites: {
+        viewList: true,
+        viewDetails: true,
+        viewInterests: true,
+        viewSubOrganizations: true,
+        create: true,
+        update: true,
+        uploadImage: true,
+        delete: false,
+        deleteImage: false,
+        assign: true,
+        manageCategories: true,
+        exportPdf: true,
+        exportExcel: true
+    },
+    dashboard: {
+        viewStats: true,
+        viewTeamPerformance: true,
+        viewAttendanceSummary: true,
+        viewSalesTrend: true
+    },
+    analytics: {
+        viewMonthlyOverview: true,
+        viewSalesTrend: true,
+        viewCategorySales: true,
+        viewTopProducts: true,
+        viewTopParties: true
+    },
+    notes: {
+        viewList: true,
+        viewOwn: true,
+        viewDetails: true,
+        create: true,
+        update: true,
+        uploadImage: true,
+        delete: false,
+        bulkDelete: false,
+        exportPdf: true,
+        exportExcel: true
+    },
+    miscellaneousWork: {
+        viewList: true,
+        viewOwn: true,
+        viewDetails: true,
+        create: true,
+        update: true,
+        uploadImage: true,
+        delete: false,
+        bulkDelete: false,
+        exportPdf: true,
+        exportExcel: true
+    },
+    settings: {
+        view: true,
+        manage: true,
+        manageUsers: true,
+        manageRoles: true,
+        manageSubscription: true
+    },
+    employees: {
+        viewList: true,
+        viewOwn: true,
+        viewDetails: true,
+        create: true,
+        update: true,
+        delete: false,
+        assignSupervisor: true,
+        viewAttendance: true,
+        uploadDocuments: true,
+        deleteDocuments: false,
+        exportPdf: true,
+        exportExcel: true
+    },
+    odometer: {
+        view: true,
+        create: true,
+        update: true,
+        approve: true
+    },
+    // System modules (superadmin only)
+    systemUsers: {
+        viewList: true,
+        viewDetails: true,
+        create: true,
+        update: true,
+        delete: false
+    },
+    organizations: {
+        view: true,
+        create: true,
+        update: true,
+        delete: false
+    },
+    subscriptions: {
+        view: true,
+        create: true,
+        update: true,
+        delete: false
+    }
+};
+
+/**
+ * DEVELOPER GRANULAR DEFAULT PERMISSIONS
+ * Developer has ALL features enabled for all modules EXCEPT delete
+ */
+const DEVELOPER_GRANULAR_PERMISSIONS = {
+    attendance: {
+        viewMyAttendance: true,
+        viewTeamAttendance: true,
+        exportPdf: true,
+        exportExcel: true,
+        webCheckIn: true,
+        mobileCheckIn: true,
+        remoteCheckIn: true,
+        markHoliday: true,
+        updateAttendance: true,
+        biometricSync: true
+    },
+    products: {
+        viewList: true,
+        viewDetails: true,
+        create: true,
+        update: true,
+        delete: false,
+        bulkUpload: true,
+        bulkDelete: false,
+        exportPdf: true,
+        exportExcel: true,
+        viewCategories: true,
+        manageCategories: true
+    },
+    prospects: {
+        viewList: true,
+        viewDetails: true,
+        viewInterests: true,
+        create: true,
+        update: true,
+        uploadImage: true,
+        delete: false,
+        deleteImage: false,
+        transferToParty: true,
+        manageCategories: true,
+        import: true,
+        exportPdf: true,
+        exportExcel: true
+    },
+    estimates: {
+        viewList: true,
+        viewDetails: true,
+        create: true,
+        convertToInvoice: true,
+        delete: false,
+        bulkDelete: false,
+        exportPdf: true,
+        exportDetailPdf: true
+    },
+    invoices: {
+        viewList: true,
+        viewDetails: true,
+        create: true,
+        updateStatus: true,
+        delete: false,
+        bulkDelete: false,
+        viewPartyStats: true,
+        exportPdf: true,
+        exportDetailPdf: true
+    },
+    collections: {
+        view: true,
+        collectPayment: true,
+        verifyPayment: true,
+        updateChequeStatus: true,
+        delete: false
+    },
+    beatPlan: {
+        viewList: true,
+        viewOwn: true,
+        viewDetails: true,
+        viewSalespersons: true,
+        viewDirectories: true,
+        create: true,
+        update: true,
+        startExecution: true,
+        markVisit: true,
+        optimizeRoute: true,
+        calculateDistance: true,
+        delete: false
+    },
+    tourPlan: {
+        viewList: true,
+        viewOwn: true,
+        viewDetails: true,
+        create: true,
+        update: true,
+        updateStatus: true,
+        delete: false,
+        bulkDelete: false,
+        exportPdf: true,
+        exportExcel: true
+    },
+    liveTracking: {
+        viewLocations: true,
+        viewLiveTracking: true,
+        viewActiveSessions: true,
+        viewSessionHistory: true,
+        viewCurrentLocation: true,
+        historyPlayback: true,
+        deleteSession: false
+    },
+    expenses: {
+        viewList: true,
+        viewDetails: true,
+        create: true,
+        update: true,
+        updateStatus: true,
+        delete: false,
+        bulkDelete: false,
+        exportPdf: true,
+        exportExcel: true,
+        uploadReceipt: true,
+        viewCategories: true,
+        createCategory: true,
+        updateCategory: true,
+        deleteCategory: false
+    },
+    leaves: {
+        viewList: true,
+        viewOwn: true,
+        viewDetails: true,
+        create: true,
+        update: true,
+        updateStatus: true,
+        delete: false,
+        bulkDelete: false,
+        exportPdf: true,
+        exportExcel: true
+    },
+    parties: {
+        viewList: true,
+        viewDetails: true,
+        viewTypes: true,
+        create: true,
+        update: true,
+        uploadImage: true,
+        delete: false,
+        deleteImage: false,
+        bulkImport: true,
+        manageTypes: true,
+        exportPdf: true,
+        exportExcel: true,
+        viewOrders: true
+    },
+    sites: {
+        viewList: true,
+        viewDetails: true,
+        viewInterests: true,
+        viewSubOrganizations: true,
+        create: true,
+        update: true,
+        uploadImage: true,
+        delete: false,
+        deleteImage: false,
+        assign: true,
+        manageCategories: true,
+        exportPdf: true,
+        exportExcel: true
+    },
+    dashboard: {
+        viewStats: true,
+        viewTeamPerformance: true,
+        viewAttendanceSummary: true,
+        viewSalesTrend: true
+    },
+    analytics: {
+        viewMonthlyOverview: true,
+        viewSalesTrend: true,
+        viewCategorySales: true,
+        viewTopProducts: true,
+        viewTopParties: true
+    },
+    notes: {
+        viewList: true,
+        viewOwn: true,
+        viewDetails: true,
+        create: true,
+        update: true,
+        uploadImage: true,
+        delete: false,
+        bulkDelete: false,
+        exportPdf: true,
+        exportExcel: true
+    },
+    miscellaneousWork: {
+        viewList: true,
+        viewOwn: true,
+        viewDetails: true,
+        create: true,
+        update: true,
+        uploadImage: true,
+        delete: false,
+        bulkDelete: false,
+        exportPdf: true,
+        exportExcel: true
+    },
+    settings: {
+        view: true,
+        manage: true,
+        manageUsers: true,
+        manageRoles: true,
+        manageSubscription: true
+    },
+    employees: {
+        viewList: true,
+        viewOwn: true,
+        viewDetails: true,
+        create: true,
+        update: true,
+        delete: false,
+        assignSupervisor: true,
+        viewAttendance: true,
+        uploadDocuments: true,
+        deleteDocuments: false,
+        exportPdf: true,
+        exportExcel: true
+    },
+    odometer: {
+        view: true,
+        create: true,
+        update: true,
+        approve: true
+    },
+    // System modules (superadmin/developer)
+    systemUsers: {
+        viewList: true,
+        viewDetails: true,
+        create: true,
+        update: true,
+        delete: false
+    },
+    organizations: {
+        view: true,
+        create: false,
+        update: false,
+        delete: false
+    },
+    subscriptions: {
+        view: true,
+        create: false,
+        update: false,
+        delete: false
+    }
+};
+
+/**
  * ADMIN GRANULAR DEFAULT PERMISSIONS
  * Admins have ALL features enabled for all modules
  */
@@ -29,39 +533,65 @@ const ADMIN_GRANULAR_PERMISSIONS = {
     attendance: {
         viewMyAttendance: true,
         viewTeamAttendance: true,
+        exportPdf: true,
+        exportExcel: true,
         webCheckIn: true,
         mobileCheckIn: true,
         remoteCheckIn: true,
         markHoliday: true,
-        markAbsentees: true,
+        updateAttendance: true,
         biometricSync: true
     },
     products: {
-        view: true,
+        viewList: true,
+        viewDetails: true,
         create: true,
         update: true,
         delete: true,
-        bulkImport: true,
+        bulkUpload: true,
         bulkDelete: true,
-        exportPdf: true
+        exportPdf: true,
+        exportExcel: true,
+        viewCategories: true,
+        manageCategories: true
     },
     prospects: {
-        view: true,
+        viewList: true,
+        viewDetails: true,
+        viewInterests: true,
         create: true,
         update: true,
+        uploadImage: true,
         delete: true,
-        transfer: true,
+        deleteImage: true,
+        transferToParty: true,
         manageCategories: true,
-        import: true
+        import: true,
+        exportPdf: true,
+        exportExcel: true
     },
-    orderLists: {
-        view: true,
-        createEstimate: true,
-        createInvoice: true,
+    // Estimates (quotes) module
+    estimates: {
+        viewList: true,
+        viewDetails: true,
+        create: true,
         convertToInvoice: true,
-        editStatus: true,
         delete: true,
-        bulkDelete: true
+        bulkDelete: true,
+        exportPdf: true,
+        exportDetailPdf: true
+    },
+    // Invoices (orders) module
+    invoices: {
+        viewList: true,
+        viewDetails: true,
+        create: true,
+        updateStatus: true,
+        delete: true,
+        bulkDelete: true,
+        viewPartyStats: true,
+        exportPdf: true,
+        exportDetailPdf: true
     },
     collections: {
         view: true,
@@ -71,23 +601,39 @@ const ADMIN_GRANULAR_PERMISSIONS = {
         delete: true
     },
     beatPlan: {
-        view: true,
+        viewList: true,
+        viewOwn: true,
+        viewDetails: true,
+        viewSalespersons: true,
+        viewDirectories: true,
         create: true,
-        assign: true,
-        edit: true,
-        delete: true,
-        adhocVisits: true
-    },
-    tourPlan: {
-        view: true,
-        create: true,
-        approve: true,
-        edit: true,
+        update: true,
+        startExecution: true,
+        markVisit: true,
+        optimizeRoute: true,
+        calculateDistance: true,
         delete: true
     },
+    tourPlan: {
+        viewList: true,
+        viewOwn: true,
+        viewDetails: true,
+        create: true,
+        update: true,
+        updateStatus: true,
+        delete: true,
+        bulkDelete: true,
+        exportPdf: true,
+        exportExcel: true
+    },
     liveTracking: {
-        view: true,
-        historyPlayback: true
+        viewLocations: true,
+        viewLiveTracking: true,
+        viewActiveSessions: true,
+        viewSessionHistory: true,
+        viewCurrentLocation: true,
+        historyPlayback: true,
+        deleteSession: true
     },
     expenses: {
         viewList: true,
@@ -107,54 +653,83 @@ const ADMIN_GRANULAR_PERMISSIONS = {
         deleteCategory: true
     },
     leaves: {
-        view: true,
+        viewList: true,
         viewOwn: true,
-        viewTeam: true,
-        apply: true,
-        approve: true
+        viewDetails: true,
+        create: true,
+        update: true,
+        updateStatus: true,
+        delete: true,
+        bulkDelete: true,
+        exportPdf: true,
+        exportExcel: true
     },
     parties: {
-        view: true,
+        viewList: true,
+        viewDetails: true,
+        viewTypes: true,
         create: true,
         update: true,
+        uploadImage: true,
         delete: true,
-        import: true,
-        exportPdf: true
+        deleteImage: true,
+        bulkImport: true,
+        manageTypes: true,
+        exportPdf: true,
+        exportExcel: true,
+        viewOrders: true
     },
     sites: {
-        view: true,
+        viewList: true,
+        viewDetails: true,
+        viewInterests: true,
+        viewSubOrganizations: true,
         create: true,
         update: true,
+        uploadImage: true,
         delete: true,
-        assign: true
+        deleteImage: true,
+        assign: true,
+        manageCategories: true,
+        exportPdf: true,
+        exportExcel: true
     },
     dashboard: {
-        view: true,
-        viewOwnStats: true,
-        viewTeamStats: true,
-        viewOrgStats: true
+        viewStats: true,
+        viewTeamPerformance: true,
+        viewAttendanceSummary: true,
+        viewSalesTrend: true
     },
     analytics: {
-        view: true,
-        salesReports: true,
-        performanceReports: true,
-        attendanceReports: true,
-        customReports: true,
-        exportReports: true
+        viewMonthlyOverview: true,
+        viewSalesTrend: true,
+        viewCategorySales: true,
+        viewTopProducts: true,
+        viewTopParties: true
     },
     notes: {
-        view: true,
+        viewList: true,
+        viewOwn: true,
+        viewDetails: true,
         create: true,
         update: true,
+        uploadImage: true,
         delete: true,
-        share: true
+        bulkDelete: true,
+        exportPdf: true,
+        exportExcel: true
     },
     miscellaneousWork: {
-        view: true,
+        viewList: true,
+        viewOwn: true,
+        viewDetails: true,
         create: true,
         update: true,
+        uploadImage: true,
         delete: true,
-        approve: true
+        bulkDelete: true,
+        exportPdf: true,
+        exportExcel: true
     },
     settings: {
         view: true,
@@ -164,12 +739,18 @@ const ADMIN_GRANULAR_PERMISSIONS = {
         manageSubscription: true
     },
     employees: {
-        view: true,
+        viewList: true,
         viewOwn: true,
+        viewDetails: true,
         create: true,
         update: true,
         delete: true,
-        assignSupervisor: true
+        assignSupervisor: true,
+        viewAttendance: true,
+        uploadDocuments: true,
+        deleteDocuments: true,
+        exportPdf: true,
+        exportExcel: true
     },
     odometer: {
         view: true,
@@ -187,39 +768,65 @@ const USER_GRANULAR_PERMISSIONS = {
     attendance: {
         viewMyAttendance: true,
         viewTeamAttendance: false,
+        exportPdf: false,
+        exportExcel: false,
         webCheckIn: true,
         mobileCheckIn: true,
         remoteCheckIn: false,
         markHoliday: false,
-        markAbsentees: false,
+        updateAttendance: false,
         biometricSync: false
     },
     products: {
-        view: true,
+        viewList: true,
+        viewDetails: true,
         create: false,
         update: false,
         delete: false,
-        bulkImport: false,
+        bulkUpload: false,
         bulkDelete: false,
-        exportPdf: false
+        exportPdf: false,
+        exportExcel: false,
+        viewCategories: true,
+        manageCategories: false
     },
     prospects: {
-        view: true,
+        viewList: true,
+        viewDetails: true,
+        viewInterests: true,
         create: true,
         update: true,
+        uploadImage: true,
         delete: false,
-        transfer: false,
+        deleteImage: false,
+        transferToParty: false,
         manageCategories: false,
-        import: false
+        import: false,
+        exportPdf: false,
+        exportExcel: false
     },
-    orderLists: {
-        view: true,
-        createEstimate: true,
-        createInvoice: true,
+    // Estimates (quotes) module
+    estimates: {
+        viewList: true,
+        viewDetails: true,
+        create: true,
         convertToInvoice: false,
-        editStatus: false,
         delete: false,
-        bulkDelete: false
+        bulkDelete: false,
+        exportPdf: false,
+        exportDetailPdf: false
+    },
+    // Invoices (orders) module
+    invoices: {
+        viewList: true,
+        viewDetails: true,
+        create: true,
+        updateStatus: false,
+        delete: false,
+        bulkDelete: false,
+        viewPartyStats: false,
+        exportPdf: false,
+        exportDetailPdf: false
     },
     collections: {
         view: true,
@@ -229,23 +836,39 @@ const USER_GRANULAR_PERMISSIONS = {
         delete: false
     },
     beatPlan: {
-        view: true,
+        viewList: false,
+        viewOwn: true,
+        viewDetails: true,
+        viewSalespersons: false,
+        viewDirectories: true,
         create: false,
-        assign: false,
-        edit: false,
-        delete: false,
-        adhocVisits: false
-    },
-    tourPlan: {
-        view: true,
-        create: true,
-        approve: false,
-        edit: false,
+        update: false,
+        startExecution: true,
+        markVisit: true,
+        optimizeRoute: false,
+        calculateDistance: true,
         delete: false
     },
+    tourPlan: {
+        viewList: false,
+        viewOwn: true,
+        viewDetails: true,
+        create: true,
+        update: true,
+        updateStatus: false,
+        delete: true,
+        bulkDelete: false,
+        exportPdf: false,
+        exportExcel: false
+    },
     liveTracking: {
-        view: false,
-        historyPlayback: false
+        viewLocations: true,
+        viewLiveTracking: false,
+        viewActiveSessions: false,
+        viewSessionHistory: false,
+        viewCurrentLocation: false,
+        historyPlayback: false,
+        deleteSession: false
     },
     expenses: {
         viewList: true,
@@ -265,54 +888,83 @@ const USER_GRANULAR_PERMISSIONS = {
         deleteCategory: false    // Cannot delete categories
     },
     leaves: {
-        view: true,
+        viewList: false,
         viewOwn: true,
-        viewTeam: false,
-        apply: true,
-        approve: false
-    },
-    parties: {
-        view: true,
-        create: false,
-        update: false,
-        delete: false,
-        import: false,
-        exportPdf: false
-    },
-    sites: {
-        view: true,
-        create: false,
-        update: false,
-        delete: false,
-        assign: false
-    },
-    dashboard: {
-        view: true,
-        viewOwnStats: true,
-        viewTeamStats: false,
-        viewOrgStats: false
-    },
-    analytics: {
-        view: false,
-        salesReports: false,
-        performanceReports: false,
-        attendanceReports: false,
-        customReports: false,
-        exportReports: false
-    },
-    notes: {
-        view: true,
+        viewDetails: true,
         create: true,
         update: false,
+        updateStatus: false,
         delete: false,
-        share: false
+        bulkDelete: false,
+        exportPdf: false,
+        exportExcel: false
     },
-    miscellaneousWork: {
-        view: true,
+    parties: {
+        viewList: true,
+        viewDetails: true,
+        viewTypes: true,
         create: false,
         update: false,
+        uploadImage: false,
         delete: false,
-        approve: false
+        deleteImage: false,
+        bulkImport: false,
+        manageTypes: false,
+        exportPdf: false,
+        exportExcel: false,
+        viewOrders: true
+    },
+    sites: {
+        viewList: true,
+        viewDetails: true,
+        viewInterests: true,
+        viewSubOrganizations: true,
+        create: false,
+        update: false,
+        uploadImage: false,
+        delete: false,
+        deleteImage: false,
+        assign: false,
+        manageCategories: false,
+        exportPdf: false,
+        exportExcel: false
+    },
+    dashboard: {
+        viewStats: true,
+        viewTeamPerformance: false,
+        viewAttendanceSummary: false,
+        viewSalesTrend: false
+    },
+    analytics: {
+        viewMonthlyOverview: false,
+        viewSalesTrend: false,
+        viewCategorySales: false,
+        viewTopProducts: false,
+        viewTopParties: false
+    },
+    notes: {
+        viewList: false,
+        viewOwn: true,
+        viewDetails: true,
+        create: true,
+        update: true,
+        uploadImage: true,
+        delete: true,
+        bulkDelete: false,
+        exportPdf: false,
+        exportExcel: false
+    },
+    miscellaneousWork: {
+        viewList: false,
+        viewOwn: true,
+        viewDetails: true,
+        create: true,
+        update: true,
+        uploadImage: true,
+        delete: false,
+        bulkDelete: false,
+        exportPdf: false,
+        exportExcel: false
     },
     settings: {
         view: false,
@@ -322,12 +974,18 @@ const USER_GRANULAR_PERMISSIONS = {
         manageSubscription: false
     },
     employees: {
-        view: false,
+        viewList: false,
         viewOwn: true,
+        viewDetails: false,
         create: false,
         update: false,
         delete: false,
-        assignSupervisor: false
+        assignSupervisor: false,
+        viewAttendance: false,
+        uploadDocuments: false,
+        deleteDocuments: false,
+        exportPdf: false,
+        exportExcel: false
     },
     odometer: {
         view: true,

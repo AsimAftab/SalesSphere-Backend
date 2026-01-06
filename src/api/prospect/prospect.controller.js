@@ -590,3 +590,58 @@ exports.getProspectCategories = async (req, res, next) => {
     }
 };
 
+// @desc    Create a new Prospect Category
+// @route   POST /api/v1/prospects/categories
+// @access  Private (Admin, Manager)
+exports.createProspectCategory = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+
+        // Validate request body
+        const validatedData = categorySchemaValidation.parse(req.body);
+
+        // Check if category already exists
+        const existingCategory = await ProspectCategory.findOne({
+            name: { $regex: new RegExp(`^${validatedData.name}$`, 'i') },
+            organizationId: organizationId
+        });
+
+        if (existingCategory) {
+            return res.status(400).json({
+                success: false,
+                message: 'Category with this name already exists'
+            });
+        }
+
+        // Create new category
+        const newCategory = await ProspectCategory.create({
+            name: validatedData.name,
+            brands: validatedData.brands || [],
+            organizationId: organizationId
+        });
+
+        res.status(201).json({
+            success: true,
+            message: 'Prospect category created successfully',
+            data: newCategory
+        });
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({
+                success: false,
+                message: 'Validation failed',
+                errors: error.flatten().fieldErrors
+            });
+        }
+        // Handle duplicate key error
+        if (error.code === 11000) {
+            return res.status(400).json({
+                success: false,
+                message: 'Category with this name already exists'
+            });
+        }
+        next(error);
+    }
+};
+
