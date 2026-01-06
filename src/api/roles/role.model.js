@@ -1,51 +1,45 @@
 // src/api/roles/role.model.js
 // Dynamic Role model for organization-level custom roles
-// Granular feature-based permissions only
+// Uses flexible Map schema for granular feature-based permissions
 
 const mongoose = require('mongoose');
-const { ALL_MODULES } = require('../../utils/defaultPermissions');
 const { FEATURE_REGISTRY } = require('../../config/featureRegistry');
 
 /**
- * Create a granular permission schema for a specific module
- * Each module has its own set of feature keys defined in FEATURE_REGISTRY
- */
-function createGranularPermissionSchema(moduleName) {
-    const features = FEATURE_REGISTRY[moduleName] || {};
-    const schemaDef = {};
-
-    // Create a boolean field for each feature key
-    for (const featureKey of Object.keys(features)) {
-        schemaDef[featureKey] = { type: Boolean, default: false };
-    }
-
-    return new mongoose.Schema(schemaDef, { _id: false });
-}
-
-// Pre-build schemas for each module
-const GRANULAR_SCHEMAS = {};
-for (const moduleName of Object.keys(FEATURE_REGISTRY)) {
-    GRANULAR_SCHEMAS[moduleName] = createGranularPermissionSchema(moduleName);
-}
-
-/**
- * Helper: Create empty permissions for all modules
+ * Helper: Create empty permissions object for all modules
+ * Used when creating a new role
  */
 function createEmptyPermissions() {
-    const permissions = {};
+    const permissions = new Map();
     for (const moduleName of Object.keys(FEATURE_REGISTRY)) {
-        permissions[moduleName] = {};
+        const moduleFeatures = new Map();
         const features = FEATURE_REGISTRY[moduleName] || {};
         for (const featureKey of Object.keys(features)) {
-            permissions[moduleName][featureKey] = false;
+            moduleFeatures.set(featureKey, false);
         }
+        permissions.set(moduleName, moduleFeatures);
     }
     return permissions;
 }
 
 /**
  * Role Schema - Dynamic roles created by organization admins
- * Permissions use granular feature keys from FEATURE_REGISTRY
+ * 
+ * Permissions use a flexible Map structure:
+ * - Outer Map: moduleName -> modulePermissions
+ * - Inner Map: featureKey -> boolean
+ * 
+ * This allows adding new modules/features to FEATURE_REGISTRY
+ * without requiring schema migrations.
+ * 
+ * Example data in MongoDB:
+ * {
+ *   "name": "Sales Manager",
+ *   "permissions": {
+ *     "attendance": { "webCheckIn": true, "markHoliday": true },
+ *     "products": { "create": true, "delete": false }
+ *   }
+ * }
  */
 const roleSchema = new mongoose.Schema({
     name: {
@@ -64,65 +58,15 @@ const roleSchema = new mongoose.Schema({
         ref: 'Organization',
         required: [true, 'Organization ID is required']
     },
-    // Granular permissions using feature keys from FEATURE_REGISTRY
-    // Each module has its own set of feature-specific boolean flags
+    // Flexible Map-based permissions
+    // Map<moduleName, Map<featureKey, boolean>>
     permissions: {
-        // Attendance Module
-        attendance: GRANULAR_SCHEMAS.attendance,
-
-        // Products Module
-        products: GRANULAR_SCHEMAS.products,
-
-        // Prospects Module
-        prospects: GRANULAR_SCHEMAS.prospects,
-
-        // Order Lists / Invoices Module
-        orderLists: GRANULAR_SCHEMAS.orderLists,
-
-        // Collections Module
-        collections: GRANULAR_SCHEMAS.collections,
-
-        // Beat Plans Module
-        beatPlan: GRANULAR_SCHEMAS.beatPlan,
-
-        // Tour Plans Module
-        tourPlan: GRANULAR_SCHEMAS.tourPlan,
-
-        // Live Tracking Module
-        liveTracking: GRANULAR_SCHEMAS.liveTracking,
-
-        // Expenses Module
-        expenses: GRANULAR_SCHEMAS.expenses,
-
-        // Leaves Module
-        leaves: GRANULAR_SCHEMAS.leaves,
-
-        // Parties Module
-        parties: GRANULAR_SCHEMAS.parties,
-
-        // Sites Module
-        sites: GRANULAR_SCHEMAS.sites,
-
-        // Dashboard Module
-        dashboard: GRANULAR_SCHEMAS.dashboard,
-
-        // Analytics Module
-        analytics: GRANULAR_SCHEMAS.analytics,
-
-        // Notes Module
-        notes: GRANULAR_SCHEMAS.notes,
-
-        // Miscellaneous Work Module
-        miscellaneousWork: GRANULAR_SCHEMAS.miscellaneousWork,
-
-        // Settings Module
-        settings: GRANULAR_SCHEMAS.settings,
-
-        // Employees Module
-        employees: GRANULAR_SCHEMAS.employees,
-
-        // Odometer Module
-        odometer: GRANULAR_SCHEMAS.odometer
+        type: Map,
+        of: {
+            type: Map,
+            of: Boolean
+        },
+        default: () => new Map()
     },
     mobileAppAccess: {
         type: Boolean,
@@ -153,7 +97,7 @@ roleSchema.index({ name: 1, organizationId: 1 }, { unique: true });
 roleSchema.index({ organizationId: 1, isActive: 1 });
 
 roleSchema.pre('save', function (next) {
-    if (this.isNew && !this.permissions) {
+    if (this.isNew && (!this.permissions || this.permissions.size === 0)) {
         this.permissions = createEmptyPermissions();
     }
     next();
@@ -166,32 +110,31 @@ roleSchema.pre('save', function (next) {
  * @returns {boolean}
  */
 roleSchema.methods.hasFeature = function (moduleName, featureKey) {
-    if (!this.permissions || !this.permissions[moduleName]) return false;
-    return this.permissions[moduleName][featureKey] === true;
+    if (!this.permissions) return false;
+
+    const modulePerms = this.permissions.get(moduleName);
+    if (!modulePerms) return false;
+
+    return modulePerms.get(featureKey) === true;
 };
 
 /**
  * Get all permissions for this role
- * Returns granular feature permissions for each module
+ * Returns granular feature permissions for each module as a plain object
+ * Fills in missing keys with false based on FEATURE_REGISTRY
  * @returns {Object} Permissions object with module: { features } structure
  */
 roleSchema.methods.getPermissions = function () {
     const perms = {};
 
     for (const moduleName of Object.keys(FEATURE_REGISTRY)) {
-        if (this.permissions && this.permissions[moduleName]) {
-            perms[moduleName] = {};
-            // Copy all feature flags for this module
-            const features = FEATURE_REGISTRY[moduleName] || {};
-            for (const featureKey of Object.keys(features)) {
-                perms[moduleName][featureKey] = this.permissions[moduleName][featureKey] || false;
-            }
-        } else {
-            perms[moduleName] = {};
-            const features = FEATURE_REGISTRY[moduleName] || {};
-            for (const featureKey of Object.keys(features)) {
-                perms[moduleName][featureKey] = false;
-            }
+        perms[moduleName] = {};
+        const features = FEATURE_REGISTRY[moduleName] || {};
+        const modulePerms = this.permissions?.get(moduleName);
+
+        for (const featureKey of Object.keys(features)) {
+            // Use Map's get() method, default to false if undefined
+            perms[moduleName][featureKey] = modulePerms?.get(featureKey) === true;
         }
     }
     return perms;
@@ -203,13 +146,14 @@ roleSchema.methods.getPermissions = function () {
  * @returns {string[]} Array of enabled feature keys
  */
 roleSchema.methods.getEnabledFeatures = function (moduleName) {
-    if (!this.permissions || !this.permissions[moduleName]) return [];
+    const modulePerms = this.permissions?.get(moduleName);
+    if (!modulePerms) return [];
 
     const features = FEATURE_REGISTRY[moduleName] || {};
     const enabledFeatures = [];
 
     for (const featureKey of Object.keys(features)) {
-        if (this.permissions[moduleName][featureKey] === true) {
+        if (modulePerms.get(featureKey) === true) {
             enabledFeatures.push(featureKey);
         }
     }
@@ -225,12 +169,15 @@ roleSchema.methods.getEnabledFeatures = function (moduleName) {
  */
 roleSchema.methods.setFeature = function (moduleName, featureKey, enabled) {
     if (!this.permissions) {
-        this.permissions = {};
+        this.permissions = new Map();
     }
-    if (!this.permissions[moduleName]) {
-        this.permissions[moduleName] = {};
+
+    if (!this.permissions.has(moduleName)) {
+        this.permissions.set(moduleName, new Map());
     }
-    this.permissions[moduleName][featureKey] = Boolean(enabled);
+
+    this.permissions.get(moduleName).set(featureKey, Boolean(enabled));
+    this.markModified('permissions');
 };
 
 /**
@@ -240,19 +187,66 @@ roleSchema.methods.setFeature = function (moduleName, featureKey, enabled) {
  */
 roleSchema.methods.setModuleFeatures = function (moduleName, features) {
     if (!this.permissions) {
-        this.permissions = {};
+        this.permissions = new Map();
     }
-    if (!this.permissions[moduleName]) {
-        this.permissions[moduleName] = {};
+
+    if (!this.permissions.has(moduleName)) {
+        this.permissions.set(moduleName, new Map());
     }
+
+    const modulePerms = this.permissions.get(moduleName);
     for (const [key, value] of Object.entries(features)) {
-        this.permissions[moduleName][key] = Boolean(value);
+        modulePerms.set(key, Boolean(value));
     }
+
+    this.markModified('permissions');
+};
+
+/**
+ * Set permissions from a plain object (useful for API updates)
+ * @param {Object} permissionsObj - Object with module: { features } structure
+ */
+roleSchema.methods.setPermissionsFromObject = function (permissionsObj) {
+    if (!this.permissions) {
+        this.permissions = new Map();
+    }
+
+    for (const [moduleName, moduleFeatures] of Object.entries(permissionsObj)) {
+        if (!this.permissions.has(moduleName)) {
+            this.permissions.set(moduleName, new Map());
+        }
+
+        const modulePerms = this.permissions.get(moduleName);
+        for (const [featureKey, value] of Object.entries(moduleFeatures)) {
+            modulePerms.set(featureKey, Boolean(value));
+        }
+    }
+
+    this.markModified('permissions');
 };
 
 roleSchema.statics.getAvailableModules = function () {
     return Object.keys(FEATURE_REGISTRY);
 };
+
+/**
+ * Static: Get all feature keys for a module
+ * @param {string} moduleName - Module name
+ * @returns {string[]} Array of feature keys
+ */
+roleSchema.statics.getModuleFeatures = function (moduleName) {
+    return Object.keys(FEATURE_REGISTRY[moduleName] || {});
+};
+
+// Ensure permissions are serialized as a plain object with defaults filled in
+roleSchema.set('toJSON', {
+    transform: function (doc, ret) {
+        if (doc.getPermissions) {
+            ret.permissions = doc.getPermissions();
+        }
+        return ret;
+    }
+});
 
 const Role = mongoose.model('Role', roleSchema);
 module.exports = Role;

@@ -12,7 +12,6 @@ const {
 } = require('./organization.controller');
 const {
     protect,
-    requirePermission,
     requireSystemRole
 } = require('../../middlewares/auth.middleware');
 

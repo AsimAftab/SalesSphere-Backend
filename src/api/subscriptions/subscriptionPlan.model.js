@@ -55,16 +55,10 @@ const subscriptionPlanSchema = new mongoose.Schema({
     // Example: { attendance: { webCheckIn: true, mobileCheckIn: true, remoteCheckIn: false } }
     moduleFeatures: {
         type: Map,
-        of: new mongoose.Schema(
-            Object.keys(FEATURE_REGISTRY).reduce((acc, moduleName) => {
-                acc[moduleName] = {
-                    type: Map,
-                    of: Boolean,
-                    default: new Map()
-                };
-                return acc;
-            }, {})
-        ),
+        of: {
+            type: Map,
+            of: Boolean
+        },
         default: {}
     },
     // Maximum number of employees allowed under this plan

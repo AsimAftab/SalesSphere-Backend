@@ -47,16 +47,22 @@ exports.createRole = async (req, res) => {
             });
         }
 
-        // Create the role
-        const role = await Role.create({
+        // Create the role instance
+        const role = new Role({
             name,
             description,
             organizationId,
-            permissions: permissions || {},
             mobileAppAccess: req.body.mobileAppAccess || false,
             webPortalAccess: req.body.webPortalAccess || false,
             createdBy: req.user._id
         });
+
+        // Set permissions using the helper to ensure Map structure is correct
+        if (permissions) {
+            role.setPermissionsFromObject(permissions);
+        }
+
+        await role.save();
 
         res.status(201).json({
             status: 'success',
@@ -211,7 +217,12 @@ exports.updateRole = async (req, res) => {
         // Update fields
         if (name) role.name = name;
         if (description !== undefined) role.description = description;
-        if (permissions) role.permissions = permissions;
+
+        // Update permissions using the helper
+        if (permissions) {
+            role.setPermissionsFromObject(permissions);
+        }
+
         if (req.body.mobileAppAccess !== undefined) role.mobileAppAccess = req.body.mobileAppAccess;
         if (req.body.webPortalAccess !== undefined) role.webPortalAccess = req.body.webPortalAccess;
         if (isActive !== undefined) role.isActive = isActive;
@@ -303,6 +314,8 @@ exports.deleteRole = async (req, res) => {
  * @route   GET /api/v1/roles/modules
  * @access  Admin, Manager
  */
+const { FEATURE_REGISTRY } = require('../../config/featureRegistry');
+
 exports.getAvailableModules = async (req, res) => {
     try {
         // Filter out system-only modules
@@ -310,12 +323,23 @@ exports.getAvailableModules = async (req, res) => {
             !['organizations', 'systemUsers', 'subscriptions'].includes(m)
         );
 
+        const structuredModules = modules.map(m => {
+            const features = FEATURE_REGISTRY[m] || {};
+            const featureList = Object.entries(features).map(([key, description]) => ({
+                key,
+                description
+            }));
+
+            return {
+                key: m,
+                label: m.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()).trim(),
+                features: featureList
+            };
+        });
+
         res.status(200).json({
             status: 'success',
-            data: modules.map(m => ({
-                key: m,
-                label: m.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()).trim()
-            }))
+            data: structuredModules
         });
     } catch (error) {
         console.error('Get modules error:', error);

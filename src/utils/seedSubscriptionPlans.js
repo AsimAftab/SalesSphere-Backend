@@ -1,98 +1,40 @@
-// src/utils/seedSubscriptionPlans.js
-// Seed default subscription plans on server startup
+/**
+ * Seed Subscription Plans
+ *
+ * This file handles database operations for subscription plan seeding.
+ * Plan definitions are imported from src/config/planRegistry.js
+ */
 
 const SubscriptionPlan = require('../api/subscriptions/subscriptionPlan.model');
-
-// Module lists for each tier
-const BASIC_MODULES = [
-    'dashboard',
-    'attendance',
-    'leaves',
-    'products',
-    'parties',
-    'orderLists',
-    'employees' // Basic employee management (limited by maxEmployees)
-];
-
-const STANDARD_MODULES = [
-    ...BASIC_MODULES,
-    'collections',
-    'expenses',
-    'prospects',
-    'sites',
-    'beatPlan',
-    'tourPlan',
-    'notes',
-    'miscellaneousWork'
-];
-
-const PREMIUM_MODULES = [
-    ...STANDARD_MODULES,
-    'liveTracking',
-    'analytics',
-    'rawMaterials',
-    'odometer',
-    'settings',
-    'employees' // Full employee management
-];
-
-const DEFAULT_PLANS = [
-    {
-        name: 'Basic',
-        tier: 'basic',
-        description: 'Essential features for small teams',
-        enabledModules: BASIC_MODULES,
-        maxEmployees: 5,
-        price: { amount: 2999, currency: 'INR', billingCycle: 'yearly' },
-        isSystemPlan: true
-    },
-    {
-        name: 'Standard',
-        tier: 'standard',
-        description: 'Advanced features for growing businesses',
-        enabledModules: STANDARD_MODULES,
-        maxEmployees: 25,
-        price: { amount: 7999, currency: 'INR', billingCycle: 'yearly' },
-        isSystemPlan: true
-    },
-    {
-        name: 'Premium',
-        tier: 'premium',
-        description: 'Full access with analytics and live tracking',
-        enabledModules: PREMIUM_MODULES,
-        maxEmployees: 50,
-        price: { amount: 14999, currency: 'INR', billingCycle: 'yearly' },
-        isSystemPlan: true
-    }
-];
+const { DEFAULT_PLANS } = require('../config/planRegistry');
 
 /**
- * Seed default subscription plans if they don't exist
- * Call this on server startup
+ * Seeds subscription plans into the database.
+ * Uses upsert to update existing plans if configuration changes.
+ *
+ * This ensures that if you change price, features, or modules in planRegistry.js,
+ * the database updates automatically on server restart.
  */
 const seedSubscriptionPlans = async () => {
     try {
-        for (const planData of DEFAULT_PLANS) {
-            const existingPlan = await SubscriptionPlan.findOne({
-                tier: planData.tier,
-                isSystemPlan: true
-            });
+        console.log('🌱 Seeding Subscription Plans...');
 
-            if (!existingPlan) {
-                await SubscriptionPlan.create(planData);
-                console.log(`✅ Created ${planData.name} subscription plan`);
-            }
+        for (const planData of DEFAULT_PLANS) {
+            // Use findOneAndUpdate with upsert: true
+            // This ensures if you change the price or features in code, the DB updates on restart.
+            await SubscriptionPlan.findOneAndUpdate(
+                { tier: planData.tier, isSystemPlan: true }, // Search Criteria
+                { $set: planData }, // Update Data
+                { upsert: true, new: true, setDefaultsOnInsert: true } // Options
+            );
+
+            // console.log(`   ✅ Synced ${planData.name}`);
         }
-        console.log('📋 Subscription plans seeding complete');
+
+        console.log('✨ Subscription plans synced with Plan Registry');
     } catch (error) {
         console.error('❌ Error seeding subscription plans:', error.message);
     }
 };
 
-module.exports = {
-    seedSubscriptionPlans,
-    BASIC_MODULES,
-    STANDARD_MODULES,
-    PREMIUM_MODULES,
-    DEFAULT_PLANS
-};
+module.exports = { seedSubscriptionPlans };
