@@ -2,6 +2,7 @@
 // Subscription Plan schema for feature-based access control
 
 const mongoose = require('mongoose');
+const { FEATURE_REGISTRY } = require('../../config/featureRegistry');
 
 /**
  * SubscriptionPlan Schema
@@ -49,6 +50,23 @@ const subscriptionPlanSchema = new mongoose.Schema({
             'settings'
         ]
     }],
+    // Granular feature flags per module (feature-based control)
+    // Structure: { moduleName: { featureKey: true/false, ... }, ... }
+    // Example: { attendance: { webCheckIn: true, mobileCheckIn: true, remoteCheckIn: false } }
+    moduleFeatures: {
+        type: Map,
+        of: new mongoose.Schema(
+            Object.keys(FEATURE_REGISTRY).reduce((acc, moduleName) => {
+                acc[moduleName] = {
+                    type: Map,
+                    of: Boolean,
+                    default: new Map()
+                };
+                return acc;
+            }, {})
+        ),
+        default: {}
+    },
     // Maximum number of employees allowed under this plan
     maxEmployees: {
         type: Number,
@@ -90,6 +108,76 @@ subscriptionPlanSchema.index({ organizationId: 1 });
  */
 subscriptionPlanSchema.methods.hasModule = function (moduleName) {
     return this.enabledModules.includes(moduleName);
+};
+
+/**
+ * Check if a specific feature is enabled in this plan for a module
+ * @param {string} moduleName - Module name
+ * @param {string} featureKey - Feature key to check
+ * @returns {boolean}
+ */
+subscriptionPlanSchema.methods.hasFeature = function (moduleName, featureKey) {
+    // First check if module is enabled
+    if (!this.enabledModules.includes(moduleName)) {
+        return false;
+    }
+    // Check if feature is explicitly enabled in moduleFeatures
+    if (this.moduleFeatures && this.moduleFeatures.get(moduleName)) {
+        const moduleFeatures = this.moduleFeatures.get(moduleName);
+        return moduleFeatures.get(featureKey) === true;
+    }
+    // If moduleFeatures not set, default to false (explicit opt-in)
+    return false;
+};
+
+/**
+ * Get all enabled features for a module
+ * @param {string} moduleName - Module name
+ * @returns {string[]} Array of enabled feature keys
+ */
+subscriptionPlanSchema.methods.getEnabledFeatures = function (moduleName) {
+    if (!this.enabledModules.includes(moduleName)) {
+        return [];
+    }
+    if (this.moduleFeatures && this.moduleFeatures.get(moduleName)) {
+        const moduleFeatures = this.moduleFeatures.get(moduleName);
+        return Array.from(moduleFeatures.entries())
+            .filter(([key, value]) => value === true)
+            .map(([key]) => key);
+    }
+    return [];
+};
+
+/**
+ * Set feature flag for a module
+ * @param {string} moduleName - Module name
+ * @param {string} featureKey - Feature key
+ * @param {boolean} enabled - Enable or disable
+ */
+subscriptionPlanSchema.methods.setFeature = function (moduleName, featureKey, enabled) {
+    if (!this.moduleFeatures) {
+        this.moduleFeatures = new Map();
+    }
+    if (!this.moduleFeatures.get(moduleName)) {
+        this.moduleFeatures.set(moduleName, new Map());
+    }
+    this.moduleFeatures.get(moduleName).set(featureKey, enabled);
+};
+
+/**
+ * Set all features for a module at once
+ * @param {string} moduleName - Module name
+ * @param {Object} features - Object with featureKey: boolean pairs
+ */
+subscriptionPlanSchema.methods.setModuleFeatures = function (moduleName, features) {
+    if (!this.moduleFeatures) {
+        this.moduleFeatures = new Map();
+    }
+    const featureMap = new Map();
+    Object.entries(features).forEach(([key, value]) => {
+        featureMap.set(key, Boolean(value));
+    });
+    this.moduleFeatures.set(moduleName, featureMap);
 };
 
 /**

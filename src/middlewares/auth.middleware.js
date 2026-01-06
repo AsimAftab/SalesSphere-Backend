@@ -3,7 +3,7 @@
 
 const jwt = require('jsonwebtoken');
 const User = require('../api/users/user.model');
-const { getDefaultPermissions, isSystemRole, ADMIN_DEFAULT_PERMISSIONS } = require('../utils/defaultPermissions');
+const { isSystemRole } = require('../utils/defaultPermissions');
 
 // Import permission middleware
 const {

@@ -1,16 +1,30 @@
 // src/middlewares/permission.middleware.js
 // RBAC Permission middleware for route-level access control
+// Now uses granular feature-based permissions
 
-const { isSystemRole, hasPermissionByRole } = require('../utils/defaultPermissions');
+const { isSystemRole, getRoleDefaultFeatures } = require('../utils/defaultPermissions');
 const Organization = require('../api/organizations/organization.model');
+
+/**
+ * Action to Feature Key mapping for backward compatibility
+ * Maps old action-based permissions to new granular feature keys
+ */
+const ACTION_TO_FEATURE_MAP = {
+    view: 'view',
+    add: 'create',
+    update: 'update',
+    delete: 'delete',
+    approve: 'approve'
+};
 
 /**
  * Middleware to check if user has required permission AND organization's plan has the feature
  * Implements the Intersection Logic: Effective = RolePermission AND PlanFeature
- * 
+ *
  * @param {string} module - Module name (e.g., 'products', 'parties', 'employees')
- * @param {string} action - Action type ('view', 'add', 'update', 'delete')
+ * @param {string} action - Action type ('view', 'add', 'update', 'delete', 'approve')
  * @returns {Function} Express middleware
+ * @deprecated Use checkAccess from compositeAccess.middleware.js for granular features
  */
 const requirePermission = (module, action) => {
     return async (req, res, next) => {
@@ -27,12 +41,21 @@ const requirePermission = (module, action) => {
             return next();
         }
 
-        // 2. CHECK ROLE-BASED PERMISSION
+        // 2. Map action to feature key
+        const featureKey = ACTION_TO_FEATURE_MAP[action];
+
+        // 3. CHECK ROLE-BASED PERMISSION
         let hasRoleAccess = false;
-        if (typeof req.user.hasPermission === 'function') {
-            hasRoleAccess = req.user.hasPermission(module, action);
-        } else {
-            hasRoleAccess = hasPermissionByRole(req.user.role, module, action);
+
+        // Check custom role first
+        if (req.user.customRoleId && req.user.customRoleId.permissions) {
+            hasRoleAccess = req.user.customRoleId.permissions[module]?.[featureKey] === true;
+        }
+
+        // Fall back to built-in role defaults
+        if (!hasRoleAccess) {
+            const roleFeatures = getRoleDefaultFeatures(req.user.role, module);
+            hasRoleAccess = roleFeatures?.[featureKey] === true;
         }
 
         if (!hasRoleAccess) {
@@ -43,7 +66,7 @@ const requirePermission = (module, action) => {
             });
         }
 
-        // 3. CHECK SUBSCRIPTION PLAN FEATURE (Intersection Logic)
+        // 4. CHECK SUBSCRIPTION PLAN FEATURE (Intersection Logic)
         // Skip plan check for system-level modules or if user is admin (they manage the org)
         const systemModules = ['organizations', 'systemUsers', 'subscriptions', 'settings'];
         if (systemModules.includes(module)) {
@@ -101,11 +124,11 @@ const requirePermission = (module, action) => {
  * Middleware to check multiple permissions (user must have ALL)
  * @param {Array<{module: string, action: string}>} permissions - Array of permission requirements
  * @returns {Function} Express middleware
- * 
+ *
  * @example
  * router.post('/transfer', requireAllPermissions([
- *   { module: 'products', action: 'write' },
- *   { module: 'parties', action: 'write' }
+ *   { module: 'products', action: 'create' },
+ *   { module: 'parties', action: 'update' }
  * ]), transferProduct);
  */
 const requireAllPermissions = (permissions) => {
@@ -117,13 +140,23 @@ const requireAllPermissions = (permissions) => {
             });
         }
 
+        if (isSystemRole(req.user.role)) {
+            return next();
+        }
+
         for (const { module, action } of permissions) {
+            const featureKey = ACTION_TO_FEATURE_MAP[action];
             let hasAccess = false;
 
-            if (typeof req.user.hasPermission === 'function') {
-                hasAccess = req.user.hasPermission(module, action);
-            } else {
-                hasAccess = hasPermissionByRole(req.user.role, module, action);
+            // Check custom role first
+            if (req.user.customRoleId && req.user.customRoleId.permissions) {
+                hasAccess = req.user.customRoleId.permissions[module]?.[featureKey] === true;
+            }
+
+            // Fall back to built-in role defaults
+            if (!hasAccess) {
+                const roleFeatures = getRoleDefaultFeatures(req.user.role, module);
+                hasAccess = roleFeatures?.[featureKey] === true;
             }
 
             if (!hasAccess) {
@@ -143,11 +176,11 @@ const requireAllPermissions = (permissions) => {
  * Middleware to check multiple permissions (user must have ANY ONE)
  * @param {Array<{module: string, action: string}>} permissions - Array of permission requirements
  * @returns {Function} Express middleware
- * 
+ *
  * @example
  * router.get('/dashboard', requireAnyPermission([
- *   { module: 'analytics', action: 'read' },
- *   { module: 'dashboard', action: 'read' }
+ *   { module: 'analytics', action: 'view' },
+ *   { module: 'dashboard', action: 'view' }
  * ]), getDashboard);
  */
 const requireAnyPermission = (permissions) => {
@@ -159,13 +192,23 @@ const requireAnyPermission = (permissions) => {
             });
         }
 
+        if (isSystemRole(req.user.role)) {
+            return next();
+        }
+
         for (const { module, action } of permissions) {
+            const featureKey = ACTION_TO_FEATURE_MAP[action];
             let hasAccess = false;
 
-            if (typeof req.user.hasPermission === 'function') {
-                hasAccess = req.user.hasPermission(module, action);
-            } else {
-                hasAccess = hasPermissionByRole(req.user.role, module, action);
+            // Check custom role first
+            if (req.user.customRoleId && req.user.customRoleId.permissions) {
+                hasAccess = req.user.customRoleId.permissions[module]?.[featureKey] === true;
+            }
+
+            // Fall back to built-in role defaults
+            if (!hasAccess) {
+                const roleFeatures = getRoleDefaultFeatures(req.user.role, module);
+                hasAccess = roleFeatures?.[featureKey] === true;
             }
 
             if (hasAccess) {

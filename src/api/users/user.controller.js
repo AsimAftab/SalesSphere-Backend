@@ -1,6 +1,6 @@
 const User = require('./user.model');
 const Organization = require('../organizations/organization.model');
-const { getDefaultPermissions, isSystemRole, isOrganizationRole, ADMIN_DEFAULT_PERMISSIONS } = require('../../utils/defaultPermissions');
+const { isSystemRole, isOrganizationRole } = require('../../utils/defaultPermissions');
 const cloudinary = require('../../config/cloudinary');
 const crypto = require('crypto');
 const { sendWelcomeEmail } = require('../../utils/emailSender');

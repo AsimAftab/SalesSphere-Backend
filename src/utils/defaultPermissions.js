@@ -1,145 +1,15 @@
 // src/utils/defaultPermissions.js
-// Default permission definitions for the RBAC system
-// Structure: { module: { view: bool, add: bool, update: bool, delete: bool } }
+// Granular feature-based default permissions for the RBAC system
 
-/**
- * PERMISSION ACTIONS:
- * - view: Can read/see data
- * - add: Can create new records
- * - update: Can modify existing records
- * - delete: Can remove records
- * - approve: Can approve requests (leaves, expenses, etc.)
- * 
- * ROLE TYPES:
- * - superadmin: Full system access
- * - developer: View/Add/Update, NO delete (for support)
- * - admin: Full org access
- * - user: Base role with custom role permissions
- */
+const { FEATURE_REGISTRY } = require('../config/featureRegistry');
 
 // ============================================
-// ALL MODULES LIST
+// ALL MODULES LIST (from FEATURE_REGISTRY)
 // ============================================
-const ALL_MODULES = [
-    'dashboard',
-    'liveTracking',
-    'products',
-    'orderLists',
-    'employees',
-    'attendance',
-    'leaves',
-    'parties',
-    'prospects',
-    'sites',
-    'rawMaterials',
-    'analytics',
-    'beatPlan',
-    'tourPlan',
-    'collections',
-    'expenses',
-    'odometer',
-    'notes',
-    'miscellaneousWork',
-    'settings',
-    // System-level modules
-    'organizations',
-    'systemUsers',
-    'subscriptions'
-];
+const ALL_MODULES = Object.keys(FEATURE_REGISTRY);
 
-// ============================================
-// HELPER: Create full access (all 4 permissions)
-// ============================================
-const createFullAccess = () => {
-    const permissions = {};
-    ALL_MODULES.forEach(module => {
-        permissions[module] = { view: true, add: true, update: true, delete: true, approve: true };
-    });
-    return permissions;
-};
-
-// ============================================
-// HELPER: Create view/add/update only (no delete)
-// ============================================
-const createNoDeleteAccess = () => {
-    const permissions = {};
-    ALL_MODULES.forEach(module => {
-        permissions[module] = { view: true, add: true, update: true, delete: false, approve: false };
-    });
-    return permissions;
-};
-
-// ============================================
-// SUPERADMIN - Full system access
-// ============================================
-const SUPERADMIN_DEFAULT_PERMISSIONS = createFullAccess();
-
-// ============================================
-// DEVELOPER - View/Add/Update, NO delete
-// ============================================
-const DEVELOPER_DEFAULT_PERMISSIONS = createNoDeleteAccess();
-
-// ============================================
-// ADMIN - Full organization access
-// ============================================
-const ADMIN_DEFAULT_PERMISSIONS = {
-    dashboard: { view: true, add: true, update: true, delete: true },
-    liveTracking: { view: true, add: true, update: true, delete: true },
-    products: { view: true, add: true, update: true, delete: true },
-    orderLists: { view: true, add: true, update: true, delete: true },
-    employees: { view: true, add: true, update: true, delete: true },
-    attendance: { view: true, add: true, update: true, delete: true },
-    leaves: { view: true, add: true, update: true, delete: true },
-    parties: { view: true, add: true, update: true, delete: true },
-    prospects: { view: true, add: true, update: true, delete: true },
-    sites: { view: true, add: true, update: true, delete: true },
-    rawMaterials: { view: true, add: true, update: true, delete: true },
-    analytics: { view: true, add: true, update: true, delete: true },
-    beatPlan: { view: true, add: true, update: true, delete: true },
-    tourPlan: { view: true, add: true, update: true, delete: true },
-    collections: { view: true, add: true, update: true, delete: true },
-    expenses: { view: true, add: true, update: true, delete: true },
-    odometer: { view: true, add: true, update: true, delete: true },
-    notes: { view: true, add: true, update: true, delete: true },
-    miscellaneousWork: { view: true, add: true, update: true, delete: true },
-    settings: { view: true, add: true, update: true, delete: true },
-    // System modules - limited
-    organizations: { view: true, add: false, update: true, delete: false },
-    systemUsers: { view: false, add: false, update: false, delete: false },
-    subscriptions: { view: true, add: false, update: false, delete: false }
-};
-
-// ============================================
-// USER - Base role (minimal permissions)
-// Custom roles will override these
-// ============================================
-const USER_DEFAULT_PERMISSIONS = {
-    dashboard: { view: true, add: false, update: false, delete: false },
-    liveTracking: { view: false, add: false, update: false, delete: false },
-    products: { view: true, add: false, update: false, delete: false },
-    orderLists: { view: true, add: false, update: false, delete: false },
-    employees: { view: false, add: false, update: false, delete: false },
-    attendance: { view: true, add: false, update: false, delete: false },
-    leaves: { view: true, add: true, update: false, delete: false },
-    parties: { view: true, add: false, update: false, delete: false },
-    prospects: { view: true, add: false, update: false, delete: false },
-    sites: { view: true, add: false, update: false, delete: false },
-    rawMaterials: { view: true, add: false, update: false, delete: false },
-    analytics: { view: false, add: false, update: false, delete: false },
-    beatPlan: { view: true, add: false, update: false, delete: false },
-    tourPlan: { view: true, add: false, update: false, delete: false },
-    collections: { view: true, add: false, update: false, delete: false },
-    expenses: { view: true, add: true, update: false, delete: false },
-    odometer: { view: true, add: false, update: false, delete: false },
-    notes: { view: true, add: true, update: false, delete: false },
-    miscellaneousWork: { view: true, add: false, update: false, delete: false },
-    settings: { view: false, add: false, update: false, delete: false },
-    mobileApp: { view: false, add: false, update: false, delete: false }, // Mobile disabled by default
-    // No system module access
-    organizations: { view: false, add: false, update: false, delete: false },
-    systemUsers: { view: false, add: false, update: false, delete: false },
-    subscriptions: { view: false, add: false, update: false, delete: false }
-};
+// System-level modules (not in registry)
+const SYSTEM_MODULES = ['organizations', 'systemUsers', 'subscriptions'];
 
 // ============================================
 // ROLE CLASSIFICATION
@@ -148,90 +18,432 @@ const SYSTEM_ROLES = ['superadmin', 'developer'];
 const ORGANIZATION_ROLES = ['admin', 'user'];
 
 // ============================================
-// ROLE TO PERMISSIONS MAPPING
+// GRANULAR FEATURE-BASED DEFAULT PERMISSIONS
 // ============================================
-const ROLE_PERMISSIONS = {
-    superadmin: SUPERADMIN_DEFAULT_PERMISSIONS,
-    developer: DEVELOPER_DEFAULT_PERMISSIONS,
-    admin: ADMIN_DEFAULT_PERMISSIONS,
-    user: USER_DEFAULT_PERMISSIONS
+
+/**
+ * ADMIN GRANULAR DEFAULT PERMISSIONS
+ * Admins have ALL features enabled for all modules
+ */
+const ADMIN_GRANULAR_PERMISSIONS = {
+    attendance: {
+        viewMyAttendance: true,
+        viewTeamAttendance: true,
+        webCheckIn: true,
+        mobileCheckIn: true,
+        remoteCheckIn: true,
+        markHoliday: true,
+        markAbsentees: true,
+        biometricSync: true
+    },
+    products: {
+        view: true,
+        create: true,
+        update: true,
+        delete: true,
+        bulkImport: true,
+        bulkDelete: true,
+        exportPdf: true
+    },
+    prospects: {
+        view: true,
+        create: true,
+        update: true,
+        delete: true,
+        transfer: true,
+        manageCategories: true,
+        import: true
+    },
+    orderLists: {
+        view: true,
+        createEstimate: true,
+        createInvoice: true,
+        convertToInvoice: true,
+        editStatus: true,
+        delete: true,
+        bulkDelete: true
+    },
+    collections: {
+        view: true,
+        collectPayment: true,
+        verifyPayment: true,
+        updateChequeStatus: true,
+        delete: true
+    },
+    beatPlan: {
+        view: true,
+        create: true,
+        assign: true,
+        edit: true,
+        delete: true,
+        adhocVisits: true
+    },
+    tourPlan: {
+        view: true,
+        create: true,
+        approve: true,
+        edit: true,
+        delete: true
+    },
+    liveTracking: {
+        view: true,
+        historyPlayback: true
+    },
+    expenses: {
+        viewList: true,
+        viewDetails: true,
+        create: true,
+        update: true,
+        updateStatus: true,
+        delete: true,
+        bulkDelete: true,
+        exportPdf: true,
+        exportExcel: true,
+        uploadReceipt: true,
+        // Category management
+        viewCategories: true,
+        createCategory: true,
+        updateCategory: true,
+        deleteCategory: true
+    },
+    leaves: {
+        view: true,
+        viewOwn: true,
+        viewTeam: true,
+        apply: true,
+        approve: true
+    },
+    parties: {
+        view: true,
+        create: true,
+        update: true,
+        delete: true,
+        import: true,
+        exportPdf: true
+    },
+    sites: {
+        view: true,
+        create: true,
+        update: true,
+        delete: true,
+        assign: true
+    },
+    dashboard: {
+        view: true,
+        viewOwnStats: true,
+        viewTeamStats: true,
+        viewOrgStats: true
+    },
+    analytics: {
+        view: true,
+        salesReports: true,
+        performanceReports: true,
+        attendanceReports: true,
+        customReports: true,
+        exportReports: true
+    },
+    notes: {
+        view: true,
+        create: true,
+        update: true,
+        delete: true,
+        share: true
+    },
+    miscellaneousWork: {
+        view: true,
+        create: true,
+        update: true,
+        delete: true,
+        approve: true
+    },
+    settings: {
+        view: true,
+        manage: true,
+        manageUsers: true,
+        manageRoles: true,
+        manageSubscription: true
+    },
+    employees: {
+        view: true,
+        viewOwn: true,
+        create: true,
+        update: true,
+        delete: true,
+        assignSupervisor: true
+    },
+    odometer: {
+        view: true,
+        create: true,
+        update: true,
+        approve: true
+    }
+};
+
+/**
+ * USER GRANULAR DEFAULT PERMISSIONS
+ * Users have limited permissions - mostly view and self-service actions
+ */
+const USER_GRANULAR_PERMISSIONS = {
+    attendance: {
+        viewMyAttendance: true,
+        viewTeamAttendance: false,
+        webCheckIn: true,
+        mobileCheckIn: true,
+        remoteCheckIn: false,
+        markHoliday: false,
+        markAbsentees: false,
+        biometricSync: false
+    },
+    products: {
+        view: true,
+        create: false,
+        update: false,
+        delete: false,
+        bulkImport: false,
+        bulkDelete: false,
+        exportPdf: false
+    },
+    prospects: {
+        view: true,
+        create: true,
+        update: true,
+        delete: false,
+        transfer: false,
+        manageCategories: false,
+        import: false
+    },
+    orderLists: {
+        view: true,
+        createEstimate: true,
+        createInvoice: true,
+        convertToInvoice: false,
+        editStatus: false,
+        delete: false,
+        bulkDelete: false
+    },
+    collections: {
+        view: true,
+        collectPayment: true,
+        verifyPayment: false,
+        updateChequeStatus: false,
+        delete: false
+    },
+    beatPlan: {
+        view: true,
+        create: false,
+        assign: false,
+        edit: false,
+        delete: false,
+        adhocVisits: false
+    },
+    tourPlan: {
+        view: true,
+        create: true,
+        approve: false,
+        edit: false,
+        delete: false
+    },
+    liveTracking: {
+        view: false,
+        historyPlayback: false
+    },
+    expenses: {
+        viewList: true,
+        viewDetails: true,
+        create: true,
+        update: false,
+        updateStatus: false,
+        delete: false,
+        bulkDelete: false,
+        exportPdf: false,
+        exportExcel: false,
+        uploadReceipt: true,
+        // Category management
+        viewCategories: true,    // Can view (needed to create expenses)
+        createCategory: false,   // Cannot create categories
+        updateCategory: false,   // Cannot edit categories
+        deleteCategory: false    // Cannot delete categories
+    },
+    leaves: {
+        view: true,
+        viewOwn: true,
+        viewTeam: false,
+        apply: true,
+        approve: false
+    },
+    parties: {
+        view: true,
+        create: false,
+        update: false,
+        delete: false,
+        import: false,
+        exportPdf: false
+    },
+    sites: {
+        view: true,
+        create: false,
+        update: false,
+        delete: false,
+        assign: false
+    },
+    dashboard: {
+        view: true,
+        viewOwnStats: true,
+        viewTeamStats: false,
+        viewOrgStats: false
+    },
+    analytics: {
+        view: false,
+        salesReports: false,
+        performanceReports: false,
+        attendanceReports: false,
+        customReports: false,
+        exportReports: false
+    },
+    notes: {
+        view: true,
+        create: true,
+        update: false,
+        delete: false,
+        share: false
+    },
+    miscellaneousWork: {
+        view: true,
+        create: false,
+        update: false,
+        delete: false,
+        approve: false
+    },
+    settings: {
+        view: false,
+        manage: false,
+        manageUsers: false,
+        manageRoles: false,
+        manageSubscription: false
+    },
+    employees: {
+        view: false,
+        viewOwn: true,
+        create: false,
+        update: false,
+        delete: false,
+        assignSupervisor: false
+    },
+    odometer: {
+        view: true,
+        create: true,
+        update: false,
+        approve: false
+    }
 };
 
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
 
+/**
+ * Check if role is a system role
+ */
 const isSystemRole = (role) => SYSTEM_ROLES.includes(role);
+
+/**
+ * Check if role is an organization role
+ */
 const isOrganizationRole = (role) => ORGANIZATION_ROLES.includes(role);
-const getDefaultPermissions = (role) => ROLE_PERMISSIONS[role] || USER_DEFAULT_PERMISSIONS;
 
 /**
- * Check if permissions object has specific permission
- * @param {Object} permissions - Permissions object
- * @param {string} module - Module name
- * @param {string} action - Action: 'view', 'add', 'update', 'delete'
+ * Get all available modules
  */
-const hasPermission = (permissions, module, action) => {
-    if (!permissions) return false;
-    if (!permissions[module]) return false;
-    return permissions[module][action] === true;
-};
-
-/**
- * Check permission by role
- */
-const hasPermissionByRole = (role, module, action) => {
-    const permissions = ROLE_PERMISSIONS[role];
-    return hasPermission(permissions, module, action);
-};
-
 const getAllModules = () => ALL_MODULES;
 
 /**
- * Merge custom permissions with defaults
+ * Create all-true permissions for a module's features
  */
-const mergePermissions = (role, customPermissions = {}) => {
-    const defaults = getDefaultPermissions(role);
-    const merged = JSON.parse(JSON.stringify(defaults));
-
-    for (const module in customPermissions) {
-        if (merged[module]) {
-            merged[module] = { ...merged[module], ...customPermissions[module] };
-        } else {
-            merged[module] = customPermissions[module];
-        }
+const createAllFeaturesEnabled = (moduleName) => {
+    const features = FEATURE_REGISTRY[moduleName] || {};
+    const perms = {};
+    for (const key of Object.keys(features)) {
+        perms[key] = true;
     }
-    return merged;
+    return perms;
 };
 
 /**
- * Create empty permissions (all false)
+ * Create all-false permissions for a module's features
+ */
+const createAllFeaturesDisabled = (moduleName) => {
+    const features = FEATURE_REGISTRY[moduleName] || {};
+    const perms = {};
+    for (const key of Object.keys(features)) {
+        perms[key] = false;
+    }
+    return perms;
+};
+
+/**
+ * Create empty permissions for all modules
  */
 const createEmptyPermissions = () => {
     const permissions = {};
-    ALL_MODULES.forEach(module => {
-        permissions[module] = { view: false, add: false, update: false, delete: false, approve: false };
-    });
+    for (const moduleName of ALL_MODULES) {
+        permissions[moduleName] = createAllFeaturesDisabled(moduleName);
+    }
     return permissions;
 };
 
+/**
+ * Get granular feature permissions for a role
+ * @param {string} role - Role name ('admin', 'user', etc.)
+ * @param {string} moduleName - Module name (optional, returns all if not provided)
+ * @returns {Object} Granular permissions
+ */
+const getRoleDefaultFeatures = (role, moduleName) => {
+    const granularPerms = {
+        admin: ADMIN_GRANULAR_PERMISSIONS,
+        user: USER_GRANULAR_PERMISSIONS
+    };
+
+    const rolePerms = granularPerms[role];
+
+    if (moduleName) {
+        return rolePerms?.[moduleName] || {};
+    }
+
+    return rolePerms || {};
+};
+
+/**
+ * Check if role has a specific feature permission
+ * @param {string} role - Role name
+ * @param {string} moduleName - Module name
+ * @param {string} featureKey - Feature key
+ * @returns {boolean}
+ */
+const hasRoleFeaturePermission = (role, moduleName, featureKey) => {
+    const roleFeatures = getRoleDefaultFeatures(role, moduleName);
+    return roleFeatures?.[featureKey] === true;
+};
+
 module.exports = {
-    SUPERADMIN_DEFAULT_PERMISSIONS,
-    DEVELOPER_DEFAULT_PERMISSIONS,
-    ADMIN_DEFAULT_PERMISSIONS,
-    USER_DEFAULT_PERMISSIONS,
-    ROLE_PERMISSIONS,
+    // Granular permissions
+    ADMIN_GRANULAR_PERMISSIONS,
+    USER_GRANULAR_PERMISSIONS,
+
+    // Module lists
+    ALL_MODULES,
+    SYSTEM_MODULES,
+
+    // Role classification
     SYSTEM_ROLES,
     ORGANIZATION_ROLES,
-    ALL_MODULES,
+
+    // Helper functions
     isSystemRole,
     isOrganizationRole,
-    getDefaultPermissions,
-    hasPermission,
-    hasPermissionByRole,
     getAllModules,
-    mergePermissions,
+    createAllFeaturesEnabled,
+    createAllFeaturesDisabled,
     createEmptyPermissions,
-    createFullAccess,
-    createNoDeleteAccess
+    getRoleDefaultFeatures,
+    hasRoleFeaturePermission
 };
