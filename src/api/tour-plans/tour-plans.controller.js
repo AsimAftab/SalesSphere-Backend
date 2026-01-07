@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const { z } = require('zod');
 const { DateTime } = require('luxon');
 const { isSystemRole } = require('../../utils/defaultPermissions');
+const { canApprove } = require('../../utils/hierarchyHelper');
 
 // --- Zod Validation Schema ---
 const tourPlanSchemaValidation = z.object({
@@ -74,7 +75,7 @@ exports.getAllTourPlans = async (req, res, next) => {
 
         // Non-system users (without viewList permission) can only see their own tour plans
         // Note: Permission check happens at route level, this is for data filtering
-        if (!isSystemRole(role)) {
+        if (role !== 'admin' && !isSystemRole(role)) {
             // Check if user has explicit viewList permission via custom role
             // For non-admin roles without viewList, restrict to own tours
             query.createdBy = userId;
@@ -147,7 +148,7 @@ exports.getTourPlanById = async (req, res, next) => {
 
         // Non-system users can only see their own tour plans
         // Note: Permission check happens at route level for viewList/viewDetails
-        if (!isSystemRole(role)) {
+        if (role !== 'admin' && !isSystemRole(role)) {
             query.createdBy = userId;
         }
 
@@ -238,7 +239,7 @@ exports.deleteTourPlan = async (req, res, next) => {
 
         // If not system role, restrict to own pending plans
         // Note: Permission check happens at route level for delete permission
-        if (!isSystemRole(role)) {
+        if (role !== 'admin' && !isSystemRole(role)) {
             query.createdBy = userId;
             query.status = 'pending';
         }
@@ -260,7 +261,7 @@ exports.deleteTourPlan = async (req, res, next) => {
 
 // @desc    Update tour plan status (approve/reject)
 // @route   PUT /api/v1/tour-plans/:id/status
-// @access  Private (Admin, Manager only)
+// @access  Private (Admin or Supervisor with approval permission)
 exports.updateTourPlanStatus = async (req, res, next) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
@@ -271,7 +272,7 @@ exports.updateTourPlanStatus = async (req, res, next) => {
         const tourPlan = await TourPlan.findOne({
             _id: req.params.id,
             organizationId: organizationId
-        });
+        }).populate('createdBy', 'name email reportsTo role organizationId'); // Populate to check hierarchy
 
         if (!tourPlan) {
             return res.status(404).json({ success: false, message: 'Tour plan not found' });
@@ -282,6 +283,25 @@ exports.updateTourPlanStatus = async (req, res, next) => {
             return res.status(400).json({
                 success: false,
                 message: `Cannot change status of a ${tourPlan.status} tour plan`
+            });
+        }
+
+        // Hierarchy & Permission Check using canApprove helper
+        // This checks if approver is admin OR in the requester's reportsTo array
+        const authorized = canApprove(req.user, tourPlan.createdBy, 'tourPlan');
+
+        if (!authorized) {
+            return res.status(403).json({
+                success: false,
+                message: 'You are not authorized to approve this request. You must be the direct supervisor or an admin and have approval permission.'
+            });
+        }
+
+        // Prevent self-approval
+        if (tourPlan.createdBy._id.toString() === userId.toString()) {
+            return res.status(403).json({
+                success: false,
+                message: 'You cannot approve your own tour plan'
             });
         }
 

@@ -34,12 +34,13 @@ const userSchema = new mongoose.Schema({
         ref: 'Role',
         default: null
     },
-    // Direct supervisor (User ID)
-    reportsTo: {
+    // Direct supervisor(s) - Array of User IDs
+    // Multiple supervisors can be assigned for approval workflows
+    // Validation: Cannot report to users with the same role/customRoleId
+    reportsTo: [{
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-        default: null
-    },
+        ref: 'User'
+    }],
     organizationId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Organization',

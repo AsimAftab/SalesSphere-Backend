@@ -1,10 +1,12 @@
 const ExpenseClaim = require('./expense-claim.model');
 const ExpenseCategory = require('./expenseCategory.model');
 const Organization = require('../organizations/organization.model');
+const User = require('../users/user.model');
 const mongoose = require('mongoose');
 const { z } = require('zod');
 const cloudinary = require('../../config/cloudinary');
 const fs = require('fs');
+const { isSystemRole } = require('../../utils/defaultPermissions');
 
 // --- Zod Validation Schema ---
 const expenseClaimSchemaValidation = z.object({
@@ -26,6 +28,32 @@ const statusSchemaValidation = z.object({
     status: z.enum(['pending', 'approved', 'rejected']),
     rejectionReason: z.string().optional(),
 });
+
+// --- HELPER: Get Hierarchy Filter ---
+const getHierarchyFilter = async (user) => {
+    const { role, _id: userId } = user;
+
+    // 1. Admin / System Role: Access All
+    if (role === 'admin' || isSystemRole(role)) {
+        return {};
+    }
+
+    // 2. Manager with viewTeamClaims: Access Self + Subordinates
+    if (user.hasFeature('expenses', 'viewTeamClaims')) {
+        const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
+        const subordinateIds = subordinates.map(u => u._id);
+
+        return {
+            $or: [
+                { createdBy: userId },
+                { createdBy: { $in: subordinateIds } }
+            ]
+        };
+    }
+
+    // 3. Regular User: Access Self Only
+    return { createdBy: userId };
+};
 
 // --- HELPER: Get or Create Category ---
 const getOrCreateCategory = async (categoryName, organizationId) => {
@@ -99,23 +127,13 @@ exports.createExpenseClaim = async (req, res, next) => {
 exports.getAllExpenseClaims = async (req, res, next) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
-        const { organizationId, role, _id: userId } = req.user;
+        const { organizationId } = req.user;
 
-        const query = { organizationId: organizationId };
+        // Get hierarchy filter
+        const hierarchyFilter = await getHierarchyFilter(req.user);
 
-        // Filter for non-admins (e.g. users/managers)
-        if (role !== 'admin') {
-            // Find all users who report to this user (Direct Reports)
-            const User = require('../users/user.model');
-            const subordinates = await User.find({ reportsTo: userId }).select('_id');
-            const subordinateIds = subordinates.map(u => u._id);
-
-            // Show Own Claims OR Subordinate Claims
-            query.$or = [
-                { createdBy: userId },
-                { createdBy: { $in: subordinateIds } }
-            ];
-        }
+        // Combine with organization filter
+        const query = { organizationId: organizationId, ...hierarchyFilter };
 
         const expenseClaims = await ExpenseClaim.find(query)
             .select('title amount incurredDate category description status createdBy approvedBy party createdAt receipt')
@@ -137,30 +155,16 @@ exports.getAllExpenseClaims = async (req, res, next) => {
 exports.getExpenseClaimById = async (req, res, next) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
-        const { organizationId, role, _id: userId } = req.user;
+        const { organizationId } = req.user;
+
+        // Get hierarchy filter
+        const hierarchyFilter = await getHierarchyFilter(req.user);
 
         const query = {
             _id: req.params.id,
-            organizationId: organizationId
+            organizationId: organizationId,
+            ...hierarchyFilter
         };
-
-        // Limit to own claims unless admin or has specific view-all permission
-        // NOTE: Standard RBAC middleware handles route access, but for listing, 
-        // we might want to filter. For now, let's assume if you have 'expenses:view', 
-        // you see all, unless we enforce "own only" for non-admins.
-
-        // Better approach for standard users:
-        if (role !== 'admin' && !hasPermission(req.user.permissions, 'expenses', 'view_all')) {
-            // Logic to show only own claims for standard users unless they have a 'view_all' permission
-            // Since 'view_all' isn't standard in our schema yet, let's stick to:
-            // If not admin, show own. (Or update logic to allow managers to see reportees).
-
-            // For Supervisor model: Managers should see their reportees' claims.
-            // This requires a more complex query (find all users reporting to me).
-            // For this step, let's keep it simple: Non-admins see own.
-            // TODO: Enhance to allow managers to see reportees' claims.
-            query.createdBy = userId;
-        }
 
         const expenseClaim = await ExpenseClaim.findOne(query)
             .populate('category', 'name')
@@ -246,8 +250,8 @@ exports.deleteExpenseClaim = async (req, res, next) => {
             organizationId: organizationId
         };
 
-        // If not admin, restrict to own pending claims
-        if (role !== 'admin') {
+        // Dynamic role filtering: non-system users restricted to own pending claims
+        if (role !== 'admin' && !isSystemRole(role)) {
             query.createdBy = userId;
             query.status = 'pending';
         }
@@ -402,11 +406,40 @@ exports.bulkDeleteExpenseClaims = async (req, res, next) => {
             const deletePromises = expenseClaims
                 .filter(claim => claim.receipt)
                 .map(claim => {
-                    const publicId = `sales-sphere/${organization.name}/expense-claims/${claim._id}/receipt`;
-                    return cloudinary.uploader.destroy(publicId).catch(err => {
-                        console.error(`Error deleting receipt for claim ${claim._id}:`, err);
-                        return null; // Continue even if one fails
-                    });
+                    // Extract public_id robustly from the stored URL
+                    // Cloudinary URL format: https://res.cloudinary.com/cloudName/image/upload/v1234/folder/subfolder/publicId.jpg
+                    // We need to extract: folder/subfolder/publicId (without extension)
+                    try {
+                        const receiptUrl = claim.receipt;
+                        const urlParts = receiptUrl.split('/');
+
+                        // Find version folder (starts with 'v' followed by digits)
+                        const versionIndex = urlParts.findIndex(part =>
+                            part.startsWith('v') && part.length > 1 && !isNaN(Number(part.substring(1)))
+                        );
+
+                        if (versionIndex === -1) {
+                            console.warn(`Could not extract public_id from URL for claim ${claim._id}`);
+                            return Promise.resolve(null);
+                        }
+
+                        // Extract parts after version, remove file extension
+                        const publicIdWithExt = urlParts.slice(versionIndex + 1).join('/');
+                        const lastDotIndex = publicIdWithExt.lastIndexOf('.');
+
+                        // Handle case where there might be no extension or multiple dots
+                        const publicId = lastDotIndex > 0
+                            ? publicIdWithExt.substring(0, lastDotIndex)
+                            : publicIdWithExt;
+
+                        return cloudinary.uploader.destroy(publicId).catch(err => {
+                            console.error(`Error deleting receipt for claim ${claim._id}:`, err);
+                            return null;
+                        });
+                    } catch (extractErr) {
+                        console.error(`Error extracting public_id for claim ${claim._id}:`, extractErr);
+                        return Promise.resolve(null);
+                    }
                 });
 
             await Promise.all(deletePromises);
@@ -596,11 +629,26 @@ exports.uploadReceipt = async (req, res, next) => {
         // If there's an existing receipt, delete it from Cloudinary first
         if (expenseClaim.receipt) {
             try {
-                // Extract public_id from URL
-                const urlParts = expenseClaim.receipt.split('/');
-                const publicIdWithExtension = urlParts.slice(-2).join('/').split('.')[0];
-                const publicId = `sales-sphere/${organization.name}/expense-claims/${id}/receipt`;
-                await cloudinary.uploader.destroy(publicId);
+                // Extract public_id robustly from the stored URL
+                const receiptUrl = expenseClaim.receipt;
+                const urlParts = receiptUrl.split('/');
+
+                // Find version folder (starts with 'v' followed by digits)
+                const versionIndex = urlParts.findIndex(part =>
+                    part.startsWith('v') && part.length > 1 && !isNaN(Number(part.substring(1)))
+                );
+
+                if (versionIndex !== -1) {
+                    // Extract parts after version, remove file extension
+                    const publicIdWithExt = urlParts.slice(versionIndex + 1).join('/');
+                    const lastDotIndex = publicIdWithExt.lastIndexOf('.');
+
+                    const publicId = lastDotIndex > 0
+                        ? publicIdWithExt.substring(0, lastDotIndex)
+                        : publicIdWithExt;
+
+                    await cloudinary.uploader.destroy(publicId);
+                }
             } catch (deleteErr) {
                 console.error('Error deleting old receipt from Cloudinary:', deleteErr);
                 // Continue with upload even if delete fails
@@ -641,21 +689,21 @@ exports.uploadReceipt = async (req, res, next) => {
 
 // @desc    Delete receipt from an expense claim
 // @route   DELETE /api/v1/expense-claims/:id/receipt
-// @access  Private (Creator only, or Admin/Manager)
+// @access  Private (Creator only, or System Roles)
 exports.deleteReceipt = async (req, res, next) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId, role, _id: userId } = req.user;
         const { id } = req.params;
 
-        // Build query based on role
+        // Build query based on dynamic role
         const query = {
             _id: id,
             organizationId: organizationId
         };
 
-        // Only restrict to creator if not admin
-        if (role !== 'admin') {
+        // Only restrict to creator if not system role
+        if (role !== 'admin' && !isSystemRole(role)) {
             query.createdBy = userId;
         }
 

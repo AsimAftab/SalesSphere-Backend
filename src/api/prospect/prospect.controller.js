@@ -8,6 +8,8 @@ const crypto = require('crypto'); // <-- Added for random string generation
 const { z } = require('zod');
 const cloudinary = require('../../config/cloudinary'); // Ensure this path matches your project structure
 const fs = require('fs'); // Required for file cleanup
+const { getHierarchyFilter } = require('../../utils/hierarchyHelper');
+const { isValidFeature } = require('../../config/featureRegistry');
 
 // --- Zod Validation Schema ---
 const prospectSchemaValidation = z.object({
@@ -42,8 +44,21 @@ const categorySchemaValidation = z.object({
 // --- HELPER FUNCTIONS ---
 
 // Sync Prospect Interest Helper
-const syncProspectInterest = async (interests, organizationId) => {
+// Sync Prospect Interest Helper
+const syncProspectInterest = async (interests, organizationId, user) => {
     if (!interests || interests.length === 0) return;
+
+    // Check if user has permission to manage categories
+    let canManageCategories = false;
+
+    // If user object is provided (which it should be), check permissions
+    if (user && user.role) {
+        if (user.role === 'admin' || user.role === 'superadmin') {
+            canManageCategories = true;
+        } else if (user.permissions && user.permissions.prospects && user.permissions.prospects.manageCategories) {
+            canManageCategories = true;
+        }
+    }
 
     for (const item of interests) {
         const categoryName = item.category.trim();
@@ -61,13 +76,24 @@ const syncProspectInterest = async (interests, organizationId) => {
                 const newBrands = brands.filter(b =>
                     !category.brands.some(existing => existing.toLowerCase() === b.toLowerCase())
                 );
+
+                // Only allow adding new brands if user has manageCategories permission?
+                // OR allow strictly if category exists, but technically adding a brand modifies the category.
+                // STRICT MODE: adding brands modifies category -> requires permission.
                 if (newBrands.length > 0) {
+                    if (!canManageCategories) {
+                        throw new Error(`Permission denied: You cannot add new brands to category '${categoryName}'. Permission 'manageCategories' is required.`);
+                    }
                     category.brands.push(...newBrands);
                     await category.save();
                 }
             }
         } else {
             // Create: New category with brands
+            if (!canManageCategories) {
+                throw new Error(`Permission denied: You cannot create new category '${categoryName}'. Permission 'manageCategories' is required.`);
+            }
+
             await ProspectCategory.create({
                 name: categoryName,
                 brands: brands,
@@ -88,7 +114,11 @@ exports.createProspect = async (req, res, next) => {
 
         // --- Sync Prospect Interest ---
         if (validatedData.prospectInterest) {
-            await syncProspectInterest(validatedData.prospectInterest, organizationId);
+            try {
+                await syncProspectInterest(validatedData.prospectInterest, organizationId, req.user);
+            } catch (err) {
+                return res.status(403).json({ success: false, message: err.message });
+            }
         }
         // -----------------------------
 
@@ -115,7 +145,10 @@ exports.getAllProspects = async (req, res, next) => {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId } = req.user;
 
-        const prospects = await Prospect.find({ organizationId: organizationId })
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'prospects', 'viewTeamProspects');
+        const query = { organizationId: organizationId, ...hierarchyFilter };
+
+        const prospects = await Prospect.find(query)
             .select('_id prospectName ownerName location.address prospectInterest createdBy')
             .populate('createdBy', 'name')
             .sort({ createdAt: -1 })
@@ -142,7 +175,11 @@ exports.getAllProspectsDetails = async (req, res, next) => {
         const { organizationId } = req.user;
 
         // Fetch all prospects belonging to the organization
-        const prospects = await Prospect.find({ organizationId })
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'prospects', 'viewTeamProspects');
+        const query = { organizationId, ...hierarchyFilter };
+
+        // Fetch all prospects belonging to the organization
+        const prospects = await Prospect.find(query)
             .sort({ createdAt: -1 })
             .lean(); // Optional: returns plain JSON, faster
 
@@ -164,10 +201,16 @@ exports.getProspectById = async (req, res, next) => {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId } = req.user;
 
-        const prospect = await Prospect.findOne({
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'prospects', 'viewTeamProspects');
+
+        // Combine ID check with hierarchy filter
+        const query = {
             _id: req.params.id,
-            organizationId: organizationId
-        })
+            organizationId: organizationId,
+            ...hierarchyFilter
+        };
+
+        const prospect = await Prospect.findOne(query)
             .select(
                 '_id prospectName ownerName panVatNumber dateJoined description prospectInterest organizationId createdBy contact location images createdAt updatedAt' // <-- FIXED
             )
@@ -196,12 +239,20 @@ exports.updateProspect = async (req, res, next) => {
 
         // --- NEW: Sync Categories & Brands ---
         if (validatedData.prospectInterest) {
-            await syncProspectInterest(validatedData.prospectInterest, organizationId);
+            try {
+                await syncProspectInterest(validatedData.prospectInterest, organizationId, req.user);
+            } catch (err) {
+                return res.status(403).json({ success: false, message: err.message });
+            }
         }
         // --- END ---
 
+        // Check if user has permission to access this prospect based on hierarchy
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'prospects', 'viewTeamProspects');
+        const query = { _id: req.params.id, organizationId: organizationId, ...hierarchyFilter };
+
         const prospect = await Prospect.findOneAndUpdate(
-            { _id: req.params.id, organizationId: organizationId },
+            query,
             validatedData,
             { new: true, runValidators: true }
         );
@@ -223,10 +274,11 @@ exports.deleteProspect = async (req, res, next) => {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId } = req.user;
 
-        const prospect = await Prospect.findOneAndDelete({
-            _id: req.params.id,
-            organizationId: organizationId
-        });
+        // Check if user has permission to access this prospect based on hierarchy
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'prospects', 'viewTeamProspects');
+        const query = { _id: req.params.id, organizationId: organizationId, ...hierarchyFilter };
+
+        const prospect = await Prospect.findOneAndDelete(query);
 
         if (!prospect) {
             return res.status(404).json({ success: false, message: 'Prospect not found' });

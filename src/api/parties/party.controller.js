@@ -3,9 +3,32 @@ const PartyType = require('./partyType.model');
 const Organization = require('../organizations/organization.model');
 const { z } = require('zod');
 const cloudinary = require('../../config/cloudinary');
-const fs = require('fs');
+const User = require('../users/user.model');
+const { isSystemRole } = require('../../utils/defaultPermissions');
 
-// --- Zod Validation Schema ---
+// --- HELPER: Get Hierarchy Filter ---
+// Returns a query object based on user role and granular permissions
+const getPartiesHierarchyFilter = async (user) => {
+    const { role, _id: userId } = user;
+
+    // 1. Admin / System Role: Access All
+    if (role === 'admin' || isSystemRole(role)) {
+        return {};
+    }
+
+    // 2. Manager with Team View Feature: Access Self + Subordinates
+    if (user.hasFeature && user.hasFeature('parties', 'viewTeamParties')) {
+        const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
+        const subordinateIds = subordinates.map(u => u._id);
+
+        return {
+            createdBy: { $in: [userId, ...subordinateIds] }
+        };
+    }
+
+    // 3. Regular User: Access Self Only
+    return { createdBy: userId };
+};
 const partySchemaValidation = z.object({
     partyName: z.string({ required_error: "Party name is required" }).min(1, "Party name is required"),
     ownerName: z.string({ required_error: "Owner name is required" }).min(1, "Owner name is required"),
@@ -94,7 +117,10 @@ exports.getAllParties = async (req, res, next) => {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId } = req.user;
 
-        const parties = await Party.find({ organizationId: organizationId })
+        // Get hierarchy filter
+        const hierarchyFilter = await getPartiesHierarchyFilter(req.user);
+
+        const parties = await Party.find({ organizationId, ...hierarchyFilter })
             .select('_id partyName ownerName location.address partyType createdAt createdBy')
             .sort({ createdAt: -1 })
             .populate('createdBy', 'name')
@@ -120,8 +146,11 @@ exports.getAllPartiesDetails = async (req, res, next) => {
 
         const { organizationId } = req.user;
 
-        // Fetch all parties belonging to the organization
-        const parties = await Party.find({ organizationId })
+        // Get hierarchy filter
+        const hierarchyFilter = await getPartiesHierarchyFilter(req.user);
+
+        // Fetch all parties belonging to the organization with hierarchy check
+        const parties = await Party.find({ organizationId, ...hierarchyFilter })
             .sort({ createdAt: -1 })
             .lean(); // Optional: returns plain JSON, faster
 
@@ -143,9 +172,13 @@ exports.getPartyById = async (req, res, next) => {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId } = req.user;
 
+        // Get hierarchy filter
+        const hierarchyFilter = await getPartiesHierarchyFilter(req.user);
+
         const party = await Party.findOne({
             _id: req.params.id,
-            organizationId: organizationId
+            organizationId,
+            ...hierarchyFilter
         })
             .select(
                 '_id partyName ownerName panVatNumber dateJoined description organizationId partyType createdBy contact location image createdAt updatedAt'

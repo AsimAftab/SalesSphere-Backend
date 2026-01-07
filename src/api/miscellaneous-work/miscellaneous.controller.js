@@ -6,6 +6,35 @@ const cloudinary = require('../../config/cloudinary');
 const fs = require('fs');
 const { DateTime } = require('luxon');
 const mongoose = require('mongoose');
+const { isSystemRole } = require('../../utils/defaultPermissions');
+
+// --- HELPER: Get Hierarchy Filter ---
+// Returns a query object based on user role and granular permissions
+const getMiscellaneousHierarchyFilter = async (user) => {
+    const { role, _id: userId } = user;
+
+    // 1. Admin / System Role: Access All
+    if (role === 'admin' || isSystemRole(role)) {
+        return {};
+    }
+
+    // 2. Manager with Team View Feature: Access Self + Subordinates
+    if (user.hasFeature('miscellaneousWork', 'viewTeamMiscellaneous')) {
+        const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
+        const subordinateIds = subordinates.map(u => u._id);
+
+        return {
+            $or: [
+                { employeeId: userId },
+                { employeeId: { $in: subordinateIds } },
+                { assignedBy: user.name } // Also show work assigned BY this user (optional)
+            ]
+        };
+    }
+
+    // 3. Regular User: Access Self Only
+    return { employeeId: userId };
+};
 
 // --- Zod Validation Schema ---
 const miscellaneousWorkSchemaValidation = z.object({
@@ -160,7 +189,10 @@ exports.getAllMiscellaneousWork = async (req, res, next) => {
         // Use centralized helper for org settings
         const { timezone } = await getOrgSettings(organizationId);
 
-        let query = { organizationId };
+        // Get hierarchy filter
+        const hierarchyFilter = await getMiscellaneousHierarchyFilter(req.user);
+
+        let query = { organizationId, ...hierarchyFilter };
 
         // Filter by specific date
         if (date) {

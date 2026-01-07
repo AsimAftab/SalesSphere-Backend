@@ -1,9 +1,11 @@
 const Collection = require('./collections.model');
 const Organization = require('../organizations/organization.model');
+const User = require('../users/user.model');
 const mongoose = require('mongoose');
 const { z } = require('zod');
 const cloudinary = require('../../config/cloudinary');
 const fs = require('fs');
+const { isSystemRole } = require('../../utils/defaultPermissions');
 
 // --- Zod Validation Schemas ---
 
@@ -131,13 +133,37 @@ exports.createCollection = async (req, res, next) => {
 
 // @desc    Get all collections
 // @route   GET /api/v1/collections
-// @access  Private (Admin, Manager)
+// @access  Private
 exports.getAllCollections = async (req, res, next) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
-        const { organizationId } = req.user;
+        const { organizationId, role, _id: userId } = req.user;
 
-        const collections = await Collection.find({ organizationId: organizationId })
+        const query = { organizationId: organizationId };
+
+        // Dynamic role filtering:
+        // 1. System roles (superadmin/developer) and org admin: see all org data
+        // 2. Users with 'viewTeamCollections' permission: see own + subordinates' data
+        // 3. Regular users: see own data only
+        if (role === 'admin' || isSystemRole(role)) {
+            // Admin/System: View All - No additional filters needed (already filtered by orgId)
+        }
+        else if (req.user.hasFeature('collections', 'viewTeamCollections')) {
+            // Manager: View Self + Subordinates
+            const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
+            const subordinateIds = subordinates.map(u => u._id);
+
+            query.$or = [
+                { createdBy: userId },
+                { createdBy: { $in: subordinateIds } }
+            ];
+        }
+        else {
+            // Regular User: View Own Only
+            query.createdBy = userId;
+        }
+
+        const collections = await Collection.find(query)
             .populate('party', 'partyName ownerName')
             .populate('createdBy', 'name email')
             .sort({ receivedDate: -1 });
@@ -182,8 +208,25 @@ exports.getCollectionById = async (req, res, next) => {
             organizationId: organizationId
         };
 
-        // Salesperson can only see their own collections
-        if (role === 'salesperson') {
+        // Dynamic role filtering:
+        // 1. System roles and org admin: can access any collection in org
+        // 2. Users with 'viewTeamCollections': can access own or subordinates' collections
+        // 3. Regular users: can access own collections only
+        if (role === 'admin' || isSystemRole(role)) {
+            // Admin/System: Access All
+        }
+        else if (req.user.hasFeature('collections', 'viewTeamCollections')) {
+            // Manager: View Self + Subordinates
+            const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
+            const subordinateIds = subordinates.map(u => u._id);
+
+            query.$or = [
+                { createdBy: userId },
+                { createdBy: { $in: subordinateIds } }
+            ];
+        }
+        else {
+            // Regular User: View Own Only
             query.createdBy = userId;
         }
 
@@ -286,7 +329,7 @@ exports.updateChequeStatus = async (req, res, next) => {
 
 // @desc    Delete a collection
 // @route   DELETE /api/v1/collections/:id
-// @access  Private (Creator or Admin/Manager)
+// @access  Private
 exports.deleteCollection = async (req, res, next) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
@@ -297,8 +340,10 @@ exports.deleteCollection = async (req, res, next) => {
             organizationId: organizationId
         };
 
-        // If not admin/manager, restrict to own collections
-        if (role === 'salesperson') {
+        // Dynamic role filtering:
+        // - System roles and org admin: can delete any collection in org
+        // - Regular users: can delete own collections only
+        if (role !== 'admin' && !isSystemRole(role)) {
             query.createdBy = userId;
         }
 
@@ -509,7 +554,7 @@ exports.uploadChequeImage = async (req, res, next) => {
 
 // @desc    Delete a cheque image from a collection
 // @route   DELETE /api/v1/collections/:id/cheque-images/:imageNumber
-// @access  Private (Creator or Admin/Manager)
+// @access  Private
 exports.deleteChequeImage = async (req, res, next) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
@@ -524,14 +569,17 @@ exports.deleteChequeImage = async (req, res, next) => {
 
         const arrayIndex = imageNum - 1; // 1 -> 0, 2 -> 1
 
-        // Build query based on role
+        // Build query based on dynamic role
         const query = {
             _id: id,
             organizationId: organizationId,
             paymentMethod: 'cheque'
         };
 
-        if (role === 'salesperson') {
+        // Dynamic role filtering:
+        // - System roles and org admin: can delete any cheque image in org
+        // - Regular users: can delete own cheque images only
+        if (role !== 'admin' && !isSystemRole(role)) {
             query.createdBy = userId;
         }
 

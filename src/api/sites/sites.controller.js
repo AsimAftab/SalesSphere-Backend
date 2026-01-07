@@ -5,6 +5,8 @@ const Organization = require('../organizations/organization.model');
 const { z } = require('zod');
 const cloudinary = require('../../config/cloudinary');
 const fs = require('fs');
+const { getHierarchyFilter } = require('../../utils/hierarchyHelper');
+const { isValidFeature } = require('../../config/featureRegistry');
 
 // --- Zod Validation Schema ---
 const siteSchemaValidation = z.object({
@@ -33,8 +35,19 @@ const siteSchemaValidation = z.object({
 });
 
 // Sync Site Interest Helper
-const syncSiteInterest = async (interests, organizationId) => {
+// Sync Site Interest Helper
+const syncSiteInterest = async (interests, organizationId, user) => {
     if (!interests || interests.length === 0) return;
+
+    // Check if user has permission to manage categories
+    let canManageCategories = false;
+    if (user && user.role) {
+        if (user.role === 'admin' || user.role === 'superadmin') {
+            canManageCategories = true;
+        } else if (user.permissions && user.permissions.sites && user.permissions.sites.manageCategories) {
+            canManageCategories = true;
+        }
+    }
 
     for (const item of interests) {
         const categoryName = item.category.trim();
@@ -56,6 +69,9 @@ const syncSiteInterest = async (interests, organizationId) => {
                     !category.brands.some(existing => existing.toLowerCase() === b.toLowerCase())
                 );
                 if (newBrands.length > 0) {
+                    if (!canManageCategories) {
+                        throw new Error(`Permission denied: You cannot add new brands to category '${categoryName}'. Permission 'manageCategories' is required.`);
+                    }
                     category.brands.push(...newBrands);
                     isUpdated = true;
                 }
@@ -69,6 +85,9 @@ const syncSiteInterest = async (interests, organizationId) => {
                     )
                 );
                 if (newTechnicians.length > 0) {
+                    if (!canManageCategories) {
+                        throw new Error(`Permission denied: You cannot add new technicians to category '${categoryName}'. Permission 'manageCategories' is required.`);
+                    }
                     category.technicians.push(...newTechnicians);
                     isUpdated = true;
                 }
@@ -79,6 +98,10 @@ const syncSiteInterest = async (interests, organizationId) => {
             }
         } else {
             // Create: New category with brands and technicians
+            if (!canManageCategories) {
+                throw new Error(`Permission denied: You cannot create new category '${categoryName}'. Permission 'manageCategories' is required.`);
+            }
+
             await SiteCategory.create({
                 name: categoryName,
                 brands: brands,
@@ -90,7 +113,8 @@ const syncSiteInterest = async (interests, organizationId) => {
 };
 
 // Sync Sub-Organization Helper
-const syncSubOrganization = async (subOrgName, organizationId) => {
+// Sync Sub-Organization Helper
+const syncSubOrganization = async (subOrgName, organizationId, user) => {
     if (!subOrgName) return;
 
     const trimmedName = subOrgName.trim();
@@ -102,6 +126,20 @@ const syncSubOrganization = async (subOrgName, organizationId) => {
     });
 
     if (!existingSubOrg) {
+        // Check permissions
+        let canManageCategories = false;
+        if (user && user.role) {
+            if (user.role === 'admin' || user.role === 'superadmin') {
+                canManageCategories = true;
+            } else if (user.permissions && user.permissions.sites && user.permissions.sites.manageCategories) {
+                canManageCategories = true;
+            }
+        }
+
+        if (!canManageCategories) {
+            throw new Error(`Permission denied: You cannot create new sub-organization '${trimmedName}'. Permission 'manageCategories' is required.`);
+        }
+
         // Create new sub-organization
         await SiteSubOrganization.create({
             name: trimmedName,
@@ -121,13 +159,21 @@ exports.createSite = async (req, res, next) => {
 
         // --- Sync Site Interest ---
         if (validatedData.siteInterest) {
-            await syncSiteInterest(validatedData.siteInterest, organizationId);
+            try {
+                await syncSiteInterest(validatedData.siteInterest, organizationId, req.user);
+            } catch (err) {
+                return res.status(403).json({ success: false, message: err.message });
+            }
         }
         // -----------------------------
 
         // --- Sync Sub-Organization ---
         if (validatedData.subOrganization) {
-            await syncSubOrganization(validatedData.subOrganization, organizationId);
+            try {
+                await syncSubOrganization(validatedData.subOrganization, organizationId, req.user);
+            } catch (err) {
+                return res.status(403).json({ success: false, message: err.message });
+            }
         }
         // -----------------------------
 
@@ -161,7 +207,10 @@ exports.getAllSites = async (req, res, next) => {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId } = req.user;
 
-        const sites = await Site.find({ organizationId })
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'sites', 'viewTeamSites');
+        const query = { organizationId, ...hierarchyFilter };
+
+        const sites = await Site.find(query)
             .populate('createdBy', 'name email')
             .sort({ createdAt: -1 });
 
@@ -191,7 +240,10 @@ exports.getAllSitesDetails = async (req, res, next) => {
         const { organizationId } = req.user;
 
         // Fetch all sites belonging to the organization
-        const sites = await Site.find({ organizationId })
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'sites', 'viewTeamSites');
+        const query = { organizationId, ...hierarchyFilter };
+
+        const sites = await Site.find(query)
             .sort({ createdAt: -1 })
             .lean(); // Optional: returns plain JSON, faster
 
@@ -215,7 +267,10 @@ exports.getSiteById = async (req, res, next) => {
         const { organizationId } = req.user;
         const { id } = req.params;
 
-        const site = await Site.findOne({ _id: id, organizationId })
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'sites', 'viewTeamSites');
+        const query = { _id: id, organizationId, ...hierarchyFilter };
+
+        const site = await Site.findOne(query)
             .populate('createdBy', 'name email');
 
         if (!site) {
@@ -245,17 +300,29 @@ exports.updateSite = async (req, res, next) => {
 
         // --- Sync Site Interest ---
         if (validatedData.siteInterest) {
-            await syncSiteInterest(validatedData.siteInterest, organizationId);
+            try {
+                await syncSiteInterest(validatedData.siteInterest, organizationId, req.user);
+            } catch (err) {
+                return res.status(403).json({ success: false, message: err.message });
+            }
         }
         // -----------------------------
 
         // --- Sync Sub-Organization ---
         if (validatedData.subOrganization) {
-            await syncSubOrganization(validatedData.subOrganization, organizationId);
+            try {
+                await syncSubOrganization(validatedData.subOrganization, organizationId, req.user);
+            } catch (err) {
+                return res.status(403).json({ success: false, message: err.message });
+            }
         }
         // -----------------------------
 
-        const site = await Site.findOne({ _id: id, organizationId });
+        // Check if user has permission to access this site based on hierarchy
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'sites', 'viewTeamSites');
+        const query = { _id: id, organizationId, ...hierarchyFilter };
+
+        const site = await Site.findOne(query);
         if (!site) {
             return res.status(404).json({ success: false, message: 'Site not found' });
         }
@@ -291,7 +358,11 @@ exports.deleteSite = async (req, res, next) => {
         const { organizationId } = req.user;
         const { id } = req.params;
 
-        const site = await Site.findOne({ _id: id, organizationId });
+        // Check if user has permission to access this site based on hierarchy
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'sites', 'viewTeamSites');
+        const query = { _id: id, organizationId, ...hierarchyFilter };
+
+        const site = await Site.findOne(query);
         if (!site) {
             return res.status(404).json({ success: false, message: 'Site not found' });
         }

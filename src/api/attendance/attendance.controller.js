@@ -5,6 +5,8 @@ const Organization = require('../organizations/organization.model');
 const { z } = require('zod');
 const mongoose = require('mongoose');
 const { DateTime } = require('luxon');
+const { isSystemRole } = require('../../utils/defaultPermissions');
+const { canApprove } = require('../../utils/hierarchyHelper');
 
 /* ======================
    Helpers & Timezone utils
@@ -708,10 +710,30 @@ exports.getAttendanceReport = async (req, res, next) => {
     const dayNameToNumber = { 'Sunday': 0, 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4, 'Friday': 5, 'Saturday': 6 };
     const weeklyOffDayNumber = dayNameToNumber[weeklyOffDay];
 
-    const employees = await User.find({
-      organizationId: orgObjectId,
-      role: 'user'  // All non-admin employees
-    }).select('name email role').lean();
+    // Dynamic role filtering for employee query:
+    // 1. System roles and org admin: see all non-system employees in org
+    // 2. Users with 'viewTeamAttendance' permission: see themselves AND their subordinates
+    // 3. Regular users: see only themselves
+    let employeeQuery = { organizationId: orgObjectId };
+
+    if (isSystemRole(req.user.role) || req.user.role === 'admin') {
+      // 1. Admin/System: View All (exclude superadmin/developer)
+      employeeQuery.role = { $nin: ['superadmin', 'developer'] };
+    }
+    else if (req.user.hasFeature('attendance', 'viewTeamAttendance')) {
+      // 2. Manager with Permission: View Self + Subordinates
+      // Find users where 'reportsTo' array contains the current user's ID
+      employeeQuery.$or = [
+        { _id: req.user._id },
+        { reportsTo: req.user._id }
+      ];
+    }
+    else {
+      // 3. Regular User: View Self Only
+      employeeQuery._id = req.user._id;
+    }
+
+    const employees = await User.find(employeeQuery).select('name email role').lean();
 
     if (employees.length === 0) {
       return res.status(200).json({ success: true, data: { report: [], summary: [] } });
@@ -809,9 +831,41 @@ exports.getEmployeeAttendanceByDate = async (req, res, next) => {
     const organization = await Organization.findById(orgObjectId).select('timezone');
     const timezone = organization?.timezone || 'Asia/Kolkata';
 
-    // Verify employee belongs to the same org
-    const employee = await User.findOne({ _id: employeeId, organizationId: orgObjectId }).select('name email role');
+    // Verify employee belongs to the same org AND check hierarchy permissions
+    const employee = await User.findOne({ _id: employeeId, organizationId: orgObjectId }).select('name email role reportsTo');
     if (!employee) return res.status(404).json({ success: false, message: "Employee not found in your organization." });
+
+    // Dynamic Role/Hierarchy Check
+    const { role: userRole, _id: userId } = req.user;
+    const { isSystemRole } = require('../../utils/defaultPermissions');
+
+    let isAuthorized = false;
+
+    if (userRole === 'admin' || isSystemRole(userRole)) {
+      // 1. Admin/System: Access All
+      isAuthorized = true;
+    }
+    else if (req.user.hasFeature('attendance', 'viewTeamAttendance')) {
+      // 2. Manager: Access Self + Subordinates
+      if (employeeId.toString() === userId.toString()) {
+        isAuthorized = true;
+      } else {
+        // Check if the target employee reports to the current user
+        // reportsTo is an array of IDs. We check if userId is in that array.
+        const isSubordinate = employee.reportsTo && employee.reportsTo.some(id => id.toString() === userId.toString());
+        if (isSubordinate) isAuthorized = true;
+      }
+    }
+    else {
+      // 3. Regular User: Access Self Only
+      if (employeeId.toString() === userId.toString()) {
+        isAuthorized = true;
+      }
+    }
+
+    if (!isAuthorized) {
+      return res.status(403).json({ success: false, message: "You are not authorized to view this employee's attendance." });
+    }
 
     // Use new robust date parser
     let recordDate;
@@ -902,8 +956,25 @@ exports.adminMarkAttendance = async (req, res, next) => {
 
     const { employeeId, date, status, notes } = adminMarkSchema.parse(req.body);
 
-    const employee = await User.findOne({ _id: employeeId, organizationId: orgObjectId }).select('role name');
+    const employee = await User.findOne({ _id: employeeId, organizationId: orgObjectId }).select('role name reportsTo customRoleId');
     if (!employee) return res.status(404).json({ success: false, message: "Employee not found in your organization." });
+
+    // Hierarchy Check: Admin can mark anyone's attendance; Manager can only mark subordinates' attendance
+    const authorized = canApprove(req.user, employee, 'attendance');
+    if (!authorized) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not authorized to mark attendance for this employee. You can only mark attendance for your subordinates.'
+      });
+    }
+
+    // Prevent self-marking attendance (should use check-in/check-out instead)
+    if (employee._id.toString() === req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'You cannot mark your own attendance. Please use the check-in/check-out feature.'
+      });
+    }
 
     // Permissions checked via requirePermission('attendance', 'update') in route
     const organization = await Organization.findById(orgObjectId).select('checkInTime checkOutTime halfDayCheckOutTime weeklyOffDay timezone');
@@ -995,24 +1066,33 @@ exports.adminMarkAttendance = async (req, res, next) => {
   }
 };
 
-// @desc    Mark all un-marked employees as 'Absent' for today (Admin only)
+// @desc    Mark all un-marked employees as 'Absent' for today
 // @route   POST /api/v1/attendance/admin/mark-absentees
 // @access  Private (attendance:add permission)
 exports.adminMarkAbsentees = async (req, res, next) => {
   try {
     if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
-    const { organizationId, _id: adminUserId } = req.user;
+    const { organizationId, _id: adminUserId, role } = req.user;
     const orgObjectId = toObjectIdIfNeeded(organizationId);
 
     const organization = await Organization.findById(orgObjectId).select('timezone');
     const timezone = organization?.timezone || 'Asia/Kolkata';
     const today = getStartOfTodayInOrgTZ(timezone);
 
-    // 1) All employees in org (excludes admin)
-    const allEmployees = await User.find({
+    // 1) Build employee query based on role hierarchy
+    // - System roles and org admin: all non-system employees in org
+    // - Managers: only their subordinates
+    let employeeQuery = {
       organizationId: orgObjectId,
-      role: 'user'  // All non-admin employees
-    }).select('_id').lean();
+      role: { $nin: ['superadmin', 'developer'] }
+    };
+
+    if (!isSystemRole(role) && role !== 'admin') {
+      // Manager/regular user: only subordinates
+      employeeQuery.reportsTo = { $in: [adminUserId] };
+    }
+
+    const allEmployees = await User.find(employeeQuery).select('_id').lean();
 
     if (allEmployees.length === 0) return res.status(200).json({ success: true, message: "No employees found to mark." });
 
@@ -1096,12 +1176,21 @@ exports.adminMarkHoliday = async (req, res, next) => {
       });
     }
 
-    // Find all active employees
-    const allEmployees = await User.find({
+    // Build employee query based on role hierarchy
+    // - System roles and org admin: all non-system employees in org
+    // - Managers: only their subordinates
+    let employeeQuery = {
       organizationId: orgObjectId,
-      role: { $in: ['user', 'admin'] },  // All org employees including admin
+      role: { $nin: ['superadmin', 'developer'] },
       isActive: true
-    }).select('_id name').lean();
+    };
+
+    if (!isSystemRole(req.user.role) && req.user.role !== 'admin') {
+      // Manager/regular user: only subordinates
+      employeeQuery.reportsTo = { $in: [req.user._id] };
+    }
+
+    const allEmployees = await User.find(employeeQuery).select('_id name').lean();
 
     if (allEmployees.length === 0) {
       return res.status(200).json({ success: true, message: "No employees found to mark holiday." });

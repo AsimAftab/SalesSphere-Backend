@@ -397,11 +397,12 @@ exports.assignRoleToUser = async (req, res) => {
             }
         }
 
-        // Prevent assigning roles to admins
-        if (user.role === 'admin') {
+        // 🛡️ SECURITY: Prevent assigning custom roles to ANY system role (admin, superadmin, developer)
+        // This prevents org admins from downgrading system user accounts
+        if (user.role === 'admin' || isSystemRole(user.role)) {
             return res.status(400).json({
                 status: 'error',
-                message: 'Cannot assign custom role to admin users'
+                message: 'Cannot assign custom roles to Admin or System users'
             });
         }
 
@@ -461,6 +462,14 @@ exports.removeRoleFromUser = async (req, res) => {
             return res.status(403).json({
                 status: 'error',
                 message: 'Access denied'
+            });
+        }
+
+        // 🛡️ SECURITY: Prevent removing custom roles from ANY system role (admin, superadmin, developer)
+        if (user.role === 'admin' || isSystemRole(user.role)) {
+            return res.status(400).json({
+                status: 'error',
+                message: 'Cannot modify Admin or System users'
             });
         }
 

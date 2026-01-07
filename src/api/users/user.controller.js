@@ -36,7 +36,26 @@ exports.createUser = async (req, res, next) => {
             return res.status(403).json({ success: false, message: 'Cannot create another admin account for this organization.' });
         }
         // All org users (except admin) should be 'user' role with customRoleId for permissions
-        // --- End Permission Check ---
+
+        // --- Subscription Limit Check ---
+        const organization = await Organization.findById(req.user.organizationId).populate('subscriptionPlanId');
+        if (!organization) {
+            return res.status(404).json({ success: false, message: 'Organization not found' });
+        }
+
+        const currentEmployeeCount = await User.countDocuments({
+            organizationId: req.user.organizationId,
+            isActive: true
+        });
+
+        // Use organization model method if available, or direct check
+        if (!organization.canAddEmployee(currentEmployeeCount)) {
+            return res.status(403).json({
+                success: false,
+                message: 'Maximum employee limit reached for your subscription plan. Please upgrade your plan to add more employees.'
+            });
+        }
+        // --- End Subscription Check ---
 
         const temporaryPassword = crypto.randomBytes(8).toString('hex');
 
@@ -291,12 +310,47 @@ exports.createOrgUser = async (req, res, next) => {
             });
         }
 
-        // Validate reportsTo if provided
+        // Validate reportsTo if provided (now supports multiple supervisors)
         if (reportsTo) {
-            if (!require('mongoose').Types.ObjectId.isValid(reportsTo)) {
-                cleanupTempFile(tempAvatarPath);
-                return res.status(400).json({ success: false, message: 'Invalid reportsTo user ID' });
+            // Ensure reportsTo is an array
+            const supervisorIds = Array.isArray(reportsTo) ? reportsTo : [reportsTo];
+
+            // Validate each supervisor ID
+            for (const supId of supervisorIds) {
+                if (!require('mongoose').Types.ObjectId.isValid(supId)) {
+                    cleanupTempFile(tempAvatarPath);
+                    return res.status(400).json({ success: false, message: `Invalid reportsTo user ID: ${supId}` });
+                }
             }
+
+            // Fetch all supervisors to validate
+            const supervisors = await User.find({ _id: { $in: supervisorIds } });
+
+            if (supervisors.length !== supervisorIds.length) {
+                cleanupTempFile(tempAvatarPath);
+                return res.status(404).json({ success: false, message: 'One or more supervisors not found' });
+            }
+
+            // Same-role validation: prevent reporting to users with same customRoleId
+            // Note: customRoleId will be set later when creating the user, so we check against req.body.customRoleId
+            const customRoleId = req.body.customRoleId;
+            if (customRoleId) {
+                for (const supervisor of supervisors) {
+                    if (supervisor.customRoleId &&
+                        supervisor.customRoleId.toString() === customRoleId.toString()) {
+                        cleanupTempFile(tempAvatarPath);
+                        return res.status(400).json({
+                            success: false,
+                            message: 'Cannot assign supervisor with the same role. Users cannot report to someone with the same custom role.'
+                        });
+                    }
+                }
+            }
+
+            // Store as array for later use
+            req.body.reportsTo = supervisorIds;
+        } else {
+            req.body.reportsTo = [];
         }
 
         // Validate organization exists
@@ -309,6 +363,28 @@ exports.createOrgUser = async (req, res, next) => {
                 message: 'Organization not found'
             });
         }
+
+        // --- Subscription Limit Check for Superadmin/Developer ---
+        // Even system users should respect the plan limits when adding users to an org manually
+        if (role !== 'admin') { // Admin account doesn't count towards employee limit (usually, or strict rule: 1 admin + N employees)
+            // Check if we should enforce limit. Let's enforce for consistency.
+            // Populate plan if not already
+            await organization.populate('subscriptionPlanId');
+
+            const currentEmployeeCount = await User.countDocuments({
+                organizationId: organizationId,
+                isActive: true
+            });
+
+            if (!organization.canAddEmployee(currentEmployeeCount)) {
+                cleanupTempFile(tempAvatarPath);
+                return res.status(403).json({
+                    success: false,
+                    message: 'Maximum employee limit reached for this organization\'s subscription plan.'
+                });
+            }
+        }
+        // --- End Subscription Check ---
 
         // Role validation - only 'user' role allowed (permissions via customRoleId)
         if (role && role !== 'user') {
@@ -336,7 +412,7 @@ exports.createOrgUser = async (req, res, next) => {
             dateJoined: dateJoined ? new Date(dateJoined) : new Date(),
             password: temporaryPassword,
             organizationId,
-            reportsTo: req.body.reportsTo ? new mongoose.Types.ObjectId(req.body.reportsTo) : null // Assign supervisor
+            reportsTo: req.body.reportsTo || [] // Assign supervisor(s) array
         });
 
         let avatarUrl = newUser.avatarUrl;
@@ -618,7 +694,10 @@ exports.toggleUserAccess = async (req, res, next) => {
         if (!userToUpdate) return res.status(404).json({ success: false, message: 'User not found' });
 
         // --- Permission Checks ---
-        // Access toggle is protected by requireOrgAdmin middleware in route
+        // --- Permission Checks ---
+        // Access toggle is strictly restricted to Organization Admins.
+        // User requested to force requireOrgAdmin here instead of granular permissions.
+
         // Additional security: prevent modifying admin accounts
         if (userToUpdate.role === 'admin') {
             return res.status(403).json({ success: false, message: 'Cannot toggle access for admin accounts (they always have access).' });
@@ -685,21 +764,53 @@ exports.updateUser = async (req, res, next) => {
             }
         }
 
-        // Supervisor Update (reportsTo)
+        // Supervisor Update (reportsTo) - Now supports multiple supervisors
         if (req.body.reportsTo !== undefined) {
-            // Validate if valid ObjectId or null
-            const supervisorId = req.body.reportsTo;
-            if (supervisorId && !mongoose.Types.ObjectId.isValid(supervisorId)) {
-                return res.status(400).json({ success: false, message: 'Invalid reportsTo user ID' });
-            }
+            // Handle null/empty case
+            if (req.body.reportsTo === null || req.body.reportsTo === '') {
+                updateData.reportsTo = [];
+            } else {
+                // Ensure reportsTo is an array
+                const supervisorIds = Array.isArray(req.body.reportsTo) ? req.body.reportsTo : [req.body.reportsTo];
 
-            // Prevent self-reporting
-            if (supervisorId && supervisorId.toString() === userIdToUpdate) {
-                return res.status(400).json({ success: false, message: 'User cannot report to themselves' });
-            }
+                // Remove any null/undefined values
+                const validSupervisorIds = supervisorIds.filter(id => id !== null && id !== undefined && id !== '');
 
-            // Circular check could be added here (A->B->A), but for now simple self-check
-            updateData.reportsTo = supervisorId;
+                // Validate each supervisor ID
+                for (const supId of validSupervisorIds) {
+                    if (!mongoose.Types.ObjectId.isValid(supId)) {
+                        return res.status(400).json({ success: false, message: `Invalid reportsTo user ID: ${supId}` });
+                    }
+                }
+
+                // Prevent self-reporting
+                if (validSupervisorIds.includes(userIdToUpdate)) {
+                    return res.status(400).json({ success: false, message: 'User cannot report to themselves' });
+                }
+
+                // Fetch all supervisors to validate
+                const supervisors = await User.find({ _id: { $in: validSupervisorIds } });
+
+                if (supervisors.length !== validSupervisorIds.length) {
+                    return res.status(404).json({ success: false, message: 'One or more supervisors not found' });
+                }
+
+                // Same-role validation: prevent reporting to users with same customRoleId
+                const userCustomRoleId = userToUpdate.customRoleId;
+                if (userCustomRoleId) {
+                    for (const supervisor of supervisors) {
+                        if (supervisor.customRoleId &&
+                            supervisor.customRoleId.toString() === userCustomRoleId.toString()) {
+                            return res.status(400).json({
+                                success: false,
+                                message: 'Cannot assign supervisor with the same role. Users cannot report to someone with the same custom role.'
+                            });
+                        }
+                    }
+                }
+
+                updateData.reportsTo = validSupervisorIds;
+            }
         }
 
         // Role update logic (Security: prevent role escalation)
@@ -948,12 +1059,72 @@ exports.deleteUserDocument = async (req, res, next) => {
     }
 };
 
-// Get logged-in user's profile
+// Get logged-in user's profile with permissions and subscription features
 exports.getMyProfile = async (req, res, next) => {
     try {
-        const user = await User.findById(req.user.id).select('-documents');
-        if (!user || !user.isActive) return res.status(404).json({ success: false, message: 'User not found or inactive' });
-        res.status(200).json({ success: true, data: user });
+        // Fetch user with customRoleId and organizationId populated
+        const user = await User.findById(req.user.id)
+            .select('-documents')
+            .populate('customRoleId')
+            .populate('organizationId');
+
+        if (!user || !user.isActive) {
+            return res.status(404).json({ success: false, message: 'User not found or inactive' });
+        }
+
+        // Get user's effective permissions (based on role/customRoleId)
+        const permissions = user.getEffectivePermissions();
+
+        // Get subscription plan features if organization exists
+        let subscriptionFeatures = null;
+        let planName = null;
+        let enabledModules = [];
+
+        if (user.organizationId && user.organizationId.subscriptionPlanId) {
+            // Populate subscription plan if not already populated
+            const Organization = require('../organizations/organization.model');
+            const orgWithPlan = await Organization.findById(user.organizationId._id)
+                .populate('subscriptionPlanId');
+
+            if (orgWithPlan && orgWithPlan.subscriptionPlanId) {
+                const plan = orgWithPlan.subscriptionPlanId;
+                planName = plan.name;
+                enabledModules = plan.enabledModules || [];
+
+                // Get permissions intersected with plan
+                const permissionsWithPlan = user.getEffectivePermissionsWithPlan(orgWithPlan);
+                subscriptionFeatures = {
+                    permissions: permissionsWithPlan,
+                    planName: plan.name,
+                    planTier: plan.tier,
+                    enabledModules: enabledModules,
+                    maxEmployees: plan.maxEmployees,
+                    subscriptionEndDate: orgWithPlan.subscriptionEndDate
+                };
+            }
+        }
+
+        // Build response
+        const responseData = {
+            ...user.toObject(),
+            // Add permissions and features separately (not in user object)
+            permissions: subscriptionFeatures ? subscriptionFeatures.permissions : permissions,
+            subscription: subscriptionFeatures ? {
+                planName: subscriptionFeatures.planName,
+                planTier: subscriptionFeatures.planTier,
+                enabledModules: subscriptionFeatures.enabledModules,
+                maxEmployees: subscriptionFeatures.maxEmployees,
+                subscriptionEndDate: subscriptionFeatures.subscriptionEndDate
+            } : null
+        };
+
+        // Remove sensitive data
+        delete responseData.password;
+        if (responseData.organizationId) {
+            delete responseData.organizationId.subscriptionPlanId; // Don't expose full plan object
+        }
+
+        res.status(200).json({ success: true, data: responseData });
     } catch (error) { next(error); }
 };
 
@@ -1242,6 +1413,155 @@ exports.getEmployeeAttendanceSummary = async (req, res, next) => {
 
     } catch (error) {
         console.error('Error fetching employee attendance summary:', error);
+        next(error);
+    }
+};
+
+// ============================================
+// HIERARCHY MANAGEMENT ENDPOINTS
+// ============================================
+
+// @desc    Get user's supervisors (who this user reports to)
+// @route   GET /api/v1/users/:id/supervisors
+// @access  Private (employees:viewDetails)
+exports.getUserSupervisors = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+
+        const user = await User.findOne({
+            _id: req.params.id,
+            organizationId: organizationId
+        }).populate('reportsTo', 'name email role customRoleId');
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: {
+                userId: user._id,
+                name: user.name,
+                supervisors: user.reportsTo || []
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// @desc    Set/update supervisors for a user
+// @route   PUT /api/v1/users/:id/supervisors
+// @access  Private (employees:assignSupervisor)
+exports.setUserSupervisors = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+
+        const { reportsTo } = req.body; // Array of supervisor IDs
+
+        // Validate reportsTo format
+        if (!Array.isArray(reportsTo)) {
+            return res.status(400).json({ success: false, message: 'reportsTo must be an array of user IDs' });
+        }
+
+        // Find the user to update
+        const user = await User.findOne({
+            _id: req.params.id,
+            organizationId: organizationId
+        }).populate('customRoleId');
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        // Validate each supervisor ID
+        const supervisorIds = reportsTo.filter(id => id !== null && id !== '');
+        for (const supId of supervisorIds) {
+            if (!mongoose.Types.ObjectId.isValid(supId)) {
+                return res.status(400).json({ success: false, message: `Invalid supervisor ID: ${supId}` });
+            }
+        }
+
+        // Fetch supervisors to validate they exist and belong to same org
+        const supervisors = await User.find({
+            _id: { $in: supervisorIds },
+            organizationId: organizationId
+        });
+
+        if (supervisors.length !== supervisorIds.length) {
+            return res.status(404).json({ success: false, message: 'One or more supervisors not found' });
+        }
+
+        // Same-role validation: prevent reporting to someone with same customRoleId
+        if (user.customRoleId) {
+            for (const supervisor of supervisors) {
+                if (supervisor.customRoleId &&
+                    supervisor.customRoleId.toString() === user.customRoleId.toString()) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Cannot assign supervisor with the same role. Users cannot report to someone with the same custom role.'
+                    });
+                }
+            }
+        }
+
+        // Prevent self-reporting
+        if (supervisorIds.includes(req.params.id)) {
+            return res.status(400).json({ success: false, message: 'User cannot report to themselves' });
+        }
+
+        // Update supervisors
+        user.reportsTo = supervisorIds;
+        await user.save();
+
+        // Fetch updated user with populated supervisors
+        const updatedUser = await User.findById(user._id).populate('reportsTo', 'name email role customRoleId');
+
+        res.status(200).json({
+            success: true,
+            message: 'Supervisors updated successfully',
+            data: {
+                userId: updatedUser._id,
+                name: updatedUser.name,
+                supervisors: updatedUser.reportsTo || []
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// @desc    Get users who report to this user (subordinates)
+// @route   GET /api/v1/users/:id/subordinates
+// @access  Private (employees:viewList)
+exports.getUserSubordinates = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId, role } = req.user;
+
+        // Dynamic role filtering: non-system users see their own subordinates only
+        let query = {
+            organizationId: organizationId,
+            reportsTo: req.params.id // Users who have this user in their reportsTo array
+        };
+
+        // If not admin/system role, additional check can be added
+        // But for now, anyone with viewList permission can see subordinates
+
+        const subordinates = await User.find(query)
+            .select('name email role customRoleId reportsTo createdAt isActive')
+            .populate('customRoleId', 'name permissions')
+            .populate('reportsTo', 'name email role')
+            .sort({ name: 1 });
+
+        res.status(200).json({
+            success: true,
+            count: subordinates.length,
+            data: subordinates
+        });
+    } catch (error) {
         next(error);
     }
 };

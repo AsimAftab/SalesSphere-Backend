@@ -1,9 +1,38 @@
 const LeaveRequest = require('./leave.model');
 const Attendance = require('../attendance/attendance.model');
 const Organization = require('../organizations/organization.model');
+const User = require('../users/user.model');
 const mongoose = require('mongoose');
 const { z } = require('zod');
 const { DateTime } = require('luxon');
+const { isSystemRole } = require('../../utils/defaultPermissions');
+const { canApprove } = require('../../utils/hierarchyHelper');
+
+// --- HELPER: Get Hierarchy Filter ---
+const getLeaveHierarchyFilter = async (user) => {
+    const { role, _id: userId } = user;
+
+    // 1. Admin / System Role: Access All
+    if (role === 'admin' || isSystemRole(role)) {
+        return {};
+    }
+
+    // 2. Manager with viewTeamLeaves: Access Self + Subordinates
+    if (user.hasFeature('leaves', 'viewTeamLeaves')) {
+        const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
+        const subordinateIds = subordinates.map(u => u._id);
+
+        return {
+            $or: [
+                { createdBy: userId },
+                { createdBy: { $in: subordinateIds } }
+            ]
+        };
+    }
+
+    // 3. Regular User: Access Self Only
+    return { createdBy: userId };
+};
 
 // --- Zod Validation Schemas ---
 const leaveRequestSchemaValidation = z.object({
@@ -169,19 +198,13 @@ exports.getAllLeaveRequests = async (req, res, next) => {
     try {
         const { organizationId, role, _id: userId } = req.user;
 
-        let query = { organizationId };
+        // Get hierarchy filter
+        const hierarchyFilter = await getLeaveHierarchyFilter(req.user);
 
-        if (role !== 'admin') {
-            // Find direct subordinates
-            const User = require('../users/user.model');
-            const subordinates = await User.find({ reportsTo: userId }).select('_id');
-            const subordinateIds = subordinates.map(u => u._id);
-
-            query.$or = [
-                { createdBy: userId },
-                { createdBy: { $in: subordinateIds } }
-            ];
-        }
+        const query = {
+            organizationId,
+            ...hierarchyFilter
+        };
 
         const leaveRequests = await LeaveRequest.find(query)
             .populate('employee', 'name email role') // Changed from 'createdBy' to 'employee' based on previous context, but checking model... 
@@ -232,8 +255,14 @@ exports.getLeaveRequestById = async (req, res, next) => {
     try {
         const { organizationId, role, _id: userId } = req.user;
 
-        const query = { _id: req.params.id, organizationId };
-        if (role === 'salesperson') query.createdBy = userId;
+        // Get hierarchy filter
+        const hierarchyFilter = await getLeaveHierarchyFilter(req.user);
+
+        const query = {
+            _id: req.params.id,
+            organizationId,
+            ...hierarchyFilter
+        };
 
         const leaveRequest = await LeaveRequest.findOne(query)
             .populate('createdBy', 'name email role')
@@ -324,10 +353,6 @@ exports.deleteLeaveRequest = async (req, res, next) => {
         next(error);
     }
 };
-
-// @desc    Update leave request status (approve/reject)
-// @route   PATCH /api/v1/leave-requests/:id/status
-const { canApprove } = require('../../utils/hierarchyHelper');
 
 // @desc    Update leave request status (approve/reject)
 // @route   PUT /api/v1/leaves/:id/status
