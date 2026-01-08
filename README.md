@@ -1833,8 +1833,3 @@ You can test the API using:
 **Last Updated**: January 2026
 
 For questions or issues, please open an issue on GitHub.
-
-
-**Last Updated**: January 2026
-
-For questions or issues, please open an issue on GitHub.
