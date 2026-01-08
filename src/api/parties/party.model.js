@@ -73,12 +73,39 @@ const partySchema = new mongoose.Schema({
     //   default: true,
     // },
     // --- END REMOVAL ---
+
+    // ============================================
+    // ASSIGNMENT FIELDS
+    // ============================================
+    // Users assigned to this party (for data access control)
+    assignedUsers: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    }],
+    // Who made the assignment
+    assignedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    },
+    // When assignment was last updated
+    assignedAt: {
+        type: Date,
+        default: null
+    },
 }, { timestamps: true });
 
 // --- RE-ADDED UNIQUE INDEX ---
 // Index to ensure panVatNumber is unique within an organization
 partySchema.index({ panVatNumber: 1, organizationId: 1 }, { unique: true });
 // --- END RE-ADDITION ---
+
+// ============================================
+// ASSIGNMENT INDEXES
+// ============================================
+// Index for efficient queries to find parties assigned to a user
+partySchema.index({ organizationId: 1, assignedUsers: 1 });
+// Index for queries combining createdBy and assignment
+partySchema.index({ organizationId: 1, createdBy: 1, assignedUsers: 1 });
 
 const Party = mongoose.model('Party', partySchema);
 

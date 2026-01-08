@@ -50,6 +50,8 @@ const FEATURE_REGISTRY = {
     viewDetails: 'Access deep-dive information and history for a specific prospect',
     viewOwn: 'View own prospects only',
     viewTeamProspects: 'View subordinates/team prospects',
+    viewAllProspects: 'View ALL prospects in the organization (bypass hierarchy filter)',
+    viewAssigned: 'View prospects assigned to the current user',
     viewInterests: 'View specific products or services the prospect has shown interest in',
     create: 'Add new prospective clients to the system',
     update: 'Edit prospect contact information and lead details',
@@ -61,6 +63,7 @@ const FEATURE_REGISTRY = {
     import: 'Import prospects via CSV',
     exportPdf: 'Export the prospects list as a PDF document',
     exportExcel: 'Export prospect data to an Excel spreadsheet',
+    assign: 'Assign prospects to specific users',
   },
 
   // ============================================
@@ -198,7 +201,10 @@ const FEATURE_REGISTRY = {
   parties: {
     viewList: 'View list of all parties',
     viewDetails: 'View specific party details',
+    viewOwn: 'View own parties only',
     viewTeamParties: 'View subordinates/team parties',
+    viewAllParties: 'View ALL parties in the organization (bypass hierarchy filter)',
+    viewAssigned: 'View parties assigned to the current user',
     viewTypes: 'View available party types for categorization',
     create: 'Add new parties to the system (implicitly creates party types)',
     update: 'Edit party contact information and business details',
@@ -210,6 +216,7 @@ const FEATURE_REGISTRY = {
     exportPdf: 'Export the list of parties as a PDF document',
     exportExcel: 'Export party contact and data to an Excel spreadsheet',
     viewOrders: 'View specific order history and transactions for a party',
+    assign: 'Assign parties to specific users',
   },
 
   // ============================================
@@ -218,7 +225,10 @@ const FEATURE_REGISTRY = {
   sites: {
     viewList: 'View all registered sites and project locations',
     viewDetails: 'Access detailed configuration and history for a specific site',
+    viewOwn: 'View own sites only',
     viewTeamSites: 'View subordinates/team sites',
+    viewAllSites: 'View ALL sites in the organization (bypass hierarchy filter)',
+    viewAssigned: 'View sites assigned to the current user',
     viewInterests: 'Monitor specific business interests or activities linked to sites',
     viewSubOrganizations: 'View available sub-organizations for site categorization',
     create: 'Register new site locations in the system (implicitly creates categories/sub-orgs)',

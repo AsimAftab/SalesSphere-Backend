@@ -102,7 +102,34 @@ const siteSchema = new mongoose.Schema({
         ref: 'User',
         required: true,
     },
+
+    // ============================================
+    // ASSIGNMENT FIELDS
+    // ============================================
+    // Users assigned to this site (for data access control)
+    assignedUsers: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    }],
+    // Who made the assignment
+    assignedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    },
+    // When assignment was last updated
+    assignedAt: {
+        type: Date,
+        default: null
+    },
 }, { timestamps: true });
+
+// ============================================
+// ASSIGNMENT INDEXES
+// ============================================
+// Index for efficient queries to find sites assigned to a user
+siteSchema.index({ organizationId: 1, assignedUsers: 1 });
+// Index for queries combining createdBy and assignment
+siteSchema.index({ organizationId: 1, createdBy: 1, assignedUsers: 1 });
 
 const Site = mongoose.model('Site', siteSchema);
 

@@ -99,9 +99,36 @@ const prospectSchema = new mongoose.Schema({
         ref: 'User',
         required: true,
     },
+
+    // ============================================
+    // ASSIGNMENT FIELDS
+    // ============================================
+    // Users assigned to this prospect (for data access control)
+    assignedUsers: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    }],
+    // Who made the assignment
+    assignedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    },
+    // When assignment was last updated
+    assignedAt: {
+        type: Date,
+        default: null
+    },
 }, { timestamps: true });
 
 // NO unique index on panVatNumber
+
+// ============================================
+// ASSIGNMENT INDEXES
+// ============================================
+// Index for efficient queries to find prospects assigned to a user
+prospectSchema.index({ organizationId: 1, assignedUsers: 1 });
+// Index for queries combining createdBy and assignment
+prospectSchema.index({ organizationId: 1, createdBy: 1, assignedUsers: 1 });
 
 const Prospect = mongoose.model('Prospect', prospectSchema);
 

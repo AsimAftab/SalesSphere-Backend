@@ -14,7 +14,12 @@ const {
     createProspectCategory,
     getProspectCategories,
     uploadProspectImage,
-    deleteProspectImage
+    deleteProspectImage,
+    // Assignment controllers
+    assignUsersToProspect,
+    removeUserFromProspect,
+    getProspectAssignments,
+    getMyAssignedProspects
 } = require('./prospect.controller');
 const { protect } = require('../../middlewares/auth.middleware');
 const { checkAccess, checkAnyAccess } = require('../../middlewares/compositeAccess.middleware');
@@ -57,6 +62,34 @@ router.get('/categories',
         { module: 'prospects', feature: 'manageCategories' }
     ]),
     getProspectCategories
+);
+
+// ============================================
+// ASSIGNMENT ROUTES (must be before /:id wildcard)
+// ============================================
+// GET /my-assigned - Get prospects assigned to current user
+router.get('/my-assigned',
+    checkAccess('prospects', 'viewAssigned'),
+    getMyAssignedProspects
+);
+
+// POST /:id/assign - Assign user(s) to a prospect
+router.post('/:id/assign',
+    checkAccess('prospects', 'assign'),
+    assignUsersToProspect
+);
+
+// DELETE /:id/assign - Remove user assignment(s) from prospect
+// Body: { userIds: string[] } - supports single or multiple user IDs
+router.delete('/:id/assign',
+    checkAccess('prospects', 'assign'),
+    removeUserFromProspect
+);
+
+// GET /:id/assignments - Get all users assigned to a prospect
+router.get('/:id/assignments',
+    checkAccess('prospects', 'viewDetails'),
+    getProspectAssignments
 );
 
 // GET /:id - View specific prospect details

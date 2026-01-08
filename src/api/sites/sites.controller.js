@@ -5,7 +5,7 @@ const Organization = require('../organizations/organization.model');
 const { z } = require('zod');
 const cloudinary = require('../../config/cloudinary');
 const fs = require('fs');
-const { getHierarchyFilter } = require('../../utils/hierarchyHelper');
+const { getHierarchyFilter, getEntityAccessFilter } = require('../../utils/hierarchyHelper');
 const { isValidFeature } = require('../../config/featureRegistry');
 
 // --- Zod Validation Schema ---
@@ -207,8 +207,14 @@ exports.getAllSites = async (req, res, next) => {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId } = req.user;
 
-        const hierarchyFilter = await getHierarchyFilter(req.user, 'sites', 'viewTeamSites');
-        const query = { organizationId, ...hierarchyFilter };
+        // Use entity access filter (includes hierarchy + assignment)
+        const accessFilter = await getEntityAccessFilter(
+            req.user,
+            'sites',
+            'viewTeamSites',
+            'viewAllSites'
+        );
+        const query = { organizationId, ...accessFilter };
 
         const sites = await Site.find(query)
             .populate('createdBy', 'name email')
@@ -239,9 +245,14 @@ exports.getAllSitesDetails = async (req, res, next) => {
 
         const { organizationId } = req.user;
 
-        // Fetch all sites belonging to the organization
-        const hierarchyFilter = await getHierarchyFilter(req.user, 'sites', 'viewTeamSites');
-        const query = { organizationId, ...hierarchyFilter };
+        // Use entity access filter (includes hierarchy + assignment)
+        const accessFilter = await getEntityAccessFilter(
+            req.user,
+            'sites',
+            'viewTeamSites',
+            'viewAllSites'
+        );
+        const query = { organizationId, ...accessFilter };
 
         const sites = await Site.find(query)
             .sort({ createdAt: -1 })
@@ -267,8 +278,14 @@ exports.getSiteById = async (req, res, next) => {
         const { organizationId } = req.user;
         const { id } = req.params;
 
-        const hierarchyFilter = await getHierarchyFilter(req.user, 'sites', 'viewTeamSites');
-        const query = { _id: id, organizationId, ...hierarchyFilter };
+        // Use entity access filter (includes hierarchy + assignment)
+        const accessFilter = await getEntityAccessFilter(
+            req.user,
+            'sites',
+            'viewTeamSites',
+            'viewAllSites'
+        );
+        const query = { _id: id, organizationId, ...accessFilter };
 
         const site = await Site.findOne(query)
             .populate('createdBy', 'name email');
@@ -574,6 +591,226 @@ exports.getSiteSubOrganizations = async (req, res, next) => {
             .lean();
 
         res.status(200).json({ success: true, count: subOrgs.length, data: subOrgs });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// ============================================
+// ASSIGNMENT CONTROLLERS
+// ============================================
+
+/**
+ * Assign user(s) to a site
+ * POST /api/v1/sites/:id/assign
+ * Body: { userIds: string[] }
+ */
+exports.assignUsersToSite = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId, _id: userId } = req.user;
+        const { id } = req.params;
+        const { userIds } = req.body;
+
+        // Validate input
+        if (!Array.isArray(userIds) || userIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'userIds must be a non-empty array'
+            });
+        }
+
+        // Find site
+        const Site = require('./sites.model');
+        const User = require('../users/user.model');
+        const site = await Site.findOne({
+            _id: id,
+            organizationId: organizationId
+        });
+
+        if (!site) {
+            return res.status(404).json({
+                success: false,
+                message: 'Site not found'
+            });
+        }
+
+        // Validate users belong to same org
+        const users = await User.find({
+            _id: { $in: userIds },
+            organizationId: organizationId,
+            isActive: true
+        });
+
+        if (users.length !== userIds.length) {
+            return res.status(400).json({
+                success: false,
+                message: 'One or more users not found or inactive'
+            });
+        }
+
+        // Add users to assignedUsers array (avoid duplicates)
+        const currentAssignedIds = site.assignedUsers ? site.assignedUsers.map(id => id.toString()) : [];
+        const newAssignments = userIds.filter(id =>
+            !currentAssignedIds.includes(id.toString())
+        );
+
+        if (newAssignments.length > 0) {
+            site.assignedUsers.push(...newAssignments);
+            site.assignedBy = userId;
+            site.assignedAt = new Date();
+            await site.save();
+        }
+
+        res.status(200).json({
+            success: true,
+            message: `${newAssignments.length} user(s) assigned to site`,
+            data: {
+                siteId: site._id,
+                assignedUsers: site.assignedUsers
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * Remove user assignment(s) from site
+ * DELETE /api/v1/sites/:id/assign
+ * Body: { userIds: string[] } - supports single or multiple user IDs
+ */
+exports.removeUserFromSite = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId, _id: userId } = req.user;
+        const { id } = req.params;
+        const { userIds } = req.body;
+
+        // Validate input
+        if (!Array.isArray(userIds) || userIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'userIds must be a non-empty array'
+            });
+        }
+
+        const Site = require('./sites.model');
+        const site = await Site.findOne({
+            _id: id,
+            organizationId: organizationId
+        });
+
+        if (!site) {
+            return res.status(404).json({
+                success: false,
+                message: 'Site not found'
+            });
+        }
+
+        const beforeCount = site.assignedUsers ? site.assignedUsers.length : 0;
+
+        // Remove specified users
+        const userIdsToRemove = userIds.map(id => id.toString());
+        site.assignedUsers = site.assignedUsers.filter(
+            assignedId => !userIdsToRemove.includes(assignedId.toString())
+        );
+
+        site.assignedBy = userId;
+        site.assignedAt = new Date();
+        await site.save();
+
+        const removedCount = beforeCount - site.assignedUsers.length;
+
+        res.status(200).json({
+            success: true,
+            message: removedCount === 1
+                ? 'User assignment removed'
+                : `${removedCount} user(s) removed from site assignments`,
+            data: {
+                siteId: site._id,
+                assignedUsers: site.assignedUsers,
+                removedCount
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * Get all users assigned to a site
+ * GET /api/v1/sites/:id/assignments
+ */
+exports.getSiteAssignments = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+        const { id } = req.params;
+
+        const Site = require('./sites.model');
+        const site = await Site.findOne({
+            _id: id,
+            organizationId: organizationId
+        }).populate('assignedUsers', 'name email role')
+            .populate('assignedBy', 'name email');
+
+        if (!site) {
+            return res.status(404).json({
+                success: false,
+                message: 'Site not found'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: {
+                siteId: site._id,
+                siteName: site.siteName,
+                assignedUsers: site.assignedUsers,
+                assignedBy: site.assignedBy,
+                assignedAt: site.assignedAt
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * Get sites assigned to current user
+ * GET /api/v1/sites/my-assigned
+ */
+exports.getMyAssignedSites = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+
+        // Use the new entity access filter
+        const { getEntityAccessFilter } = require('../../utils/hierarchyHelper');
+
+        const accessFilter = await getEntityAccessFilter(
+            req.user,
+            'sites',
+            'viewTeamSites',
+            'viewAllSites'
+        );
+
+        const Site = require('./sites.model');
+        const sites = await Site.find({
+            organizationId: organizationId,
+            ...accessFilter
+        })
+            .select('_id siteName ownerName location.address siteInterest createdAt assignedAt')
+            .sort({ assignedAt: -1, createdAt: -1 })
+            .populate('assignedBy', 'name')
+            .lean();
+
+        res.status(200).json({
+            success: true,
+            count: sites.length,
+            data: sites
+        });
     } catch (error) {
         next(error);
     }

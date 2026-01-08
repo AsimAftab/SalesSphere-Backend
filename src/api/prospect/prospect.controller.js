@@ -8,7 +8,7 @@ const crypto = require('crypto'); // <-- Added for random string generation
 const { z } = require('zod');
 const cloudinary = require('../../config/cloudinary'); // Ensure this path matches your project structure
 const fs = require('fs'); // Required for file cleanup
-const { getHierarchyFilter } = require('../../utils/hierarchyHelper');
+const { getHierarchyFilter, getEntityAccessFilter } = require('../../utils/hierarchyHelper');
 // const { isValidFeature } = require('../../config/featureRegistry'); // Removed unused import
 
 // --- Zod Validation Schema ---
@@ -145,8 +145,14 @@ exports.getAllProspects = async (req, res, next) => {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId } = req.user;
 
-        const hierarchyFilter = await getHierarchyFilter(req.user, 'prospects', 'viewTeamProspects');
-        const query = { organizationId: organizationId, ...hierarchyFilter };
+        // Use entity access filter (includes hierarchy + assignment)
+        const accessFilter = await getEntityAccessFilter(
+            req.user,
+            'prospects',
+            'viewTeamProspects',
+            'viewAllProspects'
+        );
+        const query = { organizationId: organizationId, ...accessFilter };
 
         const prospects = await Prospect.find(query)
             .select('_id prospectName ownerName location.address prospectInterest createdBy')
@@ -174,9 +180,14 @@ exports.getAllProspectsDetails = async (req, res, next) => {
 
         const { organizationId } = req.user;
 
-        // Fetch all prospects belonging to the organization
-        const hierarchyFilter = await getHierarchyFilter(req.user, 'prospects', 'viewTeamProspects');
-        const query = { organizationId, ...hierarchyFilter };
+        // Use entity access filter (includes hierarchy + assignment)
+        const accessFilter = await getEntityAccessFilter(
+            req.user,
+            'prospects',
+            'viewTeamProspects',
+            'viewAllProspects'
+        );
+        const query = { organizationId, ...accessFilter };
 
         // Fetch all prospects belonging to the organization
         const prospects = await Prospect.find(query)
@@ -201,13 +212,19 @@ exports.getProspectById = async (req, res, next) => {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId } = req.user;
 
-        const hierarchyFilter = await getHierarchyFilter(req.user, 'prospects', 'viewTeamProspects');
+        // Use entity access filter (includes hierarchy + assignment)
+        const accessFilter = await getEntityAccessFilter(
+            req.user,
+            'prospects',
+            'viewTeamProspects',
+            'viewAllProspects'
+        );
 
-        // Combine ID check with hierarchy filter
+        // Combine ID check with access filter
         const query = {
             _id: req.params.id,
             organizationId: organizationId,
-            ...hierarchyFilter
+            ...accessFilter
         };
 
         const prospect = await Prospect.findOne(query)
@@ -696,6 +713,226 @@ exports.createProspectCategory = async (req, res, next) => {
                 message: 'Category with this name already exists'
             });
         }
+        next(error);
+    }
+};
+
+// ============================================
+// ASSIGNMENT CONTROLLERS
+// ============================================
+
+/**
+ * Assign user(s) to a prospect
+ * POST /api/v1/prospects/:id/assign
+ * Body: { userIds: string[] }
+ */
+exports.assignUsersToProspect = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId, _id: userId } = req.user;
+        const { id } = req.params;
+        const { userIds } = req.body;
+
+        // Validate input
+        if (!Array.isArray(userIds) || userIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'userIds must be a non-empty array'
+            });
+        }
+
+        // Find prospect
+        const Prospect = require('./prospect.model');
+        const User = require('../users/user.model');
+        const prospect = await Prospect.findOne({
+            _id: id,
+            organizationId: organizationId
+        });
+
+        if (!prospect) {
+            return res.status(404).json({
+                success: false,
+                message: 'Prospect not found'
+            });
+        }
+
+        // Validate users belong to same org
+        const users = await User.find({
+            _id: { $in: userIds },
+            organizationId: organizationId,
+            isActive: true
+        });
+
+        if (users.length !== userIds.length) {
+            return res.status(400).json({
+                success: false,
+                message: 'One or more users not found or inactive'
+            });
+        }
+
+        // Add users to assignedUsers array (avoid duplicates)
+        const currentAssignedIds = prospect.assignedUsers ? prospect.assignedUsers.map(id => id.toString()) : [];
+        const newAssignments = userIds.filter(id =>
+            !currentAssignedIds.includes(id.toString())
+        );
+
+        if (newAssignments.length > 0) {
+            prospect.assignedUsers.push(...newAssignments);
+            prospect.assignedBy = userId;
+            prospect.assignedAt = new Date();
+            await prospect.save();
+        }
+
+        res.status(200).json({
+            success: true,
+            message: `${newAssignments.length} user(s) assigned to prospect`,
+            data: {
+                prospectId: prospect._id,
+                assignedUsers: prospect.assignedUsers
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * Remove user assignment(s) from prospect
+ * DELETE /api/v1/prospects/:id/assign
+ * Body: { userIds: string[] } - supports single or multiple user IDs
+ */
+exports.removeUserFromProspect = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId, _id: userId } = req.user;
+        const { id } = req.params;
+        const { userIds } = req.body;
+
+        // Validate input
+        if (!Array.isArray(userIds) || userIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'userIds must be a non-empty array'
+            });
+        }
+
+        const Prospect = require('./prospect.model');
+        const prospect = await Prospect.findOne({
+            _id: id,
+            organizationId: organizationId
+        });
+
+        if (!prospect) {
+            return res.status(404).json({
+                success: false,
+                message: 'Prospect not found'
+            });
+        }
+
+        const beforeCount = prospect.assignedUsers ? prospect.assignedUsers.length : 0;
+
+        // Remove specified users
+        const userIdsToRemove = userIds.map(id => id.toString());
+        prospect.assignedUsers = prospect.assignedUsers.filter(
+            assignedId => !userIdsToRemove.includes(assignedId.toString())
+        );
+
+        prospect.assignedBy = userId;
+        prospect.assignedAt = new Date();
+        await prospect.save();
+
+        const removedCount = beforeCount - prospect.assignedUsers.length;
+
+        res.status(200).json({
+            success: true,
+            message: removedCount === 1
+                ? 'User assignment removed'
+                : `${removedCount} user(s) removed from prospect assignments`,
+            data: {
+                prospectId: prospect._id,
+                assignedUsers: prospect.assignedUsers,
+                removedCount
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * Get all users assigned to a prospect
+ * GET /api/v1/prospects/:id/assignments
+ */
+exports.getProspectAssignments = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+        const { id } = req.params;
+
+        const Prospect = require('./prospect.model');
+        const prospect = await Prospect.findOne({
+            _id: id,
+            organizationId: organizationId
+        }).populate('assignedUsers', 'name email role')
+            .populate('assignedBy', 'name email');
+
+        if (!prospect) {
+            return res.status(404).json({
+                success: false,
+                message: 'Prospect not found'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: {
+                prospectId: prospect._id,
+                prospectName: prospect.prospectName,
+                assignedUsers: prospect.assignedUsers,
+                assignedBy: prospect.assignedBy,
+                assignedAt: prospect.assignedAt
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * Get prospects assigned to current user
+ * GET /api/v1/prospects/my-assigned
+ */
+exports.getMyAssignedProspects = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+
+        // Use the new entity access filter
+        const { getEntityAccessFilter } = require('../../utils/hierarchyHelper');
+
+        const accessFilter = await getEntityAccessFilter(
+            req.user,
+            'prospects',
+            'viewTeamProspects',
+            'viewAllProspects'
+        );
+
+        const Prospect = require('./prospect.model');
+        const prospects = await Prospect.find({
+            organizationId: organizationId,
+            ...accessFilter
+        })
+            .select('_id prospectName ownerName location.address prospectInterest createdAt assignedAt')
+            .sort({ assignedAt: -1, createdAt: -1 })
+            .populate('assignedBy', 'name')
+            .lean();
+
+        res.status(200).json({
+            success: true,
+            count: prospects.length,
+            data: prospects
+        });
+    } catch (error) {
         next(error);
     }
 };
