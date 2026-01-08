@@ -92,6 +92,9 @@ exports.getMonthlyOverview = async (req, res) => {
             });
         }
 
+        const monthInt = parseInt(month);
+        const yearInt = parseInt(year);
+
         // Get timezone-aware date range for the selected month
         const { monthStart, monthEnd } = await getTimezoneAwareMonthRange(organizationId, month, year);
 
