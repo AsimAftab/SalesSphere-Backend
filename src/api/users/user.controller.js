@@ -107,9 +107,13 @@ exports.createUser = async (req, res, next) => {
         // --- Step 4: Send Email ---
         await sendWelcomeEmail(newUser.email, temporaryPassword);
 
-        // Prepare response data (ensure password isn't included)
-        const responseData = newUser.toObject(); // Convert to plain object if needed
+        // Prepare response data (ensure password and internal Mongoose fields aren't included)
+        // explicitly disable virtuals/getters to avoid accidental exposure if schema options change
+        const responseData = newUser.toObject({ getters: false, virtuals: false });
         delete responseData.password;
+        delete responseData.refreshToken; // If any
+        delete responseData.refreshTokenExpiry;
+        delete responseData.sessionExpiresAt;
 
         res.status(201).json({
             success: true,
@@ -730,7 +734,7 @@ exports.updateUser = async (req, res, next) => {
     try {
         const userIdToUpdate = req.params.id;
 
-        const userToUpdate = await User.findOne({ _id: userIdToUpdate, organizationId: req.user.organizationId });
+        const userToUpdate = await User.findOne({ _id: userIdToUpdate, organizationId: req.user.organizationId }).populate('customRoleId');
         if (!userToUpdate) return res.status(404).json({ success: false, message: 'User not found' });
 
         // --- Permission Checks (Protected by requirePermission('employees', 'update') in route) ---
@@ -796,11 +800,14 @@ exports.updateUser = async (req, res, next) => {
                 }
 
                 // Same-role validation: prevent reporting to users with same customRoleId
-                const userCustomRoleId = userToUpdate.customRoleId;
-                if (userCustomRoleId) {
+                const userCustomRole = userToUpdate.customRoleId;
+                if (userCustomRole) {
+                    // Handle if populated (object) or ID (string)
+                    const userRoleIdStr = userCustomRole._id ? userCustomRole._id.toString() : userCustomRole.toString();
+
                     for (const supervisor of supervisors) {
                         if (supervisor.customRoleId &&
-                            supervisor.customRoleId.toString() === userCustomRoleId.toString()) {
+                            supervisor.customRoleId.toString() === userRoleIdStr) {
                             return res.status(400).json({
                                 success: false,
                                 message: 'Cannot assign supervisor with the same role. Users cannot report to someone with the same custom role.'
@@ -902,8 +909,11 @@ exports.deleteUser = async (req, res, next) => {
 };
 
 // Update logged-in user's own profile image
-exports.updateMyProfileImage = async (req, res, next) => { // Added next for error handling consistency
+// Update logged-in user's own profile image
+exports.updateMyProfileImage = async (req, res, next) => {
     let tempFilePath = req.file ? req.file.path : null;
+    let uploadedPublicId = null; // Track ID for rollback
+
     try {
         if (!req.file) return res.status(400).json({ message: 'Please upload an image file' });
 
@@ -921,15 +931,26 @@ exports.updateMyProfileImage = async (req, res, next) => { // Added next for err
                 { fetch_format: "auto", quality: "auto" }
             ]
         });
+
+        uploadedPublicId = result.public_id; // Capture ID for potential rollback
         cleanupTempFile(tempFilePath);
         tempFilePath = null;
 
         const user = await User.findByIdAndUpdate(req.user.id, { avatarUrl: result.secure_url }, { new: true });
-        if (!user) return res.status(404).json({ message: 'User not found after image update' });
+
+        if (!user) {
+            // Rollback: User update failed, delete the image we just uploaded
+            await cloudinary.uploader.destroy(uploadedPublicId);
+            return res.status(404).json({ message: 'User not found after image update' });
+        }
 
         res.status(200).json({ success: true, message: 'Profile image updated successfully', data: { avatarUrl: user.avatarUrl } });
     } catch (error) {
         cleanupTempFile(tempFilePath);
+        // Rollback on error
+        if (uploadedPublicId) {
+            await cloudinary.uploader.destroy(uploadedPublicId).catch(console.error);
+        }
         console.error("Profile image upload error:", error);
         next(error);
     }
