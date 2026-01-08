@@ -7,28 +7,8 @@ const User = require('../users/user.model');
 const { isSystemRole } = require('../../utils/defaultPermissions');
 
 // --- HELPER: Get Hierarchy Filter ---
-// Returns a query object based on user role and granular permissions
-const getPartiesHierarchyFilter = async (user) => {
-    const { role, _id: userId } = user;
-
-    // 1. Admin / System Role: Access All
-    if (role === 'admin' || isSystemRole(role)) {
-        return {};
-    }
-
-    // 2. Manager with Team View Feature: Access Self + Subordinates
-    if (user.hasFeature && user.hasFeature('parties', 'viewTeamParties')) {
-        const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
-        const subordinateIds = subordinates.map(u => u._id);
-
-        return {
-            createdBy: { $in: [userId, ...subordinateIds] }
-        };
-    }
-
-    // 3. Regular User: Access Self Only
-    return { createdBy: userId };
-};
+const { getHierarchyFilter } = require('../../utils/hierarchyHelper');
+// Internal helper removed in favor of centralized deep hierarchy helper
 const partySchemaValidation = z.object({
     partyName: z.string({ required_error: "Party name is required" }).min(1, "Party name is required"),
     ownerName: z.string({ required_error: "Owner name is required" }).min(1, "Owner name is required"),
@@ -118,7 +98,7 @@ exports.getAllParties = async (req, res, next) => {
         const { organizationId } = req.user;
 
         // Get hierarchy filter
-        const hierarchyFilter = await getPartiesHierarchyFilter(req.user);
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'parties', 'viewTeamParties');
 
         const parties = await Party.find({ organizationId, ...hierarchyFilter })
             .select('_id partyName ownerName location.address partyType createdAt createdBy')
@@ -147,7 +127,7 @@ exports.getAllPartiesDetails = async (req, res, next) => {
         const { organizationId } = req.user;
 
         // Get hierarchy filter
-        const hierarchyFilter = await getPartiesHierarchyFilter(req.user);
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'parties', 'viewTeamParties');
 
         // Fetch all parties belonging to the organization with hierarchy check
         const parties = await Party.find({ organizationId, ...hierarchyFilter })
@@ -173,7 +153,7 @@ exports.getPartyById = async (req, res, next) => {
         const { organizationId } = req.user;
 
         // Get hierarchy filter
-        const hierarchyFilter = await getPartiesHierarchyFilter(req.user);
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'parties', 'viewTeamParties');
 
         const party = await Party.findOne({
             _id: req.params.id,
@@ -346,20 +326,32 @@ exports.deletePartyImage = async (req, res, next) => {
             return res.status(400).json({ success: false, message: 'No image to delete' });
         }
 
+        // Extract public_id robustly from the stored image URL
+        const imageUrl = party.image;
+
         // Remove image field
         party.image = null;
         await party.save();
 
-        // Fetch organization name for cloudinary path reconstruction
-        const organization = await Organization.findById(organizationId);
-        if (organization) {
-            // Delete from Cloudinary
-            try {
-                await cloudinary.uploader.destroy(`sales-sphere/${organization.name}/partiesImage/${party.partyName}/${id}/${id}_image`);
-            } catch (cloudinaryError) {
-                console.error('Error deleting from Cloudinary:', cloudinaryError);
-                // Continue even if Cloudinary delete fails
+        // Delete from Cloudinary using extracted public_id
+        try {
+            const urlParts = imageUrl.split('/');
+            const versionIndex = urlParts.findIndex(part =>
+                part.startsWith('v') && part.length > 1 && !isNaN(Number(part.substring(1)))
+            );
+
+            if (versionIndex !== -1) {
+                const publicIdWithExt = urlParts.slice(versionIndex + 1).join('/');
+                const lastDotIndex = publicIdWithExt.lastIndexOf('.');
+                const publicId = lastDotIndex > 0
+                    ? publicIdWithExt.substring(0, lastDotIndex)
+                    : publicIdWithExt;
+
+                await cloudinary.uploader.destroy(publicId);
             }
+        } catch (cloudinaryError) {
+            console.error('Error deleting from Cloudinary:', cloudinaryError);
+            // Continue even if Cloudinary delete fails
         }
 
         return res.status(200).json({

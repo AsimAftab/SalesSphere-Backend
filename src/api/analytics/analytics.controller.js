@@ -3,36 +3,10 @@ const Organization = require('../organizations/organization.model');
 const Invoice = require('../invoice/invoice.model');
 const { isSystemRole } = require('../../utils/defaultPermissions');
 
-/**
- * Helper to construct hierarchy-based query for analytics
- * Returns a query object to be merged with other filters
- */
-const getAnalyticsHierarchyQuery = async (req) => {
-    const { role, _id: userId } = req.user;
+const { getHierarchyFilter } = require('../../utils/hierarchyHelper');
 
-    // 1. Admin / System Role: No additional filter (View All)
-    if (role === 'admin' || isSystemRole(role)) {
-        return {};
-    }
+// Helper to construct hierarchy-based query for analytics is now imported from utils
 
-    // 2. Manager with viewTeamAnalytics: View Self + Subordinates
-    if (req.user.hasFeature('analytics', 'viewTeamAnalytics')) {
-        const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
-        const subordinateIds = subordinates.map(u => u._id);
-
-        // Return filter for "CreatedBy Me OR CreatedBy Subordinates"
-        // Note: For invoices/orders, we use 'createdBy' field
-        return {
-            $or: [
-                { createdBy: userId },
-                { createdBy: { $in: subordinateIds } }
-            ]
-        };
-    }
-
-    // 3. Regular User: View Self Only
-    return { createdBy: userId };
-};
 
 /**
  * Helper to get timezone-aware date range for a month
@@ -122,7 +96,7 @@ exports.getMonthlyOverview = async (req, res) => {
         const { monthStart, monthEnd } = await getTimezoneAwareMonthRange(organizationId, month, year);
 
         // Get Hierarchy Filter
-        const hierarchyQuery = await getAnalyticsHierarchyQuery(req);
+        const hierarchyQuery = await getHierarchyFilter(req.user, 'analytics', 'viewTeamAnalytics');
 
         // Common Match Query
         const matchQuery = {
@@ -212,7 +186,7 @@ exports.getSalesTrend = async (req, res) => {
         }
 
         // Get Hierarchy Filter
-        const hierarchyQuery = await getAnalyticsHierarchyQuery(req);
+        const hierarchyQuery = await getHierarchyFilter(req.user, 'analytics', 'viewTeamAnalytics');
 
         // Get sales data for each week using $facet for parallel execution
         const facetStages = {};
@@ -284,7 +258,7 @@ exports.getProductsByCategory = async (req, res) => {
         const { monthStart, monthEnd } = await getTimezoneAwareMonthRange(organizationId, month, year);
 
         // Get Hierarchy Filter
-        const hierarchyQuery = await getAnalyticsHierarchyQuery(req);
+        const hierarchyQuery = await getHierarchyFilter(req.user, 'analytics', 'viewTeamAnalytics');
 
         // Aggregate products sold by category
         const categoryData = await Invoice.aggregate([
@@ -382,7 +356,7 @@ exports.getTopProducts = async (req, res) => {
         const { monthStart, monthEnd } = await getTimezoneAwareMonthRange(organizationId, month, year);
 
         // Get Hierarchy Filter
-        const hierarchyQuery = await getAnalyticsHierarchyQuery(req);
+        const hierarchyQuery = await getHierarchyFilter(req.user, 'analytics', 'viewTeamAnalytics');
 
         // Aggregate top products sold
         const topProducts = await Invoice.aggregate([
@@ -461,7 +435,7 @@ exports.getTopParties = async (req, res) => {
         const { monthStart, monthEnd } = await getTimezoneAwareMonthRange(organizationId, month, year);
 
         // Get Hierarchy Filter
-        const hierarchyQuery = await getAnalyticsHierarchyQuery(req);
+        const hierarchyQuery = await getHierarchyFilter(req.user, 'analytics', 'viewTeamAnalytics');
 
         // Aggregate top parties by total order value
         const topParties = await Invoice.aggregate([

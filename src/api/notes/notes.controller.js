@@ -23,32 +23,8 @@ const noteSchemaValidation = z.object({
     path: ["party", "prospect", "site"]
 });
 
-// --- HELPER: Get Hierarchy Filter ---
-// Returns a query object based on user role and granular permissions
-const getNotesHierarchyFilter = async (user) => {
-    const { role, _id: userId } = user;
-
-    // 1. Admin / System Role: Access All
-    if (role === 'admin' || isSystemRole(role)) {
-        return {};
-    }
-
-    // 2. Manager with Team View Feature: Access Self + Subordinates
-    if (user.hasFeature('notes', 'viewTeamNotes')) {
-        const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
-        const subordinateIds = subordinates.map(u => u._id);
-
-        return {
-            $or: [
-                { createdBy: userId },
-                { createdBy: { $in: subordinateIds } }
-            ]
-        };
-    }
-
-    // 3. Regular User: Access Self Only
-    return { createdBy: userId };
-};
+const { getHierarchyFilter } = require('../../utils/hierarchyHelper');
+// Internal helper removed in favor of centralized deep hierarchy helper
 
 // Helper function to safely delete a file
 const cleanupTempFile = (filePath) => {
@@ -153,7 +129,8 @@ exports.getAllNotes = async (req, res, next) => {
         const { organizationId, role, _id: userId } = req.user;
 
         // Get hierarchy filter
-        const hierarchyFilter = await getNotesHierarchyFilter(req.user);
+        // Get hierarchy filter
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'notes', 'viewTeamNotes');
 
         let query = { organizationId, ...hierarchyFilter };
 

@@ -29,31 +29,7 @@ const statusSchemaValidation = z.object({
     rejectionReason: z.string().optional(),
 });
 
-// --- HELPER: Get Hierarchy Filter ---
-const getHierarchyFilter = async (user) => {
-    const { role, _id: userId } = user;
-
-    // 1. Admin / System Role: Access All
-    if (role === 'admin' || isSystemRole(role)) {
-        return {};
-    }
-
-    // 2. Manager with viewTeamClaims: Access Self + Subordinates
-    if (user.hasFeature('expenses', 'viewTeamClaims')) {
-        const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
-        const subordinateIds = subordinates.map(u => u._id);
-
-        return {
-            $or: [
-                { createdBy: userId },
-                { createdBy: { $in: subordinateIds } }
-            ]
-        };
-    }
-
-    // 3. Regular User: Access Self Only
-    return { createdBy: userId };
-};
+const { getHierarchyFilter } = require('../../utils/hierarchyHelper');
 
 // --- HELPER: Get or Create Category ---
 const getOrCreateCategory = async (categoryName, organizationId) => {
@@ -158,7 +134,7 @@ exports.getExpenseClaimById = async (req, res, next) => {
         const { organizationId } = req.user;
 
         // Get hierarchy filter
-        const hierarchyFilter = await getHierarchyFilter(req.user);
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'expenses', 'viewTeamClaims');
 
         const query = {
             _id: req.params.id,

@@ -663,10 +663,21 @@ exports.updateSystemUser = async (req, res, next) => {
     }
 };
 
-// Get all users WITHIN the same organization
+// Get all users WITHIN the same organization (Org Admin only via employees:viewList)
 exports.getAllUsers = async (req, res, next) => {
     try {
-        const users = await User.find({ organizationId: req.user.organizationId, isActive: true });
+        const users = await User.find({ organizationId: req.user.organizationId, isActive: true })
+            .populate('customRoleId', 'name description')
+            .populate({
+                path: 'reportsTo',
+                select: 'name role customRoleId',
+                populate: {
+                    path: 'customRoleId',
+                    select: 'name'
+                }
+            })
+            .sort({ name: 1 });
+
         res.status(200).json({ success: true, count: users.length, data: users });
     } catch (error) { next(error); }
 };
@@ -777,26 +788,42 @@ exports.updateUser = async (req, res, next) => {
                 // Ensure reportsTo is an array
                 const supervisorIds = Array.isArray(req.body.reportsTo) ? req.body.reportsTo : [req.body.reportsTo];
 
-                // Remove any null/undefined values
-                const validSupervisorIds = supervisorIds.filter(id => id !== null && id !== undefined && id !== '');
+                // Remove null/undefined/empty AND duplicates
+                const uniqueIds = [...new Set(supervisorIds.filter(id => id != null && id !== ''))];
 
-                // Validate each supervisor ID
-                for (const supId of validSupervisorIds) {
+                // Validate each supervisor ID format
+                for (const supId of uniqueIds) {
                     if (!mongoose.Types.ObjectId.isValid(supId)) {
-                        return res.status(400).json({ success: false, message: `Invalid reportsTo user ID: ${supId}` });
+                        return res.status(400).json({
+                            success: false,
+                            message: `Invalid supervisor ID format: ${supId}`
+                        });
                     }
                 }
 
                 // Prevent self-reporting
-                if (validSupervisorIds.includes(userIdToUpdate)) {
-                    return res.status(400).json({ success: false, message: 'User cannot report to themselves' });
+                if (uniqueIds.includes(userIdToUpdate)) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'User cannot report to themselves'
+                    });
                 }
 
-                // Fetch all supervisors to validate
-                const supervisors = await User.find({ _id: { $in: validSupervisorIds } });
+                // Fetch supervisors - MUST be in same organization AND active
+                const supervisors = await User.find({
+                    _id: { $in: uniqueIds },
+                    organizationId: req.user.organizationId,  // 🔒 SECURITY: Same org only
+                    isActive: true                           // 🔒 SECURITY: Active users only
+                });
 
-                if (supervisors.length !== validSupervisorIds.length) {
-                    return res.status(404).json({ success: false, message: 'One or more supervisors not found' });
+                if (supervisors.length !== uniqueIds.length) {
+                    // Find which IDs are invalid for better error message
+                    const foundIds = supervisors.map(s => s._id.toString());
+                    const invalidIds = uniqueIds.filter(id => !foundIds.includes(id));
+                    return res.status(404).json({
+                        success: false,
+                        message: `Supervisors not found or inactive: ${invalidIds.join(', ')}`
+                    });
                 }
 
                 // Same-role validation: prevent reporting to users with same customRoleId
@@ -816,7 +843,7 @@ exports.updateUser = async (req, res, next) => {
                     }
                 }
 
-                updateData.reportsTo = validSupervisorIds;
+                updateData.reportsTo = uniqueIds;
             }
         }
 
