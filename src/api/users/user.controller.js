@@ -1141,13 +1141,19 @@ exports.getMyProfile = async (req, res, next) => {
 
                 // Get permissions intersected with plan
                 const permissionsWithPlan = user.getEffectivePermissionsWithPlan(orgWithPlan);
+
+                // Check if subscription is active (not expired)
+                const now = new Date();
+                const isActive = orgWithPlan.subscriptionEndDate && orgWithPlan.subscriptionEndDate > now;
+
                 subscriptionFeatures = {
                     permissions: permissionsWithPlan,
                     planName: plan.name,
                     planTier: plan.tier,
                     enabledModules: enabledModules,
                     maxEmployees: plan.maxEmployees,
-                    subscriptionEndDate: orgWithPlan.subscriptionEndDate
+                    subscriptionEndDate: orgWithPlan.subscriptionEndDate,
+                    isActive: isActive
                 };
             }
         }
@@ -1162,7 +1168,8 @@ exports.getMyProfile = async (req, res, next) => {
                 planTier: subscriptionFeatures.planTier,
                 enabledModules: subscriptionFeatures.enabledModules,
                 maxEmployees: subscriptionFeatures.maxEmployees,
-                subscriptionEndDate: subscriptionFeatures.subscriptionEndDate
+                subscriptionEndDate: subscriptionFeatures.subscriptionEndDate,
+                isActive: subscriptionFeatures.isActive
             } : null
         };
 

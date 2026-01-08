@@ -76,16 +76,16 @@ router.put('/:id',
 // ============================================
 // DELETE OPERATIONS
 // ============================================
+// DELETE /bulk-delete - Perform mass deletion of selected products (must be before /:id)
+router.delete('/bulk-delete',
+    checkAccess('products', 'bulkDelete'),
+    bulkDeleteProducts
+);
+
 // DELETE /:id - Remove products from the system
 router.delete('/:id',
     checkAccess('products', 'delete'),
     deleteProduct
-);
-
-// DELETE /bulk-delete - Perform mass deletion of selected products
-router.delete('/bulk-delete',
-    checkAccess('products', 'bulkDelete'),
-    bulkDeleteProducts
 );
 
 // ============================================

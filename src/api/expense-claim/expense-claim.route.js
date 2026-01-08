@@ -113,12 +113,7 @@ router.put('/:id/status',
 );
 
 // DELETE
-// DELETE /:id - Delete expense claim
-router.delete('/:id',
-    checkAccess('expenses', 'delete'),
-    deleteExpenseClaim
-);
-
+// DELETE (specific routes first, before wildcard /:id)
 // DELETE /bulk-delete - Bulk delete expense claims
 router.delete('/bulk-delete',
     checkAccess('expenses', 'bulkDelete'),
@@ -129,6 +124,12 @@ router.delete('/bulk-delete',
 router.delete('/:id/receipt',
     checkAccess('expenses', 'delete'),
     deleteReceipt
+);
+
+// DELETE /:id - Delete expense claim (must be last after all /:id/* routes)
+router.delete('/:id',
+    checkAccess('expenses', 'delete'),
+    deleteExpenseClaim
 );
 
 // ============================================
