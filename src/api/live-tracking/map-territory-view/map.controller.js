@@ -1,6 +1,35 @@
 const Party = require('../../parties/party.model'); // <-- FIXED PATH
 const Prospect = require('../../prospect/prospect.model'); // <-- FIXED PATH
-const Site = require('../../sites/sites.model'); // <-- FIXED PATH
+const Site = require('../../sites/sites.model');
+const User = require('../../users/user.model');
+const { isSystemRole } = require('../../../utils/defaultPermissions');
+
+// --- HELPER: Get Hierarchy Filter ---
+// Returns a query object based on user role and granular permissions
+const getMapHierarchyFilter = async (user, moduleName, teamViewFeatureKey) => {
+    const { role, _id: userId } = user;
+
+    // 1. Admin / System Role: Access All
+    if (role === 'admin' || isSystemRole(role)) {
+        return {};
+    }
+
+    // 2. Manager with Team View Feature: Access Self + Subordinates
+    if (user.hasFeature(moduleName, teamViewFeatureKey)) {
+        const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
+        const subordinateIds = subordinates.map(u => u._id);
+
+        return {
+            $or: [
+                { createdBy: userId },
+                { createdBy: { $in: subordinateIds } }
+            ]
+        };
+    }
+
+    // 3. Regular User: Access Self Only
+    return { createdBy: userId };
+};
 
 /**
  * @desc    Get all map locations (Parties, Prospects, Sites) for the org
@@ -12,31 +41,38 @@ exports.getMapLocations = async (req, res, next) => {
         if (!req.user) {
             return res.status(401).json({ success: false, message: 'Not authenticated' });
         }
-        const { organizationId } = req.user;
+        const { organizationId, role } = req.user;
 
         // 1. Define the fields we need for the map
         const selectFields = 'location.address location.latitude location.longitude';
 
-        // 2. Run all three database queries in parallel
-        const [parties, prospects, sites] = await Promise.all([
-            // Query 1: Get all Parties
-            Party.find({ organizationId })
-                 .select(`${selectFields} partyName`)
-                 .lean(),
-            
-            // Query 2: Get all Prospects
-            Prospect.find({ organizationId })
-                    .select(`${selectFields} prospectName`)
-                    .lean(),
+        // 2. Get hierarchy filters for each module
+        const [partyFilter, prospectFilter, siteFilter] = await Promise.all([
+            getMapHierarchyFilter(req.user, 'parties', 'viewTeamParties'),
+            getMapHierarchyFilter(req.user, 'prospects', 'viewTeamProspects'),
+            getMapHierarchyFilter(req.user, 'sites', 'viewTeamSites')
+        ]);
 
-            // Query 3: Get all Sites
-            Site.find({ organizationId })
-                .select(`${selectFields} siteName`)
-                .lean()
+        // 3. Run all three database queries in parallel
+        const [parties, prospects, sites] = await Promise.all([
+            // Query 1: Get Parties (check viewList permission first)
+            req.user.hasFeature('parties', 'viewList')
+                ? Party.find({ organizationId, ...partyFilter }).select(`${selectFields} partyName`).lean()
+                : Promise.resolve([]),
+
+            // Query 2: Get Prospects (check viewList permission first)
+            req.user.hasFeature('prospects', 'viewList')
+                ? Prospect.find({ organizationId, ...prospectFilter }).select(`${selectFields} prospectName`).lean()
+                : Promise.resolve([]),
+
+            // Query 3: Get Sites (check viewList permission first)
+            req.user.hasFeature('sites', 'viewList')
+                ? Site.find({ organizationId, ...siteFilter }).select(`${selectFields} siteName`).lean()
+                : Promise.resolve([])
         ]);
 
         // 3. Standardize the data into a single format
-        
+
         const partyLocations = parties.map(p => ({
             _id: p._id,
             name: p.partyName,

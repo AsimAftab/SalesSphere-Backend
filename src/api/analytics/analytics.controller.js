@@ -1,4 +1,107 @@
+const User = require('../users/user.model');
+const Organization = require('../organizations/organization.model');
 const Invoice = require('../invoice/invoice.model');
+const { isSystemRole } = require('../../utils/defaultPermissions');
+
+/**
+ * Helper to construct hierarchy-based query for analytics
+ * Returns a query object to be merged with other filters
+ */
+const getAnalyticsHierarchyQuery = async (req) => {
+    const { role, _id: userId } = req.user;
+
+    // 1. Admin / System Role: No additional filter (View All)
+    if (role === 'admin' || isSystemRole(role)) {
+        return {};
+    }
+
+    // 2. Manager with viewTeamAnalytics: View Self + Subordinates
+    if (req.user.hasFeature('analytics', 'viewTeamAnalytics')) {
+        const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
+        const subordinateIds = subordinates.map(u => u._id);
+
+        // Return filter for "CreatedBy Me OR CreatedBy Subordinates"
+        // Note: For invoices/orders, we use 'createdBy' field
+        return {
+            $or: [
+                { createdBy: userId },
+                { createdBy: { $in: subordinateIds } }
+            ]
+        };
+    }
+
+    // 3. Regular User: View Self Only
+    return { createdBy: userId };
+};
+
+/**
+ * Helper to get timezone-aware date range for a month
+ * Uses organization's timezone to properly convert month boundaries to UTC
+ * @param {string} organizationId - Organization ID
+ * @param {number} month - Month (1-12)
+ * @param {number} year - Year (e.g., 2025)
+ * @returns {Promise<{monthStart: Date, monthEnd: Date}>}
+ */
+const getTimezoneAwareMonthRange = async (organizationId, month, year) => {
+    const monthInt = parseInt(month);
+    const yearInt = parseInt(year);
+
+    // Get organization timezone (default to Asia/Kolkata if not set)
+    const org = await Organization.findById(organizationId).select('timezone').lean();
+    const timeZone = org?.timezone || 'Asia/Kolkata';
+
+    // Helper: Convert "YYYY-MM-01 00:00:00 in org timezone" to UTC timestamp
+    const getMidnightInTimezone = (y, m) => {
+        // Create a date representing midnight on the 1st of the month
+        // We use a trick: format the UTC date using the org's timezone,
+        // then parse the result to get the actual UTC timestamp
+        const date = new Date(Date.UTC(y, m, 1, 0, 0, 0));
+
+        const formatter = new Intl.DateTimeFormat('en-US', {
+            timeZone,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+        });
+
+        const formatted = formatter.format(date);
+        // formatted is now "MM/DD/YYYY, HH:MM:SS" in the org's timezone
+        // But this represents what UTC time looks like when converted to org timezone
+        // We need the inverse: what UTC time corresponds to midnight in org timezone
+
+        // Better approach: get timezone offset for the specific date
+        const tempDate = new Date(y, m, 1);
+        const utcDate = new Date(Date.UTC(y, m, 1, 0, 0, 0));
+
+        // Get the timezone offset for this date using Intl
+        const parts = formatter.formatToParts(utcDate);
+        const hour = parseInt(parts.find(p => p.type === 'hour').value);
+        const minute = parseInt(parts.find(p => p.type === 'minute').value);
+
+        // The offset from UTC (positive means ahead of UTC, like Asia/Kolkata +5:30)
+        // When UTC is 00:00, Asia/Kolkata shows 05:30, so offset is +5.5 hours
+        let offsetMinutes = (hour * 60) + minute;
+        if (offsetMinutes > 720) {
+            offsetMinutes -= 1440; // Timezones behind UTC will show hours like 20:00
+        }
+        // But we want the inverse: midnight in timezone = what UTC time?
+        // Asia/Kolkata midnight = UTC 18:30 previous day
+        // So we subtract the offset from midnight
+        offsetMinutes = -offsetMinutes;
+
+        // Create the UTC date: midnight in org timezone
+        return new Date(Date.UTC(y, m, 1, 0, 0) - (offsetMinutes * 60 * 1000));
+    };
+
+    const monthStart = getMidnightInTimezone(yearInt, monthInt - 1);
+    const monthEnd = getMidnightInTimezone(yearInt, monthInt);
+
+    return { monthStart, monthEnd };
+};
 
 // @desc    Get monthly analytics overview
 // @route   GET /api/v1/analytics/monthly-overview?month=11&year=2025
@@ -15,22 +118,23 @@ exports.getMonthlyOverview = async (req, res) => {
             });
         }
 
-        // Calculate date range for the selected month
-        const monthInt = parseInt(month);
-        const yearInt = parseInt(year);
+        // Get timezone-aware date range for the selected month
+        const { monthStart, monthEnd } = await getTimezoneAwareMonthRange(organizationId, month, year);
 
-        const monthStart = new Date(yearInt, monthInt - 1, 1);
-        const monthEnd = new Date(yearInt, monthInt, 1);
+        // Get Hierarchy Filter
+        const hierarchyQuery = await getAnalyticsHierarchyQuery(req);
+
+        // Common Match Query
+        const matchQuery = {
+            organizationId: organizationId,
+            createdAt: { $gte: monthStart, $lt: monthEnd },
+            status: { $ne: 'rejected' },
+            ...hierarchyQuery // Merge hierarchy filter
+        };
 
         // Total Order Value for the month (excluding rejected)
         const totalOrderValueResult = await Invoice.aggregate([
-            {
-                $match: {
-                    organizationId: organizationId,
-                    createdAt: { $gte: monthStart, $lt: monthEnd },
-                    status: { $ne: 'rejected' }
-                }
-            },
+            { $match: matchQuery },
             {
                 $group: {
                     _id: null,
@@ -41,11 +145,7 @@ exports.getMonthlyOverview = async (req, res) => {
         const totalOrderValue = totalOrderValueResult.length > 0 ? totalOrderValueResult[0].totalValue : 0;
 
         // Total Orders count for the month (excluding rejected)
-        const totalOrders = await Invoice.countDocuments({
-            organizationId,
-            createdAt: { $gte: monthStart, $lt: monthEnd },
-            status: { $ne: 'rejected' }
-        });
+        const totalOrders = await Invoice.countDocuments(matchQuery);
 
         res.status(200).json({
             success: true,
@@ -84,8 +184,8 @@ exports.getSalesTrend = async (req, res) => {
         const monthInt = parseInt(month);
         const yearInt = parseInt(year);
 
-        const monthStart = new Date(yearInt, monthInt - 1, 1);
-        const monthEnd = new Date(yearInt, monthInt, 1);
+        // Get timezone-aware date range for the selected month
+        const { monthStart, monthEnd } = await getTimezoneAwareMonthRange(organizationId, month, year);
 
         // Calculate week boundaries for the month
         const weeks = [];
@@ -111,6 +211,9 @@ exports.getSalesTrend = async (req, res) => {
             weekNumber++;
         }
 
+        // Get Hierarchy Filter
+        const hierarchyQuery = await getAnalyticsHierarchyQuery(req);
+
         // Get sales data for each week using $facet for parallel execution
         const facetStages = {};
         weeks.forEach((week) => {
@@ -119,7 +222,8 @@ exports.getSalesTrend = async (req, res) => {
                     $match: {
                         organizationId: organizationId,
                         createdAt: { $gte: week.start, $lt: week.end },
-                        status: { $ne: 'rejected' }
+                        status: { $ne: 'rejected' },
+                        ...hierarchyQuery // Merge hierarchy filter
                     }
                 },
                 {
@@ -176,8 +280,11 @@ exports.getProductsByCategory = async (req, res) => {
         const monthInt = parseInt(month);
         const yearInt = parseInt(year);
 
-        const monthStart = new Date(yearInt, monthInt - 1, 1);
-        const monthEnd = new Date(yearInt, monthInt, 1);
+        // Get timezone-aware date range for the selected month
+        const { monthStart, monthEnd } = await getTimezoneAwareMonthRange(organizationId, month, year);
+
+        // Get Hierarchy Filter
+        const hierarchyQuery = await getAnalyticsHierarchyQuery(req);
 
         // Aggregate products sold by category
         const categoryData = await Invoice.aggregate([
@@ -185,7 +292,8 @@ exports.getProductsByCategory = async (req, res) => {
                 $match: {
                     organizationId: organizationId,
                     createdAt: { $gte: monthStart, $lt: monthEnd },
-                    status: { $ne: 'rejected' }
+                    status: { $ne: 'rejected' },
+                    ...hierarchyQuery // Merge hierarchy filter
                 }
             },
             {
@@ -270,8 +378,11 @@ exports.getTopProducts = async (req, res) => {
         const monthInt = parseInt(month);
         const yearInt = parseInt(year);
 
-        const monthStart = new Date(yearInt, monthInt - 1, 1);
-        const monthEnd = new Date(yearInt, monthInt, 1);
+        // Get timezone-aware date range for the selected month
+        const { monthStart, monthEnd } = await getTimezoneAwareMonthRange(organizationId, month, year);
+
+        // Get Hierarchy Filter
+        const hierarchyQuery = await getAnalyticsHierarchyQuery(req);
 
         // Aggregate top products sold
         const topProducts = await Invoice.aggregate([
@@ -279,7 +390,8 @@ exports.getTopProducts = async (req, res) => {
                 $match: {
                     organizationId: organizationId,
                     createdAt: { $gte: monthStart, $lt: monthEnd },
-                    status: { $ne: 'rejected' }
+                    status: { $ne: 'rejected' },
+                    ...hierarchyQuery // Merge hierarchy filter
                 }
             },
             {
@@ -345,8 +457,11 @@ exports.getTopParties = async (req, res) => {
         const monthInt = parseInt(month);
         const yearInt = parseInt(year);
 
-        const monthStart = new Date(yearInt, monthInt - 1, 1);
-        const monthEnd = new Date(yearInt, monthInt, 1);
+        // Get timezone-aware date range for the selected month
+        const { monthStart, monthEnd } = await getTimezoneAwareMonthRange(organizationId, month, year);
+
+        // Get Hierarchy Filter
+        const hierarchyQuery = await getAnalyticsHierarchyQuery(req);
 
         // Aggregate top parties by total order value
         const topParties = await Invoice.aggregate([
@@ -354,7 +469,8 @@ exports.getTopParties = async (req, res) => {
                 $match: {
                     organizationId: organizationId,
                     createdAt: { $gte: monthStart, $lt: monthEnd },
-                    status: { $ne: 'rejected' }
+                    status: { $ne: 'rejected' },
+                    ...hierarchyQuery // Merge hierarchy filter
                 }
             },
             {

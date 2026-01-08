@@ -1,45 +1,65 @@
-const { hasPermission } = require('./defaultPermissions');
+const { checkRoleFeaturePermission } = require('../middlewares/compositeAccess.middleware');
 
 /**
- * Check if a user is authorized to approve a request for another user
- * 
- * Authorization Logic:
- * 1. Approver MUST have the 'approve' permission for the specific module.
- * 2. Approver MUST be either:
- *    a) An 'admin' role user
- *    b) The direct supervisor (reportsTo) of the requester
- * 
- * @param {Object} approver - The user document object attempting to approve
- * @param {Object} requester - The user document object of the requester
- * @param {String} moduleName - The module name to check permission for ('leaves', 'expenses', etc.)
- * @returns {Boolean} true if authorized, false otherwise
+ * Check if a user is authorized to approve a request
+ * * Authorization Logic:
+ * 1. Admin Override: Admins can approve ANYTHING within their org.
+ * 2. Permission Check: Approver MUST have 'updateStatus' (or 'approve') capability.
+ * 3. Supervisor Check: Approver MUST be in the requester's 'reportsTo' array.
  */
 exports.canApprove = (approver, requester, moduleName) => {
     if (!approver || !requester) return false;
-
-    // 1. Check Permission: Does approver have approval rights for this module?
-    // Get permissions from user object (assuming they are populated or resolved)
-    // Note: User controller usually resolves permissions into req.user.permissions or we use helper
-
-    // For now, checks against role/customRoleId would be handled by middleware, 
-    // but here we double check if the user object has ability to approve.
-    // In many implementations, 'req.user' already has role permissions merged if using getEffectivePermissions
-
-    // However, since we might pass raw user objects, let's rely on the fact that 
-    // the controller usually checks `requirePermission(module, 'approve')` BEFORE calling this.
-    // But for safety, we can return false if they are not active.
     if (!approver.isActive) return false;
 
-    // 2. Hierarchy Check
+    // ==================================================
+    // 1. ADMIN OVERRIDE (The Safety Net)
+    // ==================================================
+    // Check if role is populated and name is Admin
+    // OR if role matches the specific hardcoded System Role strings if you use them
+    const roleName = approver.role?.name || approver.role;
 
-    // 2a. Admin Override: Admins can approve anyone's request within their organization
-    if (approver.role === 'admin') {
-        return approver.organizationId.toString() === requester.organizationId.toString();
+    // Convert to string and lowercase to be safe against 'Admin' vs 'admin'
+    if (roleName && roleName.toString().toLowerCase() === 'admin') {
+        // Security: Prevent cross-organization approvals
+        if (approver.organizationId?.toString() !== requester.organizationId?.toString()) {
+            return false;
+        }
+        return true;
     }
 
-    // 2b. Supervisor Check: Must be the direct reporter
-    // Ensure requester has a reportsTo field and it matches approver's ID
-    if (requester.reportsTo && requester.reportsTo.toString() === approver._id.toString()) {
+    // ==================================================
+    // 2. PERMISSION CHECK (The "Capability" Gate)
+    // ==================================================
+    // Determine the correct key ('approve' for Odometer, 'updateStatus' for others)
+    let permissionKey = 'updateStatus';
+    if (moduleName === 'odometer') permissionKey = 'approve';
+
+    // Use the centralized helper. This works even if 'hasFeature' isn't on the User model.
+    const permCheck = checkRoleFeaturePermission(approver, moduleName, permissionKey);
+
+    if (!permCheck.allowed) {
+        return false;
+    }
+
+    // ==================================================
+    // 3. SUPERVISOR CHECK (The "Relationship" Gate)
+    // ==================================================
+    // Check if requester has supervisors assigned
+    if (!requester.reportsTo || (Array.isArray(requester.reportsTo) && requester.reportsTo.length === 0)) {
+        // No supervisor assigned -> Only Admin could have approved (handled in step 1).
+        // So we return false here.
+        return false;
+    }
+
+    const approverId = approver._id.toString();
+
+    // Handle Array (Multiple Supervisors)
+    if (Array.isArray(requester.reportsTo)) {
+        const isSupervisor = requester.reportsTo.some(id => id.toString() === approverId);
+        if (isSupervisor) return true;
+    }
+    // Handle Single ID (Fallback/Legacy support)
+    else if (requester.reportsTo.toString() === approverId) {
         return true;
     }
 

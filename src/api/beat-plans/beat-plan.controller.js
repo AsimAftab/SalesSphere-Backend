@@ -159,25 +159,63 @@ exports.getAvailableDirectories = async (req, res, next) => {
     }
 };
 
+const { isSystemRole } = require('../../utils/defaultPermissions');
+
 // @desc    Get beat plan data (analytics/summary)
 // @route   GET /api/v1/beat-plans/data
 // @access  Protected
 exports.getBeatPlanData = async (req, res, next) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
-        const { organizationId } = req.user;
+        const { organizationId, role, _id: userId } = req.user;
+
+        // --- HIERARCHY LOGIC FOR STATS ---
+        let hierarchyFilter = {};
+
+        // 1. Admin / System Role: View All
+        if (role === 'admin' || isSystemRole(role)) {
+            hierarchyFilter = {};
+        }
+        // 2. Manager with viewTeamBeatPlans: View Self + Subordinates
+        else if (req.user.hasFeature('beatPlan', 'viewTeamBeatPlans')) {
+            const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
+            const subordinateIds = subordinates.map(u => u._id);
+            // Plans created by OR assigned to (Me or Subordinates)
+            hierarchyFilter = {
+                $or: [
+                    { createdBy: userId },
+                    { createdBy: { $in: subordinateIds } },
+                    { employees: userId }, // Assigned to me
+                    { employees: { $in: subordinateIds } } // Assigned to subordinates
+                ]
+            };
+        }
+        // 3. Regular User: View Self Only
+        else {
+            // Plans created by Me OR Assigned to Me
+            hierarchyFilter = {
+                $or: [
+                    { createdBy: userId },
+                    { employees: userId }
+                ]
+            };
+        }
+
+        const commonFilter = { organizationId, ...hierarchyFilter };
 
         // 1. Get total directories (parties, sites, prospects) in the organization
+        // Note: Directories are usually org-wide visible, but we can filter if needed.
+        // For now, keeping total directories as org-wide capability, but totalBeatPlans is filtered.
         const totalParties = await Party.countDocuments({ organizationId });
         const totalSites = await Site.countDocuments({ organizationId });
         const totalProspects = await Prospect.countDocuments({ organizationId });
         const totalDirectories = totalParties + totalSites + totalProspects;
 
-        // 2. Get total beat plans created
-        const totalBeatPlans = await BeatPlan.countDocuments({ organizationId });
+        // 2. Get total beat plans (Filtered)
+        const totalBeatPlans = await BeatPlan.countDocuments(commonFilter);
 
-        // 3. Get unique assigned employees across all beat plans
-        const beatPlans = await BeatPlan.find({ organizationId })
+        // 3. Get unique assigned employees across filtered beat plans
+        const beatPlans = await BeatPlan.find(commonFilter)
             .populate('employees', 'name email role avatarUrl')
             .select('employees');
 
@@ -195,9 +233,9 @@ exports.getBeatPlanData = async (req, res, next) => {
             organizationId
         }).select('name email role avatarUrl phone');
 
-        // 4. Additional stats
+        // 4. Additional stats (Filtered)
         const activeBeatPlans = await BeatPlan.countDocuments({
-            organizationId,
+            ...commonFilter,
             status: 'active'
         });
 
@@ -369,12 +407,43 @@ exports.createBeatPlan = async (req, res, next) => {
 exports.getAllBeatPlans = async (req, res, next) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
-        const { organizationId } = req.user;
+        const { organizationId, role, _id: userId } = req.user;
 
         const { status, page = 1, limit = 10 } = req.query;
 
+        // --- HIERARCHY LOGIC ---
+        let hierarchyFilter = {};
+
+        // 1. Admin / System Role: View All
+        if (role === 'admin' || isSystemRole(role)) {
+            hierarchyFilter = {};
+        }
+        // 2. Manager with viewTeamBeatPlans: View Self + Subordinates
+        else if (req.user.hasFeature('beatPlan', 'viewTeamBeatPlans')) {
+            const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
+            const subordinateIds = subordinates.map(u => u._id);
+            // Plans created by OR assigned to (Me or Subordinates)
+            hierarchyFilter = {
+                $or: [
+                    { createdBy: userId },
+                    { createdBy: { $in: subordinateIds } },
+                    { employees: userId }, // Assigned to me
+                    { employees: { $in: subordinateIds } } // Assigned to subordinates
+                ]
+            };
+        }
+        // 3. Regular User: View Self + Assigned
+        else {
+            hierarchyFilter = {
+                $or: [
+                    { createdBy: userId },
+                    { employees: userId }
+                ]
+            };
+        }
+
         // Build filter
-        const filter = { organizationId };
+        const filter = { organizationId, ...hierarchyFilter };
         if (status) {
             filter.status = status;
         }
@@ -545,21 +614,48 @@ exports.updateBeatPlan = async (req, res, next) => {
             beatPlan.prospects = prospectIds;
         }
 
-        // Reset visits array if any directories were updated
+        // Sync visits array when directories are updated
+        // Preserve existing visit statuses for directories still in the plan
         if (validatedData.parties !== undefined || validatedData.sites !== undefined || validatedData.prospects !== undefined) {
-            beatPlan.visits = [
-                ...partyIds.map(id => ({ directoryId: id, directoryType: 'party', status: 'pending' })),
-                ...siteIds.map(id => ({ directoryId: id, directoryType: 'site', status: 'pending' })),
-                ...prospectIds.map(id => ({ directoryId: id, directoryType: 'prospect', status: 'pending' }))
-            ];
+            const existingVisits = beatPlan.visits || [];
+
+            // Create new visits array preserving existing statuses
+            const newVisits = [];
+
+            // Add parties with preserved status
+            for (const id of partyIds) {
+                const existing = existingVisits.find(
+                    v => v.directoryId.toString() === id.toString() && v.directoryType === 'party'
+                );
+                newVisits.push(existing || { directoryId: id, directoryType: 'party', status: 'pending' });
+            }
+
+            // Add sites with preserved status
+            for (const id of siteIds) {
+                const existing = existingVisits.find(
+                    v => v.directoryId.toString() === id.toString() && v.directoryType === 'site'
+                );
+                newVisits.push(existing || { directoryId: id, directoryType: 'site', status: 'pending' });
+            }
+
+            // Add prospects with preserved status
+            for (const id of prospectIds) {
+                const existing = existingVisits.find(
+                    v => v.directoryId.toString() === id.toString() && v.directoryType === 'prospect'
+                );
+                newVisits.push(existing || { directoryId: id, directoryType: 'prospect', status: 'pending' });
+            }
+
+            beatPlan.visits = newVisits;
 
             const totalDirectories = partyIds.length + siteIds.length + prospectIds.length;
 
-            // Reset progress
+            // Recalculate progress based on current visits
+            const visitedCount = newVisits.filter(v => v.status === 'visited').length;
             beatPlan.progress = {
                 totalDirectories,
-                visitedDirectories: 0,
-                percentage: 0,
+                visitedDirectories: visitedCount,
+                percentage: totalDirectories > 0 ? Math.round((visitedCount / totalDirectories) * 100) : 0,
                 totalParties: partyIds.length,
                 totalSites: siteIds.length,
                 totalProspects: prospectIds.length,
@@ -746,11 +842,12 @@ exports.getBeatPlanDetails = async (req, res, next) => {
             });
         }
 
-        // Populate all directory types with full details
+        // Populate all directory types with only necessary fields
+        // Exclude location.address (not needed for distance calculations) to reduce payload size
         await beatPlan.populate([
-            { path: 'parties', select: 'partyName ownerName contact location panVatNumber' },
-            { path: 'sites', select: 'siteName ownerName contact location' },
-            { path: 'prospects', select: 'prospectName ownerName contact location panVatNumber' }
+            { path: 'parties', select: 'partyName ownerName contact.phone contact.email location.latitude location.longitude panVatNumber' },
+            { path: 'sites', select: 'siteName ownerName contact.phone contact.email location.latitude location.longitude' },
+            { path: 'prospects', select: 'prospectName ownerName contact.phone contact.email location.latitude location.longitude panVatNumber' }
         ]);
 
         // Create a combined list of all directories with type and name
@@ -954,6 +1051,25 @@ exports.optimizeBeatPlanRoute = async (req, res, next) => {
             });
         }
 
+        // Separate parties with and without valid location coordinates
+        const partiesWithLocation = beatPlan.parties.filter(p =>
+            p.location?.latitude != null &&
+            p.location?.longitude != null &&
+            !isNaN(p.location.latitude) &&
+            !isNaN(p.location.longitude)
+        );
+        const partiesWithoutLocation = beatPlan.parties.filter(p =>
+            !p.location?.latitude ||
+            !p.location?.longitude ||
+            isNaN(p.location.latitude) ||
+            isNaN(p.location.longitude)
+        );
+
+        // Warn if any parties lack location data
+        if (partiesWithoutLocation.length > 0) {
+            console.warn(`⚠️ ${partiesWithoutLocation.length} party(s) missing location coordinates - will be appended as unoptimized`);
+        }
+
         // Prepare starting location if provided
         let startLocation = null;
         if (startLatitude && startLongitude) {
@@ -963,19 +1079,44 @@ exports.optimizeBeatPlanRoute = async (req, res, next) => {
             };
         }
 
-        // Optimize the route
-        const optimization = optimizeRoute(beatPlan.parties, startLocation);
+        // Optimize only parties with valid location
+        let optimization;
+        let optimizedParties = [];
+
+        if (partiesWithLocation.length > 0) {
+            optimization = optimizeRoute(partiesWithLocation, startLocation);
+            optimizedParties = optimization.optimizedParties;
+        } else {
+            // No parties with location - all are unoptimized
+            optimization = {
+                originalDistance: 0,
+                totalDistance: 0,
+                distanceSaved: 0
+            };
+        }
+
+        // Append parties without location to the end (unoptimized/manual visit)
+        const unoptimizedParties = partiesWithoutLocation.map(p => ({
+            ...p.toObject(),
+            isUnoptimized: true
+        }));
+
+        // Combine optimized + unoptimized parties
+        const finalPartyOrder = [...optimizedParties, ...unoptimizedParties];
 
         // Update the beatplan with optimized party order
-        const optimizedPartyIds = optimization.optimizedParties.map(p => p._id);
-        beatPlan.parties = optimizedPartyIds;
+        const finalPartyIds = finalPartyOrder.map(p => p._id);
+        beatPlan.parties = finalPartyIds;
 
         // Update visits array to match new order
-        const newVisits = optimizedPartyIds.map(partyId => {
+        const newVisits = finalPartyIds.map(partyId => {
             // Find existing visit record or create new one
-            const existingVisit = beatPlan.visits.find(v => v.partyId.toString() === partyId.toString());
+            const existingVisit = beatPlan.visits.find(v =>
+                v.directoryId?.toString() === partyId.toString() && v.directoryType === 'party'
+            );
             return existingVisit || {
-                partyId: partyId,
+                directoryId: partyId,
+                directoryType: 'party',
                 status: 'pending'
             };
         });
@@ -984,11 +1125,15 @@ exports.optimizeBeatPlanRoute = async (req, res, next) => {
         await beatPlan.save();
 
         // Prepare response with distance information
-        const partiesWithDistances = optimization.optimizedParties.map((party, index) => {
+        const partiesWithDistances = finalPartyOrder.map((party, index) => {
+            const isUnoptimized = party.isUnoptimized;
+
             let distanceToNext = null;
-            if (index < optimization.optimizedParties.length - 1) {
-                const nextParty = optimization.optimizedParties[index + 1];
-                if (party.location?.latitude && party.location?.longitude &&
+            if (!isUnoptimized && index < finalPartyOrder.length - 1) {
+                const nextParty = finalPartyOrder[index + 1];
+                // Only calculate distance if both parties have location and next is not unoptimized
+                if (nextParty && !nextParty.isUnoptimized &&
+                    party.location?.latitude && party.location?.longitude &&
                     nextParty.location?.latitude && nextParty.location?.longitude) {
                     distanceToNext = calculateDistance(
                         party.location.latitude,
@@ -1004,13 +1149,16 @@ exports.optimizeBeatPlanRoute = async (req, res, next) => {
                 partyName: party.partyName,
                 ownerName: party.ownerName,
                 location: party.location,
-                distanceToNext: distanceToNext
+                distanceToNext: distanceToNext,
+                isUnoptimized: isUnoptimized || false
             };
         });
 
         res.status(200).json({
             success: true,
-            message: 'Route optimized successfully',
+            message: partiesWithoutLocation.length > 0
+                ? `Route optimized for ${partiesWithLocation.length} parties. ${partiesWithoutLocation.length} party(s) without location added as manual visits.`
+                : 'Route optimized successfully',
             data: {
                 beatPlanId: beatPlan._id,
                 beatPlanName: beatPlan.name,

@@ -134,11 +134,73 @@ const invoiceSchema = new mongoose.Schema({
 invoiceSchema.index({ organizationId: 1 });
 invoiceSchema.index({ party: 1 });
 invoiceSchema.index({ isEstimate: 1, organizationId: 1 });
-// Sparse index for invoiceNumber (only indexed when present)
-invoiceSchema.index({ invoiceNumber: 1, organizationId: 1 }, { unique: true, sparse: true });
-// Sparse index for estimateNumber
-invoiceSchema.index({ estimateNumber: 1, organizationId: 1 }, { unique: true, sparse: true });
+
+// Partial unique index: invoiceNumber must be unique for INVOICES only (isEstimate: false)
+invoiceSchema.index(
+  { invoiceNumber: 1, organizationId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      invoiceNumber: { $exists: true, $ne: null },
+      isEstimate: false
+    }
+  }
+);
+
+// Partial unique index: estimateNumber must be unique for ESTIMATES only (isEstimate: true)
+invoiceSchema.index(
+  { estimateNumber: 1, organizationId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      estimateNumber: { $exists: true, $ne: null },
+      isEstimate: true
+    }
+  }
+);
 
 
 const Invoice = mongoose.model('Invoice', invoiceSchema);
+
+// Fix duplicate key error: Drop old indexes and recreate with partial filter
+// This ensures:
+// - invoiceNumber is unique for invoices (isEstimate: false) only
+// - estimateNumber is unique for estimates (isEstimate: true) only
+Invoice.syncIndexes = async function() {
+  try {
+    const db = this.db;
+    const collection = db.collection('invoices');
+
+    // Get existing indexes
+    const indexes = await collection.indexes();
+
+    // Drop ANY old index on estimateNumber + organizationId (old sparse or non-sparse)
+    const oldEstimateIndexes = indexes.filter(idx =>
+      idx.key.estimateNumber === 1 && idx.key.organizationId === 1
+    );
+    for (const idx of oldEstimateIndexes) {
+      if (idx.name) {
+        await collection.dropIndex(idx.name);
+        console.log(`✅ Dropped old estimateNumber index: ${idx.name}`);
+      }
+    }
+
+    // Drop ANY old index on invoiceNumber + organizationId (old sparse or non-sparse)
+    const oldInvoiceIndexes = indexes.filter(idx =>
+      idx.key.invoiceNumber === 1 && idx.key.organizationId === 1
+    );
+    for (const idx of oldInvoiceIndexes) {
+      if (idx.name) {
+        await collection.dropIndex(idx.name);
+        console.log(`✅ Dropped old invoiceNumber index: ${idx.name}`);
+      }
+    }
+  } catch (error) {
+    console.error('Error fixing invoice indexes:', error.message);
+  }
+};
+
+// Call the sync function when model loads
+Invoice.syncIndexes();
+
 module.exports = Invoice;

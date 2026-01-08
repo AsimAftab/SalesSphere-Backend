@@ -54,6 +54,8 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
     prospects: {
         viewList: true,
         viewDetails: true,
+        viewOwn: true,
+        viewTeamProspects: true,
         viewInterests: true,
         create: true,
         update: true,
@@ -89,6 +91,7 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
     },
     collections: {
         view: true,
+        viewTeamCollections: true,
         collectPayment: true,
         verifyPayment: true,
         updateChequeStatus: true,
@@ -97,6 +100,7 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
     beatPlan: {
         viewList: true,
         viewOwn: true,
+        viewTeamBeatPlans: true,
         viewDetails: true,
         viewSalespersons: true,
         viewDirectories: true,
@@ -131,6 +135,7 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
     },
     expenses: {
         viewList: true,
+        viewTeamClaims: true,
         viewDetails: true,
         create: true,
         update: true,
@@ -160,6 +165,7 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
     parties: {
         viewList: true,
         viewDetails: true,
+        viewTeamParties: true,
         viewTypes: true,
         create: true,
         update: true,
@@ -175,6 +181,7 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
     sites: {
         viewList: true,
         viewDetails: true,
+        viewTeamSites: true,
         viewInterests: true,
         viewSubOrganizations: true,
         create: true,
@@ -195,6 +202,7 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
     },
     analytics: {
         viewMonthlyOverview: true,
+        viewTeamAnalytics: true,
         viewSalesTrend: true,
         viewCategorySales: true,
         viewTopProducts: true,
@@ -203,6 +211,7 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
     notes: {
         viewList: true,
         viewOwn: true,
+        viewTeamNotes: true,
         viewDetails: true,
         create: true,
         update: true,
@@ -215,6 +224,7 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
     miscellaneousWork: {
         viewList: true,
         viewOwn: true,
+        viewTeamMiscellaneous: false,
         viewDetails: true,
         create: true,
         update: true,
@@ -306,6 +316,7 @@ const DEVELOPER_GRANULAR_PERMISSIONS = {
     prospects: {
         viewList: true,
         viewDetails: true,
+        viewTeamProspects: true,
         viewInterests: true,
         create: true,
         update: true,
@@ -341,6 +352,7 @@ const DEVELOPER_GRANULAR_PERMISSIONS = {
     },
     collections: {
         view: true,
+        viewTeamCollections: true,
         collectPayment: true,
         verifyPayment: true,
         updateChequeStatus: true,
@@ -349,6 +361,7 @@ const DEVELOPER_GRANULAR_PERMISSIONS = {
     beatPlan: {
         viewList: true,
         viewOwn: true,
+        viewTeamBeatPlans: true,
         viewDetails: true,
         viewSalespersons: true,
         viewDirectories: true,
@@ -383,6 +396,7 @@ const DEVELOPER_GRANULAR_PERMISSIONS = {
     },
     expenses: {
         viewList: true,
+        viewTeamClaims: true,
         viewDetails: true,
         create: true,
         update: true,
@@ -412,6 +426,7 @@ const DEVELOPER_GRANULAR_PERMISSIONS = {
     parties: {
         viewList: true,
         viewDetails: true,
+        viewTeamParties: true,
         viewTypes: true,
         create: true,
         update: true,
@@ -427,6 +442,7 @@ const DEVELOPER_GRANULAR_PERMISSIONS = {
     sites: {
         viewList: true,
         viewDetails: true,
+        viewTeamSites: true,
         viewInterests: true,
         viewSubOrganizations: true,
         create: true,
@@ -447,6 +463,7 @@ const DEVELOPER_GRANULAR_PERMISSIONS = {
     },
     analytics: {
         viewMonthlyOverview: true,
+        viewTeamAnalytics: true,
         viewSalesTrend: true,
         viewCategorySales: true,
         viewTopProducts: true,
@@ -455,6 +472,7 @@ const DEVELOPER_GRANULAR_PERMISSIONS = {
     notes: {
         viewList: true,
         viewOwn: true,
+        viewTeamNotes: true,
         viewDetails: true,
         create: true,
         update: true,
@@ -467,6 +485,7 @@ const DEVELOPER_GRANULAR_PERMISSIONS = {
     miscellaneousWork: {
         viewList: true,
         viewOwn: true,
+        viewTeamMiscellaneous: true,
         viewDetails: true,
         create: true,
         update: true,
@@ -595,6 +614,7 @@ const ADMIN_GRANULAR_PERMISSIONS = {
     },
     collections: {
         view: true,
+        viewTeamCollections: true,
         collectPayment: true,
         verifyPayment: true,
         updateChequeStatus: true,
@@ -603,6 +623,7 @@ const ADMIN_GRANULAR_PERMISSIONS = {
     beatPlan: {
         viewList: true,
         viewOwn: true,
+        viewTeamBeatPlans: true,
         viewDetails: true,
         viewSalespersons: true,
         viewDirectories: true,
@@ -637,6 +658,7 @@ const ADMIN_GRANULAR_PERMISSIONS = {
     },
     expenses: {
         viewList: true,
+        viewTeamClaims: true,
         viewDetails: true,
         create: true,
         update: true,
@@ -667,6 +689,7 @@ const ADMIN_GRANULAR_PERMISSIONS = {
     parties: {
         viewList: true,
         viewDetails: true,
+        viewTeamParties: true,
         viewTypes: true,
         create: true,
         update: true,
@@ -682,6 +705,7 @@ const ADMIN_GRANULAR_PERMISSIONS = {
     sites: {
         viewList: true,
         viewDetails: true,
+        viewTeamSites: true,
         viewInterests: true,
         viewSubOrganizations: true,
         create: true,
@@ -702,6 +726,7 @@ const ADMIN_GRANULAR_PERMISSIONS = {
     },
     analytics: {
         viewMonthlyOverview: true,
+        viewTeamAnalytics: true,
         viewSalesTrend: true,
         viewCategorySales: true,
         viewTopProducts: true,
@@ -710,6 +735,7 @@ const ADMIN_GRANULAR_PERMISSIONS = {
     notes: {
         viewList: true,
         viewOwn: true,
+        viewTeamNotes: true,
         viewDetails: true,
         create: true,
         update: true,
@@ -722,6 +748,7 @@ const ADMIN_GRANULAR_PERMISSIONS = {
     miscellaneousWork: {
         viewList: true,
         viewOwn: true,
+        viewTeamMiscellaneous: true,
         viewDetails: true,
         create: true,
         update: true,
@@ -793,6 +820,7 @@ const USER_GRANULAR_PERMISSIONS = {
     prospects: {
         viewList: true,
         viewDetails: true,
+        viewTeamProspects: false,
         viewInterests: true,
         create: true,
         update: true,
@@ -819,6 +847,7 @@ const USER_GRANULAR_PERMISSIONS = {
     // Invoices (orders) module
     invoices: {
         viewList: true,
+        viewTeamInvoices: false,
         viewDetails: true,
         create: true,
         updateStatus: false,
@@ -830,6 +859,7 @@ const USER_GRANULAR_PERMISSIONS = {
     },
     collections: {
         view: true,
+        viewTeamCollections: false,
         collectPayment: true,
         verifyPayment: false,
         updateChequeStatus: false,
@@ -838,6 +868,7 @@ const USER_GRANULAR_PERMISSIONS = {
     beatPlan: {
         viewList: false,
         viewOwn: true,
+        viewTeamBeatPlans: false,
         viewDetails: true,
         viewSalespersons: false,
         viewDirectories: true,
@@ -890,6 +921,7 @@ const USER_GRANULAR_PERMISSIONS = {
     leaves: {
         viewList: false,
         viewOwn: true,
+        viewTeamLeaves: false,
         viewDetails: true,
         create: true,
         update: false,
@@ -902,6 +934,7 @@ const USER_GRANULAR_PERMISSIONS = {
     parties: {
         viewList: true,
         viewDetails: true,
+        viewTeamParties: false,
         viewTypes: true,
         create: false,
         update: false,
@@ -917,6 +950,7 @@ const USER_GRANULAR_PERMISSIONS = {
     sites: {
         viewList: true,
         viewDetails: true,
+        viewTeamSites: false,
         viewInterests: true,
         viewSubOrganizations: true,
         create: false,
@@ -945,6 +979,7 @@ const USER_GRANULAR_PERMISSIONS = {
     notes: {
         viewList: false,
         viewOwn: true,
+        viewTeamNotes: false,
         viewDetails: true,
         create: true,
         update: true,

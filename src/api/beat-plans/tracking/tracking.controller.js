@@ -3,8 +3,27 @@ const BeatPlan = require('../beat-plan.model');
 const Party = require('../../parties/party.model');
 const Site = require('../../sites/sites.model');
 const Prospect = require('../../prospect/prospect.model');
+const User = require('../../users/user.model');
+const { isSystemRole } = require('../../../utils/defaultPermissions');
 
-// @desc    Get tracking session for a beat plan
+// Helper to check if requester can view target user's tracking
+const checkTrackingAccess = async (reqUser, targetUserId) => {
+    const { role, _id: requesterId } = reqUser;
+
+    // 1. Admin / System Role: Access Granted
+    if (role === 'admin' || isSystemRole(role)) return true;
+
+    // 2. Self: Access Granted
+    if (requesterId.toString() === targetUserId.toString()) return true;
+
+    // 3. Manager: Check if target reports to requester
+    const targetUser = await User.findById(targetUserId).select('reportsTo');
+    if (targetUser && targetUser.reportsTo && targetUser.reportsTo.includes(requesterId)) {
+        return true;
+    }
+
+    return false;
+};
 // @route   GET /api/v1/beat-plans/tracking/:beatPlanId
 // @access  Protected
 exports.getTrackingSession = async (req, res) => {
@@ -38,6 +57,12 @@ exports.getTrackingSession = async (req, res) => {
                 success: false,
                 message: 'No active tracking session found',
             });
+        }
+
+        // Security Check
+        const canView = await checkTrackingAccess(req.user, trackingSession.userId._id);
+        if (!canView) {
+            return res.status(403).json({ success: false, message: 'Not authorized to view this tracking session' });
         }
 
         res.status(200).json({
@@ -84,9 +109,24 @@ exports.getTrackingHistory = async (req, res) => {
             .populate('userId', 'name email avatarUrl role')
             .sort({ sessionStartedAt: -1 });
 
+        // Security Check - Filter sessions user is allowed to see
+        // For history list, we might implement a filter or post-filter
+        // Since this is getting history for a SPECIFIC Beat Plan, we should check if the user has access.
+        // Assuming Beat Plan assignment implies some access, but strict hierarchy is better.
+
+        // Better approach: Since a Beat Plan might have multiple users over time (if reassigned),
+        // we should filter the list to only show sessions of users the requester can view.
+
+        const visibleSessions = [];
+        for (const session of trackingSessions) {
+            if (await checkTrackingAccess(req.user, session.userId._id)) {
+                visibleSessions.push(session);
+            }
+        }
+
         res.status(200).json({
             success: true,
-            data: trackingSessions,
+            data: visibleSessions,
         });
     } catch (error) {
         console.error('Error fetching tracking history:', error);
@@ -117,6 +157,11 @@ exports.getBreadcrumbs = async (req, res) => {
                 success: false,
                 message: 'Tracking session not found',
             });
+        }
+
+        // Security Check
+        if (!(await checkTrackingAccess(req.user, trackingSession.userId))) {
+            return res.status(403).json({ success: false, message: 'Not authorized to view these breadcrumbs' });
         }
 
         res.status(200).json({
@@ -166,6 +211,11 @@ exports.getCurrentLocation = async (req, res) => {
             });
         }
 
+        // Security Check
+        if (!(await checkTrackingAccess(req.user, trackingSession.userId._id))) {
+            return res.status(403).json({ success: false, message: 'Not authorized to view this location' });
+        }
+
         res.status(200).json({
             success: true,
             data: {
@@ -206,6 +256,11 @@ exports.getTrackingSummary = async (req, res) => {
                 success: false,
                 message: 'Tracking session not found',
             });
+        }
+
+        // Security Check
+        if (!(await checkTrackingAccess(req.user, trackingSession.userId._id))) {
+            return res.status(403).json({ success: false, message: 'Not authorized to view this summary' });
         }
 
         // Calculate summary if not already calculated
@@ -257,11 +312,30 @@ exports.getTrackingSummary = async (req, res) => {
 exports.getActiveTrackingSessions = async (req, res) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
-        const { organizationId } = req.user;
+        const { organizationId, role, _id: userId } = req.user;
+
+        // --- HIERARCHY LOGIC ---
+        let userFilter = {};
+
+        // 1. Admin / System Role: View All
+        if (role === 'admin' || isSystemRole(role)) {
+            userFilter = {};
+        }
+        // 2. Manager with viewLiveTracking: View Subordinates Only
+        else if (req.user.hasFeature('liveTracking', 'viewLiveTracking')) {
+            const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
+            const subordinateIds = subordinates.map(u => u._id);
+            userFilter = { userId: { $in: subordinateIds } };
+        }
+        // 3. Regular User: View Self Only
+        else {
+            userFilter = { userId: userId };
+        }
 
         const activeSessions = await LocationTracking.find({
             organizationId,
             status: 'active',
+            ...userFilter
         })
             .populate('userId', 'name email avatarUrl phone role')
             .populate('beatPlanId', 'name status schedule')

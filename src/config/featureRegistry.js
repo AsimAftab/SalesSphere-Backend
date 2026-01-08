@@ -48,6 +48,8 @@ const FEATURE_REGISTRY = {
   prospects: {
     viewList: 'View the list of potential leads and prospects',
     viewDetails: 'Access deep-dive information and history for a specific prospect',
+    viewOwn: 'View own prospects only',
+    viewTeamProspects: 'View subordinates/team prospects',
     viewInterests: 'View specific products or services the prospect has shown interest in',
     create: 'Add new prospective clients to the system',
     update: 'Edit prospect contact information and lead details',
@@ -81,6 +83,7 @@ const FEATURE_REGISTRY = {
   invoices: {
     viewList: 'View all customer orders and their current status',
     viewDetails: 'Access deep-dive information for specific orders',
+    viewTeamInvoices: 'View subordinates/team invoices',
     create: 'Generate new customer invoices',
     updateStatus: 'Modify invoice status (e.g., Pending, Shipped, Delivered)',
     delete: 'Delete invoice record',
@@ -95,6 +98,7 @@ const FEATURE_REGISTRY = {
   // ============================================
   collections: {
     view: 'View collection entries',
+    viewTeamCollections: 'View subordinates/team collection entries',
     collectPayment: 'Add payment entry',
     verifyPayment: 'Verify/approve payment',
     updateChequeStatus: 'Update cheque status (cleared/bounced)',
@@ -107,6 +111,7 @@ const FEATURE_REGISTRY = {
   beatPlan: {
     viewList: 'View all beat plans and routes',
     viewOwn: 'View own assigned beat plans',
+    viewTeamBeatPlans: 'View subordinates/team beat plans',
     viewDetails: 'View detailed beat plan information including parties and visits',
     viewSalespersons: 'View list of salespersons for beat plan assignment',
     viewDirectories: 'View available beat plan directories/categories',
@@ -153,6 +158,7 @@ const FEATURE_REGISTRY = {
   // ============================================
   expenses: {
     viewList: 'View all employee expense claims and operational costs',
+    viewTeamClaims: 'View subordinates/team expense claims',
     viewDetails: 'Access detailed breakdown, receipts, and approval history',
     create: 'Submit and record new expense claims',
     update: 'Edit specific details of an existing expense record',
@@ -175,6 +181,7 @@ const FEATURE_REGISTRY = {
   leaves: {
     viewList: 'View all employee leave requests and history',
     viewOwn: 'View own leave requests only',
+    viewTeamLeaves: 'View subordinates/team leave requests',
     viewDetails: 'View leave request details and comments',
     create: 'Create new leave request',
     update: 'Edit own leave request (before approval)',
@@ -189,8 +196,9 @@ const FEATURE_REGISTRY = {
   // PARTIES MODULE
   // ============================================
   parties: {
-    viewList: 'View all registered parties, clients, and vendors',
-    viewDetails: 'Access comprehensive profile and history for a specific party',
+    viewList: 'View list of all parties',
+    viewDetails: 'View specific party details',
+    viewTeamParties: 'View subordinates/team parties',
     viewTypes: 'View available party types for categorization',
     create: 'Add new parties to the system (implicitly creates party types)',
     update: 'Edit party contact information and business details',
@@ -210,6 +218,7 @@ const FEATURE_REGISTRY = {
   sites: {
     viewList: 'View all registered sites and project locations',
     viewDetails: 'Access detailed configuration and history for a specific site',
+    viewTeamSites: 'View subordinates/team sites',
     viewInterests: 'Monitor specific business interests or activities linked to sites',
     viewSubOrganizations: 'View available sub-organizations for site categorization',
     create: 'Register new site locations in the system (implicitly creates categories/sub-orgs)',
@@ -238,6 +247,7 @@ const FEATURE_REGISTRY = {
   // ============================================
   analytics: {
     viewMonthlyOverview: 'View month-over-month performance summaries and KPIs',
+    viewTeamAnalytics: 'View aggregated analytics for subordinates/team',
     viewSalesTrend: 'Access detailed revenue charts and growth trends',
     viewCategorySales: 'View breakdown of products sold by specific categories',
     viewTopProducts: 'Analyze the highest performing products by volume and value',
@@ -250,6 +260,7 @@ const FEATURE_REGISTRY = {
   notes: {
     viewList: 'View all created notes, memos, and internal reminders',
     viewOwn: 'View own created notes only',
+    viewTeamNotes: 'View subordinates/team notes',
     viewDetails: 'Access the full content, attachments, and metadata of a specific note',
     create: 'Create and save new notes or documentation',
     update: 'Edit the content, title, or tags of an existing note',
@@ -266,6 +277,7 @@ const FEATURE_REGISTRY = {
   miscellaneousWork: {
     viewList: 'View all recorded miscellaneous or uncategorized task records',
     viewOwn: 'View own miscellaneous work entries',
+    viewTeamMiscellaneous: 'View subordinates/team miscellaneous work',
     viewDetails: 'View specific miscellaneous work entry details and images',
     create: 'Create new miscellaneous work entry',
     update: 'Edit existing miscellaneous work entry',

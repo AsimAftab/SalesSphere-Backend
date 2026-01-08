@@ -5,14 +5,15 @@ const express = require('express');
 const {
     getMyOrganization,
     getOrganizationById,
-    updateMyOrganization,
+    updateOrganizationById,
     deactivateOrganization,
     reactivateOrganization,
     extendSubscription
 } = require('./organization.controller');
 const {
     protect,
-    requireSystemRole
+    requireSystemRole,
+    checkAccess
 } = require('../../middlewares/auth.middleware');
 
 const router = express.Router();
@@ -24,7 +25,7 @@ router.get('/my-organization', getMyOrganization);
 
 // System routes (superadmin/developer only)
 router.get('/:id', requireSystemRole(), getOrganizationById);
-router.put('/:id', requireSystemRole(), updateMyOrganization);
+router.put('/:id', requireSystemRole(), updateOrganizationById);
 router.put('/:id/deactivate', requireSystemRole(), deactivateOrganization);
 router.put('/:id/reactivate', requireSystemRole(), reactivateOrganization);
 router.post('/:id/extend-subscription', requireSystemRole(), extendSubscription);

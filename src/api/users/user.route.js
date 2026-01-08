@@ -160,4 +160,26 @@ router.delete('/:id/documents/:documentId',
     userController.deleteUserDocument
 );
 
+// ============================================
+// HIERARCHY MANAGEMENT
+// ============================================
+
+// GET /:id/supervisors - Get who this user reports to
+router.get('/:id/supervisors',
+    checkAccess('employees', 'viewDetails'),
+    userController.getUserSupervisors
+);
+
+// PUT /:id/supervisors - Set/update supervisors for a user
+router.put('/:id/supervisors',
+    requireOrgAdmin(),
+    userController.setUserSupervisors
+);
+
+// GET /:id/subordinates - Get users who report to this user
+router.get('/:id/subordinates',
+    checkAccess('employees', 'viewList'),
+    userController.getUserSubordinates
+);
+
 module.exports = router;

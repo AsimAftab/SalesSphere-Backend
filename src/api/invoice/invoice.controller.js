@@ -3,8 +3,37 @@ const Party = require('../parties/party.model');
 const Product = require('../product/product.model');
 const Counter = require('./counter.model');
 const Organization = require('../organizations/organization.model');
+const User = require('../users/user.model');
 const mongoose = require('mongoose');
 const { z } = require('zod');
+const { isSystemRole } = require('../../utils/defaultPermissions');
+const { canApprove } = require('../../utils/hierarchyHelper');
+
+// --- HELPER: Get Hierarchy Filter ---
+const getInvoiceHierarchyFilter = async (user) => {
+    const { role, _id: userId } = user;
+
+    // 1. Admin / System Role: Access All
+    if (role === 'admin' || isSystemRole(role)) {
+        return {};
+    }
+
+    // 2. Manager with viewTeamInvoices: Access Self + Subordinates
+    if (user.hasFeature('invoices', 'viewTeamInvoices')) {
+        const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
+        const subordinateIds = subordinates.map(u => u._id);
+
+        return {
+            $or: [
+                { createdBy: userId },
+                { createdBy: { $in: subordinateIds } }
+            ]
+        };
+    }
+
+    // 3. Regular User: Access Self Only
+    return { createdBy: userId };
+};
 
 // --- Zod Validation Schema ---
 const itemSchema = z.object({
@@ -251,11 +280,15 @@ exports.getAllInvoices = async (req, res, next) => {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId, role, _id: userId } = req.user;
 
-        const query = { organizationId: organizationId, isEstimate: false };
+        // Get hierarchy filter
+        const hierarchyFilter = await getInvoiceHierarchyFilter(req.user);
 
-        if (role === 'salesperson') {
-            query.createdBy = userId;
-        }
+        // Combine with base query
+        const query = {
+            organizationId: organizationId,
+            isEstimate: false,
+            ...hierarchyFilter
+        };
 
         const invoices = await Invoice.find(query)
             .select('invoiceNumber partyName totalAmount status createdAt expectedDeliveryDate createdBy')
@@ -274,14 +307,14 @@ exports.getInvoiceById = async (req, res, next) => {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId, role, _id: userId } = req.user;
 
+        // Get hierarchy filter
+        const hierarchyFilter = await getInvoiceHierarchyFilter(req.user);
+
         const query = {
             _id: req.params.id,
-            organizationId: organizationId
+            organizationId: organizationId,
+            ...hierarchyFilter
         };
-
-        if (role === 'salesperson') {
-            query.createdBy = userId;
-        }
 
         const invoice = await Invoice.findOne(query)
             .populate('createdBy', 'name email');
@@ -345,7 +378,7 @@ exports.getInvoiceById = async (req, res, next) => {
 
 // @desc    Update an invoice's status
 // @route   PUT /api/v1/invoices/:id/status
-// @access  Private (Admin, Manager)
+// @access  Private (Admin or Supervisor with approval permission)
 exports.updateInvoiceStatus = async (req, res, next) => {
     const MAX_RETRIES = 3;
     let attempt = 0;
@@ -360,17 +393,39 @@ exports.updateInvoiceStatus = async (req, res, next) => {
 
         try {
             if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
-            const { organizationId } = req.user;
+            const { organizationId, _id: userId } = req.user;
 
             const { status: newStatus } = statusSchema.parse(req.body);
 
             const invoice = await Invoice.findOne({
                 _id: req.params.id,
                 organizationId: organizationId
-            }).session(session);
+            }).populate('createdBy', 'name email reportsTo role organizationId') // Populate to check hierarchy
+                .session(session);
 
             if (!invoice) {
                 return res.status(404).json({ success: false, message: 'Invoice not found' });
+            }
+
+            // Hierarchy & Permission Check using canApprove helper
+            // This checks if approver is admin OR in the invoice creator's reportsTo array
+            const authorized = canApprove(req.user, invoice.createdBy, 'invoices');
+
+            if (!authorized) {
+                await session.abortTransaction();
+                return res.status(403).json({
+                    success: false,
+                    message: 'You are not authorized to update this invoice status. You must be the direct supervisor or an admin and have approval permission.'
+                });
+            }
+
+            // Prevent self-approval (users cannot update their own invoice status)
+            if (invoice.createdBy._id.toString() === userId.toString()) {
+                await session.abortTransaction();
+                return res.status(403).json({
+                    success: false,
+                    message: 'You cannot update your own invoice status'
+                });
             }
 
             const oldStatus = invoice.status;
@@ -456,12 +511,15 @@ exports.getPartiesOrderStats = async (req, res, next) => {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId, role, _id: userId } = req.user;
 
-        // Build match condition based on role
-        const matchCondition = { organizationId: organizationId };
+        // Build match condition based on dynamic role
+        // Get hierarchy filter
+        const hierarchyFilter = await getInvoiceHierarchyFilter(req.user);
 
-        if (role === 'salesperson') {
-            matchCondition.createdBy = userId;
-        }
+        // Build match condition
+        const matchCondition = {
+            organizationId: organizationId,
+            ...hierarchyFilter
+        };
 
         // Aggregation pipeline to get party order statistics
         const partyStats = await Invoice.aggregate([
@@ -547,15 +605,16 @@ exports.getPartyOrderStats = async (req, res, next) => {
             return res.status(400).json({ success: false, message: 'Invalid party ID' });
         }
 
-        // Build match condition based on role
+        // Build match condition based on dynamic role
+        // Get hierarchy filter
+        const hierarchyFilter = await getInvoiceHierarchyFilter(req.user);
+
+        // Build match condition
         const matchCondition = {
             organizationId: organizationId,
-            party: new mongoose.Types.ObjectId(partyId)
+            party: new mongoose.Types.ObjectId(partyId),
+            ...hierarchyFilter
         };
-
-        if (role === 'salesperson') {
-            matchCondition.createdBy = userId;
-        }
 
         // Aggregation pipeline for specific party
         const partyStats = await Invoice.aggregate([
@@ -768,8 +827,19 @@ exports.getAllEstimates = async (req, res, next) => {
 
         const query = { organizationId: organizationId, isEstimate: true };
 
-        if (role === 'salesperson') {
-            query.createdBy = userId;
+        // Dynamic role filtering:
+        // - System roles and org admin: see all org data
+        // - Regular users: see own + subordinates' data only estimates
+        if (role !== 'admin' && !isSystemRole(role)) {
+            // Find direct subordinates (reportsTo is now an array)
+            const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
+            const subordinateIds = subordinates.map(u => u._id);
+
+            // Show Own estimates OR Subordinate estimates
+            query.$or = [
+                { createdBy: userId },
+                { createdBy: { $in: subordinateIds } }
+            ];
         }
 
         const estimates = await Invoice.find(query)
@@ -797,8 +867,16 @@ exports.getEstimateById = async (req, res, next) => {
             isEstimate: true
         };
 
-        if (role === 'salesperson') {
-            query.createdBy = userId;
+        // Dynamic role filtering: non-system users can only see own or subordinates' estimates
+        if (role !== 'admin' && !isSystemRole(role)) {
+            // Find direct subordinates (reportsTo is now an array)
+            const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
+            const subordinateIds = subordinates.map(u => u._id);
+
+            query.$or = [
+                { createdBy: userId },
+                { createdBy: { $in: subordinateIds } }
+            ];
         }
 
         const estimate = await Invoice.findOne(query)
@@ -908,7 +986,7 @@ exports.bulkDeleteEstimates = async (req, res, next) => {
 
 // @desc    Convert an estimate to an invoice (deducts stock, generates invoice number)
 // @route   POST /api/v1/invoices/estimates/:id/convert
-// @access  Private (Admin, Manager, Salesperson)
+// @access  Private (Anyone with estimates:convertToInvoice feature permission)
 exports.convertEstimateToInvoice = async (req, res, next) => {
     const MAX_RETRIES = 3;
     let attempt = 0;

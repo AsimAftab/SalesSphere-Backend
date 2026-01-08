@@ -32,14 +32,38 @@ const bulkImportSchema = z.object({
 // --- HELPER FUNCTIONS ---
 
 // Find or create a category
-const getOrCreateCategory = async (categoryName, organizationId) => {
+const { isSystemRole } = require('../../utils/defaultPermissions');
+
+// --- HELPER FUNCTIONS ---
+
+// Find or create a category with permission check
+const getOrCreateCategory = async (categoryName, user) => {
+    const { organizationId, role } = user;
+
+    // 1. Check if category exists
     const existingCategory = await Category.findOne({
         name: { $regex: new RegExp(`^${categoryName}$`, 'i') },
         organizationId: organizationId
     });
+
     if (existingCategory) {
         return existingCategory;
     }
+
+    // 2. Category doesn't exist - Check permissions to create it
+    // Must be Admin, System Role, or have 'manageCategories' feature
+    const canCreateCategory =
+        role === 'admin' ||
+        isSystemRole(role) ||
+        (user.hasFeature && user.hasFeature('products', 'manageCategories'));
+
+    if (!canCreateCategory) {
+        const error = new Error(`You do not have permission to create the new category '${categoryName}'. Please select an existing category.`);
+        error.code = 'PERMISSION_DENIED';
+        throw error;
+    }
+
+    // 3. Create new category
     return await Category.create({
         name: categoryName,
         organizationId: organizationId
@@ -94,8 +118,8 @@ exports.createProduct = async (req, res, next) => {
         }
         // --- END CHECK ---
 
-        // 2. Find or Create the Category
-        const category = await getOrCreateCategory(validatedData.category, organizationId);
+        // 2. Find or Create the Category (with permission check)
+        const category = await getOrCreateCategory(validatedData.category, req.user);
 
         // 3. Fetch Organization name
         const organization = await Organization.findById(organizationId).select('name');
@@ -138,7 +162,11 @@ exports.createProduct = async (req, res, next) => {
         if (error instanceof z.ZodError) {
             return res.status(400).json({ success: false, message: "Validation failed", errors: error.flatten().fieldErrors });
         }
-        // --- NEW: Catch database-level unique constraint error ---
+        // Handle permission error from getOrCreateCategory
+        if (error.code === 'PERMISSION_DENIED') {
+            return res.status(403).json({ success: false, message: error.message });
+        }
+        // Catch database-level unique constraint error
         if (error.code === 11000) {
             return res.status(400).json({ success: false, message: 'A product with this name already exists.' });
         }
@@ -212,7 +240,8 @@ exports.updateProduct = async (req, res, next) => {
 
         // 3. Handle Category Update
         if (validatedData.category) {
-            const category = await getOrCreateCategory(validatedData.category, organizationId);
+            // Pass req.user for permission check
+            const category = await getOrCreateCategory(validatedData.category, req.user);
             product.category = category._id;
         }
 
@@ -276,7 +305,11 @@ exports.updateProduct = async (req, res, next) => {
         if (error instanceof z.ZodError) {
             return res.status(400).json({ success: false, message: "Validation failed", errors: error.flatten().fieldErrors });
         }
-        // --- NEW: Catch database-level unique constraint error ---
+        // Handle permission error
+        if (error.code === 'PERMISSION_DENIED') {
+            return res.status(403).json({ success: false, message: error.message });
+        }
+        // Catch database-level unique constraint error
         if (error.code === 11000) {
             return res.status(400).json({ success: false, message: 'A product with this name already exists.' });
         }
@@ -452,8 +485,22 @@ exports.bulkImportProducts = async (req, res, next) => {
             name => !categoryMap.has(name.toLowerCase())
         );
 
-        // 5. Bulk create missing categories
+        // 5. Bulk create missing categories (WITH PERMISSION CHECK)
         if (categoriesToCreate.length > 0) {
+            // Check if user has permission to create categories
+            const { role } = req.user;
+            const canCreateCategory =
+                role === 'admin' ||
+                isSystemRole(role) ||
+                (req.user.hasFeature && req.user.hasFeature('products', 'manageCategories'));
+
+            if (!canCreateCategory) {
+                return res.status(403).json({
+                    success: false,
+                    message: `Permission denied: Import contains new categories (${categoriesToCreate.join(', ')}). You do not have permission to create categories. Please use existing categories or ask an admin.`
+                });
+            }
+
             const newCategories = await Category.insertMany(
                 categoriesToCreate.map(name => ({
                     name: name,

@@ -32,11 +32,9 @@ exports.getDashboardStats = async (req, res) => {
 
     const Invoice = require('../invoice/invoice.model');
     const Party = require('../parties/party.model');
-    const Organization = require('../organizations/organization.model');
 
-    // fetch org timezone
-    const orgData = await Organization.findById(orgObjectId).select('timezone');
-    const timezone = orgData?.timezone || 'UTC';
+    // Use timezone from req.organization (cached by protect middleware)
+    const timezone = req.organization?.timezone || 'UTC';
 
     // compute UTC range for org-local "today" (fast & indexable)
     const { startUTC: today, endUTC: tomorrow } = getUTCRangeForDateInTimeZone(new Date(), timezone);
@@ -100,22 +98,41 @@ exports.getTeamPerformance = async (req, res) => {
     const orgObjectId = toObjectIdIfNeeded(organizationId);
 
     const Invoice = require('../invoice/invoice.model');
-    const Organization = require('../organizations/organization.model');
 
-    // Get org timezone dynamically
-    const orgData = await Organization.findById(orgObjectId).select('timezone');
-    const timezone = orgData?.timezone || 'UTC';
+    // Use timezone from req.organization (cached by protect middleware)
+    const timezone = req.organization?.timezone || 'UTC';
 
     const { startUTC: today, endUTC: tomorrow } = getUTCRangeForDateInTimeZone(new Date(), timezone);
 
+    const matchQuery = {
+      organizationId: orgObjectId,
+      createdAt: { $gte: today, $lt: tomorrow },
+      status: { $ne: 'rejected' }
+    };
+
+    // Dynamic Role Filtering
+    const { role, _id: userId } = req.user;
+    const { isSystemRole } = require('../../utils/defaultPermissions');
+
+    if (role === 'admin' || isSystemRole(role)) {
+      // 1. Admin/System: View All
+    }
+    else if (req.user.hasFeature('dashboard', 'viewTeamPerformance')) {
+      // 2. Manager: View Self + Subordinates
+      const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
+      const subordinateIds = subordinates.map(u => u._id);
+      matchQuery.$or = [
+        { createdBy: userId },
+        { createdBy: { $in: subordinateIds } }
+      ];
+    }
+    else {
+      // 3. Regular User: View Self Only
+      matchQuery.createdBy = userId;
+    }
+
     const performance = await Invoice.aggregate([
-      {
-        $match: {
-          organizationId: orgObjectId,
-          createdAt: { $gte: today, $lt: tomorrow },
-          status: { $ne: 'rejected' }
-        }
-      },
+      { $match: matchQuery },
       {
         $group: {
           _id: '$createdBy',
@@ -133,7 +150,15 @@ exports.getTeamPerformance = async (req, res) => {
           as: 'userInfo'
         }
       },
-      { $unwind: { path: '$userInfo', preserveNullAndEmptyArrays: true } },
+      // CRITICAL: Filter out deleted users (orphan invoices) by not preserving nulls
+      // This prevents "Unknown User" entries from appearing in the leaderboard
+      { $unwind: { path: '$userInfo', preserveNullAndEmptyArrays: false } },
+      // Also filter out system roles from the leaderboard to keep it org-focused
+      {
+        $match: {
+          'userInfo.role': { $nin: ['superadmin', 'developer'] }
+        }
+      },
       {
         $project: {
           _id: 0,
@@ -176,25 +201,46 @@ exports.getAttendanceSummary = async (req, res) => {
     const { isSystemRole } = require('../../utils/defaultPermissions');
 
     const Attendance = require('../attendance/attendance.model');
-    const Organization = require('../organizations/organization.model');
 
-    // Get org timezone
-    const orgData = await Organization.findById(orgObjectId).select('timezone');
-    const timezone = orgData?.timezone || 'UTC';
+    // Use timezone from req.organization (cached by protect middleware)
+    const timezone = req.organization?.timezone || 'UTC';
 
     // Get UTC range for today in org timezone
     const { startUTC: today, endUTC: tomorrow } = getUTCRangeForDateInTimeZone(new Date(), timezone);
 
     // Get total team strength (active employees in organization)
-    // System roles see everyone, non-admins see regular employees only
+    // Dynamic Role Filtering
     const teamStrengthQuery = {
       organizationId: orgObjectId,
       isActive: true
     };
 
-    // Only exclude system roles for non-system users
-    if (!isSystemRole(role)) {
-      teamStrengthQuery.role = { $nin: ['superadmin', 'developer', 'admin'] };
+    // Filter for attendance records aggregation
+    const attendanceMatch = {
+      organizationId: orgObjectId,
+      date: { $gte: today, $lt: tomorrow }
+    };
+
+    if (isSystemRole(role) || role === 'admin') {
+      // 1. Admin/System: View All (exclude superadmin/developer/admin from count if needed, or keep logic consistent)
+      if (!isSystemRole(role)) {
+        teamStrengthQuery.role = { $nin: ['superadmin', 'developer'] }; // Keep seeing Admins/Users
+      }
+    }
+    else if (req.user.hasFeature('dashboard', 'viewAttendanceSummary')) {
+      // 2. Manager: View Self + Subordinates
+      const subordinates = await User.find({ reportsTo: { $in: [req.user._id] } }).select('_id');
+      const subordinateIds = subordinates.map(u => u._id);
+
+      const allowedIds = [req.user._id, ...subordinateIds];
+
+      teamStrengthQuery._id = { $in: allowedIds };
+      attendanceMatch.employee = { $in: allowedIds };
+    }
+    else {
+      // 3. Regular User: View Self Only
+      teamStrengthQuery._id = req.user._id;
+      attendanceMatch.employee = req.user._id;
     }
 
     const teamStrength = await User.countDocuments(teamStrengthQuery);
@@ -202,10 +248,7 @@ exports.getAttendanceSummary = async (req, res) => {
     // Get today's attendance records
     const attendanceRecords = await Attendance.aggregate([
       {
-        $match: {
-          organizationId: orgObjectId,
-          date: { $gte: today, $lt: tomorrow }
-        }
+        $match: attendanceMatch
       },
       {
         $group: {
@@ -275,11 +318,10 @@ exports.getSalesTrend = async (req, res) => {
 
     const orgObjectId = toObjectIdIfNeeded(organizationId);
 
-    const Organization = require('../organizations/organization.model');
     const Invoice = require('../invoice/invoice.model');
 
-    const orgData = await Organization.findById(orgObjectId).select('timezone');
-    const timezone = orgData?.timezone || 'UTC';
+    // Use timezone from req.organization (cached by protect middleware)
+    const timezone = req.organization?.timezone || 'UTC';
 
     // compute startUTC for 7-day window (include today)
     const now = new Date();
