@@ -1,4 +1,6 @@
 const { checkRoleFeaturePermission } = require('../middlewares/compositeAccess.middleware');
+const { isSystemRole } = require('./defaultPermissions');
+const User = require('../api/users/user.model');
 
 /**
  * Check if a user is authorized to approve a request
@@ -64,4 +66,68 @@ exports.canApprove = (approver, requester, moduleName) => {
     }
 
     return false;
+};
+
+/**
+ * Helper to construct hierarchy-based query for data filtering
+ * Returns a query object to be merged with other filters
+ * @param {Object} user - The user object from req.user
+ * @param {string} moduleName - The module name (e.g., 'prospects', 'parties')
+ * @param {string} teamViewFeature - The feature key for team view (e.g., 'viewTeamProspects')
+ * @returns {Promise<Object>} Filter object for MongoDB queries
+ */
+exports.getHierarchyFilter = async (user, moduleName, teamViewFeature) => {
+    const { role, _id: userId } = user;
+
+    // 1. System Role: No additional filter (View All)
+    if (isSystemRole(role)) {
+        return {};
+    }
+
+    // 2. Org Admin: View all within org (organization filter applied separately)
+    if (role === 'admin') {
+        return {};
+    }
+
+    // 3. Manager with team view feature: View Self + Subordinates (Recursive)
+    if (user.hasFeature && user.hasFeature(moduleName, teamViewFeature)) {
+        // Start with direct reports
+        let allSubordinateIds = [];
+        let currentLevelIds = [userId];
+
+        // Loop to find deep hierarchy
+        // Safety break to prevent infinite loops (though hierarchy should be acyclic by validation)
+        let depth = 0;
+        const MAX_DEPTH = 20;
+
+        while (currentLevelIds.length > 0 && depth < MAX_DEPTH) {
+            const subordinates = await User.find({ reportsTo: { $in: currentLevelIds } }).select('_id');
+            const nextLevelIds = subordinates.map(u => u._id);
+
+            if (nextLevelIds.length === 0) break;
+
+            // Add unique IDs to master list
+            const newIds = nextLevelIds.filter(id =>
+                !allSubordinateIds.some(existing => existing.toString() === id.toString()) &&
+                id.toString() !== userId.toString() // Prevent self-include if cycle exists
+            );
+
+            if (newIds.length === 0) break; // No new nodes found
+
+            allSubordinateIds = [...allSubordinateIds, ...newIds];
+            currentLevelIds = newIds; // Continue searching from the new level
+            depth++;
+        }
+
+        // Return filter for "CreatedBy Me OR CreatedBy Any Subordinate (Deep)"
+        return {
+            $or: [
+                { createdBy: userId },
+                { createdBy: { $in: allSubordinateIds } }
+            ]
+        };
+    }
+
+    // 4. Regular User: View Self Only
+    return { createdBy: userId };
 };

@@ -7,33 +7,8 @@ const User = require('../users/user.model');
 const mongoose = require('mongoose');
 const { z } = require('zod');
 const { isSystemRole } = require('../../utils/defaultPermissions');
-const { canApprove } = require('../../utils/hierarchyHelper');
-
-// --- HELPER: Get Hierarchy Filter ---
-const getInvoiceHierarchyFilter = async (user) => {
-    const { role, _id: userId } = user;
-
-    // 1. Admin / System Role: Access All
-    if (role === 'admin' || isSystemRole(role)) {
-        return {};
-    }
-
-    // 2. Manager with viewTeamInvoices: Access Self + Subordinates
-    if (user.hasFeature('invoices', 'viewTeamInvoices')) {
-        const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
-        const subordinateIds = subordinates.map(u => u._id);
-
-        return {
-            $or: [
-                { createdBy: userId },
-                { createdBy: { $in: subordinateIds } }
-            ]
-        };
-    }
-
-    // 3. Regular User: Access Self Only
-    return { createdBy: userId };
-};
+const { getHierarchyFilter } = require('../../utils/hierarchyHelper');
+// Internal helper removed in favor of centralized deep hierarchy helper
 
 // --- Zod Validation Schema ---
 const itemSchema = z.object({
@@ -308,7 +283,7 @@ exports.getInvoiceById = async (req, res, next) => {
         const { organizationId, role, _id: userId } = req.user;
 
         // Get hierarchy filter
-        const hierarchyFilter = await getInvoiceHierarchyFilter(req.user);
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'invoices', 'viewTeamInvoices');
 
         const query = {
             _id: req.params.id,
@@ -513,7 +488,7 @@ exports.getPartiesOrderStats = async (req, res, next) => {
 
         // Build match condition based on dynamic role
         // Get hierarchy filter
-        const hierarchyFilter = await getInvoiceHierarchyFilter(req.user);
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'invoices', 'viewTeamInvoices');
 
         // Build match condition
         const matchCondition = {
@@ -607,7 +582,7 @@ exports.getPartyOrderStats = async (req, res, next) => {
 
         // Build match condition based on dynamic role
         // Get hierarchy filter
-        const hierarchyFilter = await getInvoiceHierarchyFilter(req.user);
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'invoices', 'viewTeamInvoices');
 
         // Build match condition
         const matchCondition = {

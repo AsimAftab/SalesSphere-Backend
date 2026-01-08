@@ -4,32 +4,8 @@ const Site = require('../../sites/sites.model');
 const User = require('../../users/user.model');
 const { isSystemRole } = require('../../../utils/defaultPermissions');
 
-// --- HELPER: Get Hierarchy Filter ---
-// Returns a query object based on user role and granular permissions
-const getMapHierarchyFilter = async (user, moduleName, teamViewFeatureKey) => {
-    const { role, _id: userId } = user;
-
-    // 1. Admin / System Role: Access All
-    if (role === 'admin' || isSystemRole(role)) {
-        return {};
-    }
-
-    // 2. Manager with Team View Feature: Access Self + Subordinates
-    if (user.hasFeature(moduleName, teamViewFeatureKey)) {
-        const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
-        const subordinateIds = subordinates.map(u => u._id);
-
-        return {
-            $or: [
-                { createdBy: userId },
-                { createdBy: { $in: subordinateIds } }
-            ]
-        };
-    }
-
-    // 3. Regular User: Access Self Only
-    return { createdBy: userId };
-};
+const { getHierarchyFilter } = require('../../../utils/hierarchyHelper');
+// Internal helper removed in favor of centralized deep hierarchy helper
 
 /**
  * @desc    Get all map locations (Parties, Prospects, Sites) for the org
@@ -48,9 +24,9 @@ exports.getMapLocations = async (req, res, next) => {
 
         // 2. Get hierarchy filters for each module
         const [partyFilter, prospectFilter, siteFilter] = await Promise.all([
-            getMapHierarchyFilter(req.user, 'parties', 'viewTeamParties'),
-            getMapHierarchyFilter(req.user, 'prospects', 'viewTeamProspects'),
-            getMapHierarchyFilter(req.user, 'sites', 'viewTeamSites')
+            getHierarchyFilter(req.user, 'parties', 'viewTeamParties'),
+            getHierarchyFilter(req.user, 'prospects', 'viewTeamProspects'),
+            getHierarchyFilter(req.user, 'sites', 'viewTeamSites')
         ]);
 
         // 3. Run all three database queries in parallel

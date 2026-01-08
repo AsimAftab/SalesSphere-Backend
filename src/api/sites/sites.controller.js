@@ -506,27 +506,31 @@ exports.deleteSiteImage = async (req, res, next) => {
             });
         }
 
-        // Fetch Organization for folder path construction
-        const organization = await Organization.findById(organizationId);
-        if (!organization) {
-            return res.status(404).json({ success: false, message: 'Organization not found' });
-        }
-
-        const orgName = organization.name;
-        const siteName = site.siteName;
-        const folderPath = `sales-sphere/${orgName}/sitesImage/${siteName}/${id}`;
-
-        // Remove from array
-        site.images.splice(imageIndex, 1);
-        await site.save();
-
-        // Optionally delete from Cloudinary
+        // Extract public_id robustly from the stored image URL
+        const imageUrl = site.images[imageIndex].imageUrl;
         try {
-            await cloudinary.uploader.destroy(`${folderPath}/${id}_image_${imageNum}`);
+            const urlParts = imageUrl.split('/');
+            const versionIndex = urlParts.findIndex(part =>
+                part.startsWith('v') && part.length > 1 && !isNaN(Number(part.substring(1)))
+            );
+
+            if (versionIndex !== -1) {
+                const publicIdWithExt = urlParts.slice(versionIndex + 1).join('/');
+                const lastDotIndex = publicIdWithExt.lastIndexOf('.');
+                const publicId = lastDotIndex > 0
+                    ? publicIdWithExt.substring(0, lastDotIndex)
+                    : publicIdWithExt;
+
+                await cloudinary.uploader.destroy(publicId);
+            }
         } catch (cloudinaryError) {
             console.error('Error deleting from Cloudinary:', cloudinaryError);
             // Continue even if Cloudinary delete fails
         }
+
+        // Remove from array
+        site.images.splice(imageIndex, 1);
+        await site.save();
 
         return res.status(200).json({
             success: true,

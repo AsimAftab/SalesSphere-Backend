@@ -9,7 +9,7 @@ const { z } = require('zod');
 const cloudinary = require('../../config/cloudinary'); // Ensure this path matches your project structure
 const fs = require('fs'); // Required for file cleanup
 const { getHierarchyFilter } = require('../../utils/hierarchyHelper');
-const { isValidFeature } = require('../../config/featureRegistry');
+// const { isValidFeature } = require('../../config/featureRegistry'); // Removed unused import
 
 // --- Zod Validation Schema ---
 const prospectSchemaValidation = z.object({
@@ -587,26 +587,29 @@ exports.deleteProspectImage = async (req, res, next) => {
             });
         }
 
-        // Fetch Organization for folder path construction
-        const organization = await Organization.findById(organizationId);
-        if (!organization) {
-            return res.status(404).json({ success: false, message: 'Organization not found' });
-        }
-
-        // Sanitize names for folder path
-        // const sanitize = (name) => name.trim().replace(/\s+/g, '-').toLowerCase();
-        // Using raw names to match party.controller.js behavior for consistency
-        const orgName = organization.name;
-        const prospectName = prospect.prospectName;
-        const folderPath = `sales-sphere/${orgName}/prospectImage/${prospectName}/${id}`;
+        // Extract public_id robustly from the stored image URL
+        const imageUrl = prospect.images[imageIndex].imageUrl;
 
         // Remove from array
         prospect.images.splice(imageIndex, 1);
         await prospect.save();
 
-        // Optionally delete from Cloudinary
+        // Delete from Cloudinary using extracted public_id
         try {
-            await cloudinary.uploader.destroy(`${folderPath}/${id}_image_${imageNum}`);
+            const urlParts = imageUrl.split('/');
+            const versionIndex = urlParts.findIndex(part =>
+                part.startsWith('v') && part.length > 1 && !isNaN(Number(part.substring(1)))
+            );
+
+            if (versionIndex !== -1) {
+                const publicIdWithExt = urlParts.slice(versionIndex + 1).join('/');
+                const lastDotIndex = publicIdWithExt.lastIndexOf('.');
+                const publicId = lastDotIndex > 0
+                    ? publicIdWithExt.substring(0, lastDotIndex)
+                    : publicIdWithExt;
+
+                await cloudinary.uploader.destroy(publicId);
+            }
         } catch (cloudinaryError) {
             console.error('Error deleting from Cloudinary:', cloudinaryError);
             // Continue even if Cloudinary delete fails

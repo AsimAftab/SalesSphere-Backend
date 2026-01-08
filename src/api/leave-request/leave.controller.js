@@ -8,31 +8,8 @@ const { DateTime } = require('luxon');
 const { isSystemRole } = require('../../utils/defaultPermissions');
 const { canApprove } = require('../../utils/hierarchyHelper');
 
-// --- HELPER: Get Hierarchy Filter ---
-const getLeaveHierarchyFilter = async (user) => {
-    const { role, _id: userId } = user;
-
-    // 1. Admin / System Role: Access All
-    if (role === 'admin' || isSystemRole(role)) {
-        return {};
-    }
-
-    // 2. Manager with viewTeamLeaves: Access Self + Subordinates
-    if (user.hasFeature('leaves', 'viewTeamLeaves')) {
-        const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
-        const subordinateIds = subordinates.map(u => u._id);
-
-        return {
-            $or: [
-                { createdBy: userId },
-                { createdBy: { $in: subordinateIds } }
-            ]
-        };
-    }
-
-    // 3. Regular User: Access Self Only
-    return { createdBy: userId };
-};
+const { getHierarchyFilter } = require('../../utils/hierarchyHelper');
+// Internal helper removed in favor of centralized deep hierarchy helper
 
 // --- Zod Validation Schemas ---
 const leaveRequestSchemaValidation = z.object({
@@ -256,7 +233,7 @@ exports.getLeaveRequestById = async (req, res, next) => {
         const { organizationId, role, _id: userId } = req.user;
 
         // Get hierarchy filter
-        const hierarchyFilter = await getLeaveHierarchyFilter(req.user);
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'leaves', 'viewTeamLeaves');
 
         const query = {
             _id: req.params.id,

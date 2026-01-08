@@ -8,33 +8,8 @@ const { DateTime } = require('luxon');
 const mongoose = require('mongoose');
 const { isSystemRole } = require('../../utils/defaultPermissions');
 
-// --- HELPER: Get Hierarchy Filter ---
-// Returns a query object based on user role and granular permissions
-const getMiscellaneousHierarchyFilter = async (user) => {
-    const { role, _id: userId } = user;
-
-    // 1. Admin / System Role: Access All
-    if (role === 'admin' || isSystemRole(role)) {
-        return {};
-    }
-
-    // 2. Manager with Team View Feature: Access Self + Subordinates
-    if (user.hasFeature('miscellaneousWork', 'viewTeamMiscellaneous')) {
-        const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
-        const subordinateIds = subordinates.map(u => u._id);
-
-        return {
-            $or: [
-                { employeeId: userId },
-                { employeeId: { $in: subordinateIds } },
-                { assignedBy: user.name } // Also show work assigned BY this user (optional)
-            ]
-        };
-    }
-
-    // 3. Regular User: Access Self Only
-    return { employeeId: userId };
-};
+const { getHierarchyFilter } = require('../../utils/hierarchyHelper');
+// Internal helper removed in favor of centralized deep hierarchy helper
 
 // --- Zod Validation Schema ---
 const miscellaneousWorkSchemaValidation = z.object({
@@ -190,7 +165,20 @@ exports.getAllMiscellaneousWork = async (req, res, next) => {
         const { timezone } = await getOrgSettings(organizationId);
 
         // Get hierarchy filter
-        const hierarchyFilter = await getMiscellaneousHierarchyFilter(req.user);
+        // Get hierarchy filter
+        // Note: MiscellaneousWork uses 'employeeId' instead of 'createdBy', so we map it if necessary
+        // However, centralized helper assumes 'createdBy' or standard usage. 
+        // Let's check centralized helper implementation. It returns { $or: [{ createdBy: ... }] }.
+        // MiscellaneousWork schema likely uses 'employeeId'. 
+        // We need to verify if we can pass a custom field name or if we need to manually adjust.
+        // Looking at hierarchyHelper.js (from memory/context), it defaults to `createdBy`.
+        // We should wrap it or adjust the result. 
+        // ACTUALLY, checking hierarchyHelper.js content from previous turns is safer.
+        // It returns `{ $or: [{ createdBy: userId }, { createdBy: { $in: subordinateIds } }] }`
+        // We need to change 'createdBy' to 'employeeId' in the result.
+
+        const rawFilter = await getHierarchyFilter(req.user, 'miscellaneousWork', 'viewTeamMiscellaneous');
+        const hierarchyFilter = JSON.parse(JSON.stringify(rawFilter).replace(/createdBy/g, 'employeeId'));
 
         let query = { organizationId, ...hierarchyFilter };
 
