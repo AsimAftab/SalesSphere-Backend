@@ -13,7 +13,12 @@ const {
     uploadSiteImage,
     deleteSiteImage,
     getSiteCategories,
-    getSiteSubOrganizations
+    getSiteSubOrganizations,
+    // Assignment controllers
+    assignUsersToSite,
+    removeUserFromSite,
+    getSiteAssignments,
+    getMyAssignedSites
 } = require('./sites.controller');
 const { protect } = require('../../middlewares/auth.middleware');
 const { checkAccess, checkAnyAccess } = require('../../middlewares/compositeAccess.middleware');
@@ -69,6 +74,34 @@ router.get('/sub-organizations',
         { module: 'sites', feature: 'update' }
     ]),
     getSiteSubOrganizations
+);
+
+// ============================================
+// ASSIGNMENT ROUTES (must be before /:id wildcard)
+// ============================================
+// GET /my-assigned - Get sites assigned to current user
+router.get('/my-assigned',
+    checkAccess('sites', 'viewAssigned'),
+    getMyAssignedSites
+);
+
+// POST /:id/assign - Assign user(s) to a site
+router.post('/:id/assign',
+    checkAccess('sites', 'assign'),
+    assignUsersToSite
+);
+
+// DELETE /:id/assign - Remove user assignment(s) from site
+// Body: { userIds: string[] } - supports single or multiple user IDs
+router.delete('/:id/assign',
+    checkAccess('sites', 'assign'),
+    removeUserFromSite
+);
+
+// GET /:id/assignments - Get all users assigned to a site
+router.get('/:id/assignments',
+    checkAccess('sites', 'viewDetails'),
+    getSiteAssignments
 );
 
 // GET /:id - Access detailed configuration and history for a specific site

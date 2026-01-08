@@ -685,7 +685,16 @@ exports.getAllUsers = async (req, res, next) => {
 // Get a single user BY ID, ensuring they are in the same organization
 exports.getUserById = async (req, res, next) => {
     try {
-        const user = await User.findOne({ _id: req.params.id, organizationId: req.user.organizationId, isActive: true });
+        const user = await User.findOne({ _id: req.params.id, organizationId: req.user.organizationId, isActive: true })
+            .populate('customRoleId', 'name description')
+            .populate({
+                path: 'reportsTo',
+                select: 'name email role customRoleId',
+                populate: {
+                    path: 'customRoleId',
+                    select: 'name'
+                }
+            });
         if (!user) return res.status(404).json({ success: false, message: 'User not found' });
         res.status(200).json({ success: true, data: user });
     } catch (error) { next(error); }
@@ -1615,6 +1624,109 @@ exports.getUserSubordinates = async (req, res, next) => {
             success: true,
             count: subordinates.length,
             data: subordinates
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// ============================================
+// ORGANIZATION HIERARCHY ENDPOINT
+// ============================================
+
+/**
+ * @desc    Get complete organization hierarchy tree
+ * @route   GET /api/v1/users/org-hierarchy
+ * @access  Private (Admin or employees:viewList)
+ * 
+ * Returns a tree structure showing all users and their reporting relationships.
+ * Root nodes are users with no supervisors (typically admins).
+ */
+exports.getOrgHierarchy = async (req, res, next) => {
+    try {
+        const { organizationId } = req.user;
+
+        // Fetch organization details
+        const org = await Organization.findById(organizationId).select('name').lean();
+
+        // Fetch all active users in the organization
+        const allUsers = await User.find({
+            organizationId: organizationId,
+            isActive: true
+        })
+            .select('_id name email role customRoleId reportsTo avatarUrl')
+            .populate('customRoleId', 'name')
+            .lean();
+
+        // Build a map for quick lookup
+        const userMap = new Map();
+        allUsers.forEach(user => {
+            userMap.set(user._id.toString(), {
+                _id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                customRole: user.customRoleId?.name || null,
+                avatarUrl: user.avatarUrl || null,
+                reportsTo: user.reportsTo || [],
+                subordinates: []
+            });
+        });
+
+        // Build tree: attach each user to their supervisor(s)
+        const rootNodes = [];
+
+        userMap.forEach((user, userId) => {
+            if (!user.reportsTo || user.reportsTo.length === 0) {
+                // No supervisor - this is a root node (typically admin)
+                rootNodes.push(user);
+            } else {
+                // Has supervisor(s) - attach to first supervisor
+                // (for tree view, we use first supervisor to avoid duplicates)
+                const supervisorId = user.reportsTo[0].toString();
+                const supervisor = userMap.get(supervisorId);
+                if (supervisor) {
+                    supervisor.subordinates.push(user);
+                } else {
+                    // Supervisor not found (maybe inactive) - treat as root
+                    rootNodes.push(user);
+                }
+            }
+        });
+
+        // Sort subordinates by name at each level
+        const sortSubordinates = (node) => {
+            if (node.subordinates && node.subordinates.length > 0) {
+                node.subordinates.sort((a, b) => a.name.localeCompare(b.name));
+                node.subordinates.forEach(sortSubordinates);
+            }
+        };
+        rootNodes.forEach(sortSubordinates);
+
+        // Sort root nodes by role priority (admin first, then by name)
+        rootNodes.sort((a, b) => {
+            if (a.role === 'admin' && b.role !== 'admin') return -1;
+            if (a.role !== 'admin' && b.role === 'admin') return 1;
+            return a.name.localeCompare(b.name);
+        });
+
+        // Clean up reportsTo from response (not needed in tree view)
+        const cleanNode = (node) => {
+            delete node.reportsTo;
+            if (node.subordinates) {
+                node.subordinates.forEach(cleanNode);
+            }
+            return node;
+        };
+        const cleanedTree = rootNodes.map(cleanNode);
+
+        res.status(200).json({
+            success: true,
+            data: {
+                organization: org?.name || 'Unknown',
+                totalEmployees: allUsers.length,
+                hierarchy: cleanedTree
+            }
         });
     } catch (error) {
         next(error);

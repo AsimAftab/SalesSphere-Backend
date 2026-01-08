@@ -7,7 +7,7 @@ const User = require('../users/user.model');
 const { isSystemRole } = require('../../utils/defaultPermissions');
 
 // --- HELPER: Get Hierarchy Filter ---
-const { getHierarchyFilter } = require('../../utils/hierarchyHelper');
+const { getHierarchyFilter, getEntityAccessFilter } = require('../../utils/hierarchyHelper');
 // Internal helper removed in favor of centralized deep hierarchy helper
 const partySchemaValidation = z.object({
     partyName: z.string({ required_error: "Party name is required" }).min(1, "Party name is required"),
@@ -97,10 +97,15 @@ exports.getAllParties = async (req, res, next) => {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId } = req.user;
 
-        // Get hierarchy filter
-        const hierarchyFilter = await getHierarchyFilter(req.user, 'parties', 'viewTeamParties');
+        // Use entity access filter (includes hierarchy + assignment)
+        const accessFilter = await getEntityAccessFilter(
+            req.user,
+            'parties',
+            'viewTeamParties',
+            'viewAllParties'
+        );
 
-        const parties = await Party.find({ organizationId, ...hierarchyFilter })
+        const parties = await Party.find({ organizationId, ...accessFilter })
             .select('_id partyName ownerName location.address partyType createdAt createdBy')
             .sort({ createdAt: -1 })
             .populate('createdBy', 'name')
@@ -126,11 +131,16 @@ exports.getAllPartiesDetails = async (req, res, next) => {
 
         const { organizationId } = req.user;
 
-        // Get hierarchy filter
-        const hierarchyFilter = await getHierarchyFilter(req.user, 'parties', 'viewTeamParties');
+        // Use entity access filter (includes hierarchy + assignment)
+        const accessFilter = await getEntityAccessFilter(
+            req.user,
+            'parties',
+            'viewTeamParties',
+            'viewAllParties'
+        );
 
-        // Fetch all parties belonging to the organization with hierarchy check
-        const parties = await Party.find({ organizationId, ...hierarchyFilter })
+        // Fetch all parties belonging to the organization with access check
+        const parties = await Party.find({ organizationId, ...accessFilter })
             .sort({ createdAt: -1 })
             .lean(); // Optional: returns plain JSON, faster
 
@@ -152,13 +162,18 @@ exports.getPartyById = async (req, res, next) => {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId } = req.user;
 
-        // Get hierarchy filter
-        const hierarchyFilter = await getHierarchyFilter(req.user, 'parties', 'viewTeamParties');
+        // Use entity access filter (includes hierarchy + assignment)
+        const accessFilter = await getEntityAccessFilter(
+            req.user,
+            'parties',
+            'viewTeamParties',
+            'viewAllParties'
+        );
 
         const party = await Party.findOne({
             _id: req.params.id,
             organizationId,
-            ...hierarchyFilter
+            ...accessFilter
         })
             .select(
                 '_id partyName ownerName panVatNumber dateJoined description organizationId partyType createdBy contact location image createdAt updatedAt'
@@ -501,6 +516,221 @@ exports.getPartyTypes = async (req, res, next) => {
             .lean();
 
         res.status(200).json({ success: true, count: partyTypes.length, data: partyTypes });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// ============================================
+// ASSIGNMENT CONTROLLERS
+// ============================================
+
+/**
+ * Assign user(s) to a party
+ * POST /api/v1/parties/:id/assign
+ * Body: { userIds: string[] }
+ */
+exports.assignUsersToParty = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId, _id: userId } = req.user;
+        const { id } = req.params;
+        const { userIds } = req.body;
+
+        // Validate input
+        if (!Array.isArray(userIds) || userIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'userIds must be a non-empty array'
+            });
+        }
+
+        // Find party
+        const party = await Party.findOne({
+            _id: id,
+            organizationId: organizationId
+        });
+
+        if (!party) {
+            return res.status(404).json({
+                success: false,
+                message: 'Party not found'
+            });
+        }
+
+        // Validate users belong to same org
+        const users = await User.find({
+            _id: { $in: userIds },
+            organizationId: organizationId,
+            isActive: true
+        });
+
+        if (users.length !== userIds.length) {
+            return res.status(400).json({
+                success: false,
+                message: 'One or more users not found or inactive'
+            });
+        }
+
+        // Add users to assignedUsers array (avoid duplicates)
+        const currentAssignedIds = party.assignedUsers.map(id => id.toString());
+        const newAssignments = userIds.filter(id =>
+            !currentAssignedIds.includes(id.toString())
+        );
+
+        if (newAssignments.length > 0) {
+            party.assignedUsers.push(...newAssignments);
+            party.assignedBy = userId;
+            party.assignedAt = new Date();
+            await party.save();
+        }
+
+        res.status(200).json({
+            success: true,
+            message: `${newAssignments.length} user(s) assigned to party`,
+            data: {
+                partyId: party._id,
+                assignedUsers: party.assignedUsers
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * Remove user assignment(s) from party
+ * DELETE /api/v1/parties/:id/assign
+ * Body: { userIds: string[] } - supports single or multiple user IDs
+ */
+exports.removeUserFromParty = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId, _id: userId } = req.user;
+        const { id } = req.params;
+        const { userIds } = req.body;
+
+        // Validate input
+        if (!Array.isArray(userIds) || userIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'userIds must be a non-empty array'
+            });
+        }
+
+        const party = await Party.findOne({
+            _id: id,
+            organizationId: organizationId
+        });
+
+        if (!party) {
+            return res.status(404).json({
+                success: false,
+                message: 'Party not found'
+            });
+        }
+
+        const beforeCount = party.assignedUsers.length;
+
+        // Remove specified users
+        const userIdsToRemove = userIds.map(id => id.toString());
+        party.assignedUsers = party.assignedUsers.filter(
+            assignedId => !userIdsToRemove.includes(assignedId.toString())
+        );
+
+        party.assignedBy = userId;
+        party.assignedAt = new Date();
+        await party.save();
+
+        const removedCount = beforeCount - party.assignedUsers.length;
+
+        res.status(200).json({
+            success: true,
+            message: removedCount === 1
+                ? 'User assignment removed'
+                : `${removedCount} user(s) removed from party assignments`,
+            data: {
+                partyId: party._id,
+                assignedUsers: party.assignedUsers,
+                removedCount
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * Get all users assigned to a party
+ * GET /api/v1/parties/:id/assignments
+ */
+exports.getPartyAssignments = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+        const { id } = req.params;
+
+        const party = await Party.findOne({
+            _id: id,
+            organizationId: organizationId
+        }).populate('assignedUsers', 'name email role')
+            .populate('assignedBy', 'name email');
+
+        if (!party) {
+            return res.status(404).json({
+                success: false,
+                message: 'Party not found'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: {
+                partyId: party._id,
+                partyName: party.partyName,
+                assignedUsers: party.assignedUsers,
+                assignedBy: party.assignedBy,
+                assignedAt: party.assignedAt
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * Get parties assigned to current user
+ * GET /api/v1/parties/my-assigned
+ */
+exports.getMyAssignedParties = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId, _id: userId } = req.user;
+
+        // Use the new entity access filter
+        const { getEntityAccessFilter } = require('../../utils/hierarchyHelper');
+
+        const accessFilter = await getEntityAccessFilter(
+            req.user,
+            'parties',
+            'viewTeamParties',
+            'viewAllParties'
+        );
+
+        const parties = await Party.find({
+            organizationId: organizationId,
+            ...accessFilter
+        })
+            .select('_id partyName ownerName location.address partyType createdAt assignedAt')
+            .sort({ assignedAt: -1, createdAt: -1 })
+            .populate('assignedBy', 'name')
+            .lean();
+
+        res.status(200).json({
+            success: true,
+            count: parties.length,
+            data: parties
+        });
     } catch (error) {
         next(error);
     }

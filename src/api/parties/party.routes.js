@@ -12,7 +12,12 @@ const {
     uploadPartyImage,
     deletePartyImage,
     bulkImportParties,
-    getPartyTypes
+    getPartyTypes,
+    // Assignment controllers
+    assignUsersToParty,
+    removeUserFromParty,
+    getPartyAssignments,
+    getMyAssignedParties
 } = require('./party.controller');
 const { protect } = require('../../middlewares/auth.middleware');
 const { checkAccess, checkAnyAccess } = require('../../middlewares/compositeAccess.middleware');
@@ -57,6 +62,34 @@ router.get('/types',
         { module: 'parties', feature: 'create' }
     ]),
     getPartyTypes
+);
+
+// ============================================
+// ASSIGNMENT ROUTES (must be before /:id wildcard)
+// ============================================
+// GET /my-assigned - Get parties assigned to current user
+router.get('/my-assigned',
+    checkAccess('parties', 'viewAssigned'),
+    getMyAssignedParties
+);
+
+// POST /:id/assign - Assign user(s) to a party
+router.post('/:id/assign',
+    checkAccess('parties', 'assign'),
+    assignUsersToParty
+);
+
+// DELETE /:id/assign - Remove user assignment(s) from party
+// Body: { userIds: string[] } - supports single or multiple user IDs
+router.delete('/:id/assign',
+    checkAccess('parties', 'assign'),
+    removeUserFromParty
+);
+
+// GET /:id/assignments - Get all users assigned to a party
+router.get('/:id/assignments',
+    checkAccess('parties', 'viewDetails'),
+    getPartyAssignments
 );
 
 // GET /:id - Access comprehensive profile and history for a specific party

@@ -105,6 +105,12 @@ router.post('/',
     userController.createUser
 );
 
+// GET /org-hierarchy - View complete organization hierarchy tree (Admin only)
+router.get('/org-hierarchy',
+    requireOrgAdmin(),
+    userController.getOrgHierarchy
+);
+
 // GET / - View all registered employees and their basic info
 router.get('/',
     checkAccess('employees', 'viewList'),

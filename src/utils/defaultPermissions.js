@@ -56,6 +56,8 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         viewDetails: true,
         viewOwn: true,
         viewTeamProspects: true,
+        viewAllProspects: true,
+        viewAssigned: true,
         viewInterests: true,
         create: true,
         update: true,
@@ -66,7 +68,8 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         manageCategories: true,
         import: true,
         exportPdf: true,
-        exportExcel: true
+        exportExcel: true,
+        assign: true
     },
     estimates: {
         viewList: true,
@@ -165,7 +168,10 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
     parties: {
         viewList: true,
         viewDetails: true,
+        viewOwn: true,
         viewTeamParties: true,
+        viewAllParties: true,
+        viewAssigned: true,
         viewTypes: true,
         create: true,
         update: true,
@@ -176,12 +182,16 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         manageTypes: true,
         exportPdf: true,
         exportExcel: true,
-        viewOrders: true
+        viewOrders: true,
+        assign: true
     },
     sites: {
         viewList: true,
         viewDetails: true,
+        viewOwn: true,
         viewTeamSites: true,
+        viewAllSites: true,
+        viewAssigned: true,
         viewInterests: true,
         viewSubOrganizations: true,
         create: true,
@@ -316,7 +326,10 @@ const DEVELOPER_GRANULAR_PERMISSIONS = {
     prospects: {
         viewList: true,
         viewDetails: true,
+        viewOwn: true,
         viewTeamProspects: true,
+        viewAllProspects: true,
+        viewAssigned: true,
         viewInterests: true,
         create: true,
         update: true,
@@ -327,7 +340,8 @@ const DEVELOPER_GRANULAR_PERMISSIONS = {
         manageCategories: true,
         import: true,
         exportPdf: true,
-        exportExcel: true
+        exportExcel: true,
+        assign: true
     },
     estimates: {
         viewList: true,
@@ -426,7 +440,10 @@ const DEVELOPER_GRANULAR_PERMISSIONS = {
     parties: {
         viewList: true,
         viewDetails: true,
+        viewOwn: true,
         viewTeamParties: true,
+        viewAllParties: true,
+        viewAssigned: true,
         viewTypes: true,
         create: true,
         update: true,
@@ -437,12 +454,16 @@ const DEVELOPER_GRANULAR_PERMISSIONS = {
         manageTypes: true,
         exportPdf: true,
         exportExcel: true,
-        viewOrders: true
+        viewOrders: true,
+        assign: true
     },
     sites: {
         viewList: true,
         viewDetails: true,
+        viewOwn: true,
         viewTeamSites: true,
+        viewAllSites: true,
+        viewAssigned: true,
         viewInterests: true,
         viewSubOrganizations: true,
         create: true,
@@ -577,6 +598,10 @@ const ADMIN_GRANULAR_PERMISSIONS = {
     prospects: {
         viewList: true,
         viewDetails: true,
+        viewOwn: true,
+        viewTeamProspects: true,
+        viewAllProspects: true,
+        viewAssigned: true,
         viewInterests: true,
         create: true,
         update: true,
@@ -587,7 +612,8 @@ const ADMIN_GRANULAR_PERMISSIONS = {
         manageCategories: true,
         import: true,
         exportPdf: true,
-        exportExcel: true
+        exportExcel: true,
+        assign: true
     },
     // Estimates (quotes) module
     estimates: {
@@ -689,7 +715,10 @@ const ADMIN_GRANULAR_PERMISSIONS = {
     parties: {
         viewList: true,
         viewDetails: true,
+        viewOwn: true,
         viewTeamParties: true,
+        viewAllParties: true,
+        viewAssigned: true,
         viewTypes: true,
         create: true,
         update: true,
@@ -700,12 +729,16 @@ const ADMIN_GRANULAR_PERMISSIONS = {
         manageTypes: true,
         exportPdf: true,
         exportExcel: true,
-        viewOrders: true
+        viewOrders: true,
+        assign: true
     },
     sites: {
         viewList: true,
         viewDetails: true,
+        viewOwn: true,
         viewTeamSites: true,
+        viewAllSites: true,
+        viewAssigned: true,
         viewInterests: true,
         viewSubOrganizations: true,
         create: true,
@@ -820,7 +853,10 @@ const USER_GRANULAR_PERMISSIONS = {
     prospects: {
         viewList: true,
         viewDetails: true,
+        viewOwn: true,
         viewTeamProspects: false,
+        viewAllProspects: false,
+        viewAssigned: true,
         viewInterests: true,
         create: true,
         update: true,
@@ -831,7 +867,8 @@ const USER_GRANULAR_PERMISSIONS = {
         manageCategories: false,
         import: false,
         exportPdf: false,
-        exportExcel: false
+        exportExcel: false,
+        assign: false
     },
     // Estimates (quotes) module
     estimates: {
@@ -934,7 +971,10 @@ const USER_GRANULAR_PERMISSIONS = {
     parties: {
         viewList: true,
         viewDetails: true,
+        viewOwn: true,
         viewTeamParties: false,
+        viewAllParties: false,
+        viewAssigned: true,
         viewTypes: true,
         create: false,
         update: false,
@@ -945,12 +985,16 @@ const USER_GRANULAR_PERMISSIONS = {
         manageTypes: false,
         exportPdf: false,
         exportExcel: false,
-        viewOrders: true
+        viewOrders: true,
+        assign: false
     },
     sites: {
         viewList: true,
         viewDetails: true,
+        viewOwn: true,
         viewTeamSites: false,
+        viewAllSites: false,
+        viewAssigned: true,
         viewInterests: true,
         viewSubOrganizations: true,
         create: false,
