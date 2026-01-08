@@ -229,7 +229,7 @@ After starting the server for the first time:
    {
      "status": "OK",
      "uptime": 123.456,
-     "timestamp": "2026-01-08T18:00:00.000Z",
+     "timestamp": "2024-01-08T18:00:00.000Z",
      "environment": "development",
      "services": {
        "api": "operational",
@@ -1830,6 +1830,6 @@ You can test the API using:
 
 ---
 
-**Last Updated**: January 2026
+**Last Updated**: January 2024
 
 For questions or issues, please open an issue on GitHub.
