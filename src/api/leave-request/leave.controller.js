@@ -176,7 +176,7 @@ exports.getAllLeaveRequests = async (req, res, next) => {
         const { organizationId, role, _id: userId } = req.user;
 
         // Get hierarchy filter
-        const hierarchyFilter = await getLeaveHierarchyFilter(req.user);
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'leaves', 'viewTeamLeaves');
 
         const query = {
             organizationId,
