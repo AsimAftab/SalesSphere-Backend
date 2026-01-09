@@ -13,7 +13,7 @@ const {
     bulkImportProducts
 } = require('./product.controller');
 const { protect } = require('../../middlewares/auth.middleware');
-const { checkAccess } = require('../../middlewares/compositeAccess.middleware');
+const { checkAccess,checkAnyAccess } = require('../../middlewares/compositeAccess.middleware');
 
 const router = express.Router();
 
@@ -68,7 +68,10 @@ router.post('/bulk-import',
 // ============================================
 // PUT /:id - Edit existing product details and pricing
 router.put('/:id',
-    checkAccess('products', 'update'),
+    checkAnyAccess([
+        { module: 'products', feature: 'create' },
+        { module: 'products', feature: 'update' }
+    ]),
     imageUpload.single('image'),
     updateProduct
 );

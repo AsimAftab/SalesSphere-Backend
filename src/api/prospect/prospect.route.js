@@ -13,6 +13,8 @@ const {
     getAllProspectsDetails,
     createProspectCategory,
     getProspectCategories,
+    updateProspectCategory,
+    deleteProspectCategory,
     uploadProspectImage,
     deleteProspectImage,
     // Assignment controllers
@@ -21,7 +23,7 @@ const {
     getProspectAssignments,
     getMyAssignedProspects
 } = require('./prospect.controller');
-const { protect } = require('../../middlewares/auth.middleware');
+const { protect, requireOrgAdmin } = require('../../middlewares/auth.middleware');
 const { checkAccess, checkAnyAccess } = require('../../middlewares/compositeAccess.middleware');
 
 const router = express.Router();
@@ -55,12 +57,8 @@ router.get('/details',
     getAllProspectsDetails
 );
 
-// GET /categories - View prospect categories (needed for create/import)
+// GET /categories - View prospect categories (all authenticated users can view)
 router.get('/categories',
-    checkAnyAccess([
-        { module: 'prospects', feature: 'viewList' },
-        { module: 'prospects', feature: 'manageCategories' }
-    ]),
     getProspectCategories
 );
 
@@ -109,7 +107,7 @@ router.post('/',
 
 // POST /:id/images - Upload profile photos for the prospect
 router.post('/:id/images',
-    checkAccess('prospects', 'uploadImage'),
+    checkAccess('prospects', 'create'),
     imageUpload.single('image'),
     uploadProspectImage
 );
@@ -147,10 +145,21 @@ router.delete('/:id/images/:imageNumber',
 // ============================================
 // CATEGORY MANAGEMENT
 // ============================================
-// POST /categories - Create new prospect category
+// POST /categories - Create new prospect category (all authenticated users)
 router.post('/categories',
-    checkAccess('prospects', 'manageCategories'),
     createProspectCategory
+);
+
+// PUT /categories/:id - Update prospect category (admin only)
+router.put('/categories/:id',
+    requireOrgAdmin,
+    updateProspectCategory
+);
+
+// DELETE /categories/:id - Delete prospect category (admin only)
+router.delete('/categories/:id',
+    requireOrgAdmin,
+    deleteProspectCategory
 );
 
 // ============================================

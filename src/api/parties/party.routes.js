@@ -13,13 +13,16 @@ const {
     deletePartyImage,
     bulkImportParties,
     getPartyTypes,
+    createPartyType,
+    updatePartyType,
+    deletePartyType,
     // Assignment controllers
     assignUsersToParty,
     removeUserFromParty,
     getPartyAssignments,
     getMyAssignedParties
 } = require('./party.controller');
-const { protect } = require('../../middlewares/auth.middleware');
+const { protect, requireOrgAdmin } = require('../../middlewares/auth.middleware');
 const { checkAccess, checkAnyAccess } = require('../../middlewares/compositeAccess.middleware');
 const multer = require('multer');
 
@@ -54,15 +57,8 @@ router.get('/details',
     getAllPartiesDetails
 );
 
-// GET /types - View available party types for categorization
-// Dependency: Users who can create parties also need to view/implicitly create types
-router.get('/types',
-    checkAnyAccess([
-        { module: 'parties', feature: 'viewTypes' },
-        { module: 'parties', feature: 'create' }
-    ]),
-    getPartyTypes
-);
+// GET /types - View available party types (all authenticated users)
+router.get('/types', getPartyTypes);
 
 // ============================================
 // ASSIGNMENT ROUTES (must be before /:id wildcard)
@@ -115,7 +111,7 @@ router.post('/bulk-import',
 
 // POST /:id/image - Upload profile photos or business-related images
 router.post('/:id/image',
-    checkAccess('parties', 'uploadImage'),
+    checkAccess('parties', 'create'),
     imageUpload.single('image'),
     uploadPartyImage
 );
@@ -157,33 +153,18 @@ router.delete('/:id/image',
 // router.get('/export/excel',
 //     checkAccess('parties', 'exportExcel'),
 //     exportPartiesExcel
-// );
+
 
 // ============================================
-// PARTY TYPE MANAGEMENT ROUTES (Future)
+// PARTY TYPE MANAGEMENT ROUTES
 // ============================================
-// Note: Party types are auto-created via syncPartyType when creating parties
-// Users with 'create' permission can implicitly create party types
-// For explicit type management routes, use:
-// POST /types - Create party type
-// router.post('/types',
-//     checkAnyAccess([
-//         { module: 'parties', feature: 'manageTypes' },
-//         { module: 'parties', feature: 'create' }  // Implicit: can create types via party creation
-//     ]),
-//     createPartyType
-// );
+// POST /types - Create party type (all authenticated users)
+router.post('/types', createPartyType);
 
-// PUT /types/:id - Update party type
-// router.put('/types/:id',
-//     checkAccess('parties', 'manageTypes'),
-//     updatePartyType
-// );
+// PUT /types/:id - Update party type (admin only)
+router.put('/types/:id', requireOrgAdmin, updatePartyType);
 
-// DELETE /types/:id - Delete party type
-// router.delete('/types/:id',
-//     checkAccess('parties', 'manageTypes'),
-//     deletePartyType
-// );
+// DELETE /types/:id - Delete party type (admin only)
+router.delete('/types/:id', requireOrgAdmin, deletePartyType);
 
 module.exports = router;

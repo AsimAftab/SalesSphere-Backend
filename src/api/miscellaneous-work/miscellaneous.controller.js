@@ -3,7 +3,7 @@ const Organization = require('../organizations/organization.model');
 const User = require('../users/user.model');
 const { z } = require('zod');
 const cloudinary = require('../../config/cloudinary');
-const fs = require('fs');
+const fs = require('fs').promises;
 const { DateTime } = require('luxon');
 const mongoose = require('mongoose');
 const { isSystemRole } = require('../../utils/defaultPermissions');
@@ -21,12 +21,17 @@ const miscellaneousWorkSchemaValidation = z.object({
     assignedBy: z.string().optional(), // Optional: name of person who assigned the work
 });
 
-// Helper function to safely delete a file
-const cleanupTempFile = (filePath) => {
+// Helper function to safely delete a file (async)
+const cleanupTempFile = async (filePath) => {
     if (filePath) {
-        fs.unlink(filePath, (err) => {
-            if (err) console.error(`Error removing temp file ${filePath}:`, err);
-        });
+        try {
+            await fs.unlink(filePath);
+        } catch (err) {
+            // Ignore ENOENT (file already deleted)
+            if (err.code !== 'ENOENT') {
+                console.error(`Error removing temp file ${filePath}:`, err);
+            }
+        }
     }
 };
 
@@ -530,7 +535,7 @@ exports.uploadMiscellaneousWorkImage = async (req, res, next) => {
         // Validate imageNumber (1 or 2)
         const imageNum = parseInt(imageNumber);
         if (isNaN(imageNum) || imageNum < 1 || imageNum > 2) {
-            cleanupTempFile(tempFilePath);
+            await cleanupTempFile(tempFilePath);
             return res.status(400).json({
                 success: false,
                 message: 'imageNumber must be 1 or 2'
@@ -544,7 +549,7 @@ exports.uploadMiscellaneousWorkImage = async (req, res, next) => {
         ]);
 
         if (!work) {
-            cleanupTempFile(tempFilePath);
+            await cleanupTempFile(tempFilePath);
             return res.status(404).json({ success: false, message: 'Miscellaneous work not found' });
         }
 
@@ -561,7 +566,7 @@ exports.uploadMiscellaneousWorkImage = async (req, res, next) => {
             ]
         });
 
-        cleanupTempFile(tempFilePath);
+        await cleanupTempFile(tempFilePath);
         tempFilePath = null;
 
         // Check if image with this number already exists
@@ -589,7 +594,7 @@ exports.uploadMiscellaneousWorkImage = async (req, res, next) => {
             }
         });
     } catch (error) {
-        cleanupTempFile(tempFilePath);
+        await cleanupTempFile(tempFilePath);
         console.error('Error uploading miscellaneous work image:', error);
         return res.status(500).json({ success: false, message: 'Server error' });
     }

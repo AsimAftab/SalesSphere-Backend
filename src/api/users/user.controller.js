@@ -1635,12 +1635,14 @@ exports.getUserSubordinates = async (req, res, next) => {
 // ============================================
 
 /**
- * @desc    Get complete organization hierarchy tree
+ * @desc    Get complete organization hierarchy (Option C: Graph View)
  * @route   GET /api/v1/users/org-hierarchy
- * @access  Private (Admin or employees:viewList)
+ * @access  Private (Admin only)
  * 
- * Returns a tree structure showing all users and their reporting relationships.
- * Root nodes are users with no supervisors (typically admins).
+ * Returns:
+ * - hierarchy: Tree structure (uses primary supervisor for clean visualization)
+ * - employees: Flat list with ALL supervisors per user
+ * - relationships: Edge list for graph libraries (D3, react-flow, vis.js)
  */
 exports.getOrgHierarchy = async (req, res, next) => {
     try {
@@ -1656,9 +1658,54 @@ exports.getOrgHierarchy = async (req, res, next) => {
         })
             .select('_id name email role customRoleId reportsTo avatarUrl')
             .populate('customRoleId', 'name')
+            .populate({
+                path: 'reportsTo',
+                select: '_id name email role customRoleId',
+                populate: { path: 'customRoleId', select: 'name' }
+            })
             .lean();
 
-        // Build a map for quick lookup
+        // ========================================
+        // 1. BUILD FLAT EMPLOYEE LIST (with all supervisors)
+        // ========================================
+        const employees = allUsers.map(user => ({
+            _id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            customRole: user.customRoleId?.name || null,
+            avatarUrl: user.avatarUrl || null,
+            supervisors: (user.reportsTo || []).map(sup => ({
+                _id: sup._id,
+                name: sup.name,
+                email: sup.email,
+                role: sup.role,
+                customRole: sup.customRoleId?.name || null
+            })),
+            supervisorCount: (user.reportsTo || []).length
+        }));
+
+        // ========================================
+        // 2. BUILD EDGE LIST (for graph visualization)
+        // ========================================
+        const relationships = [];
+        allUsers.forEach(user => {
+            if (user.reportsTo && user.reportsTo.length > 0) {
+                user.reportsTo.forEach(supervisor => {
+                    relationships.push({
+                        from: user._id,
+                        fromName: user.name,
+                        to: supervisor._id,
+                        toName: supervisor.name,
+                        type: 'reportsTo'
+                    });
+                });
+            }
+        });
+
+        // ========================================
+        // 3. BUILD TREE VIEW (uses primary supervisor only)
+        // ========================================
         const userMap = new Map();
         allUsers.forEach(user => {
             userMap.set(user._id.toString(), {
@@ -1669,11 +1716,12 @@ exports.getOrgHierarchy = async (req, res, next) => {
                 customRole: user.customRoleId?.name || null,
                 avatarUrl: user.avatarUrl || null,
                 reportsTo: user.reportsTo || [],
+                hasMultipleSupervisors: (user.reportsTo || []).length > 1,
                 subordinates: []
             });
         });
 
-        // Build tree: attach each user to their supervisor(s)
+        // Build tree: attach each user to their PRIMARY supervisor
         const rootNodes = [];
 
         userMap.forEach((user, userId) => {
@@ -1681,9 +1729,8 @@ exports.getOrgHierarchy = async (req, res, next) => {
                 // No supervisor - this is a root node (typically admin)
                 rootNodes.push(user);
             } else {
-                // Has supervisor(s) - attach to first supervisor
-                // (for tree view, we use first supervisor to avoid duplicates)
-                const supervisorId = user.reportsTo[0].toString();
+                // Has supervisor(s) - attach to first (primary) supervisor
+                const supervisorId = user.reportsTo[0]._id.toString();
                 const supervisor = userMap.get(supervisorId);
                 if (supervisor) {
                     supervisor.subordinates.push(user);
@@ -1710,7 +1757,7 @@ exports.getOrgHierarchy = async (req, res, next) => {
             return a.name.localeCompare(b.name);
         });
 
-        // Clean up reportsTo from response (not needed in tree view)
+        // Clean up reportsTo from tree response
         const cleanNode = (node) => {
             delete node.reportsTo;
             if (node.subordinates) {
@@ -1725,7 +1772,12 @@ exports.getOrgHierarchy = async (req, res, next) => {
             data: {
                 organization: org?.name || 'Unknown',
                 totalEmployees: allUsers.length,
-                hierarchy: cleanedTree
+                // Tree view (primary supervisor only - for org chart)
+                hierarchy: cleanedTree,
+                // Flat list with ALL supervisors per user
+                employees: employees,
+                // Edge list for graph visualization libraries
+                relationships: relationships
             }
         });
     } catch (error) {
