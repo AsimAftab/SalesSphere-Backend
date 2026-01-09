@@ -90,7 +90,7 @@ router.put('/:id',
 
 // POST /:id/images - Upload images to miscellaneous work entry
 router.post('/:id/images',
-    checkAccess('miscellaneousWork', 'uploadImage'),
+    checkAccess('miscellaneousWork', 'create'),
     imageUpload.single('image'),
     uploadMiscellaneousWorkImage
 );

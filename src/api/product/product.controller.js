@@ -3,7 +3,7 @@ const Category = require('../product/category/category.model.js');
 const Organization = require('../organizations/organization.model.js');
 const { z } = require('zod');
 const cloudinary = require('../../config/cloudinary');
-const fs = require('fs');
+const fs = require('fs').promises;
 
 // --- Zod Validation Schema ---
 const productSchemaValidation = z.object({
@@ -36,9 +36,9 @@ const { isSystemRole } = require('../../utils/defaultPermissions');
 
 // --- HELPER FUNCTIONS ---
 
-// Find or create a category with permission check
+// Find or create a category (all authenticated users can create)
 const getOrCreateCategory = async (categoryName, user) => {
-    const { organizationId, role } = user;
+    const { organizationId } = user;
 
     // 1. Check if category exists
     const existingCategory = await Category.findOne({
@@ -50,20 +50,7 @@ const getOrCreateCategory = async (categoryName, user) => {
         return existingCategory;
     }
 
-    // 2. Category doesn't exist - Check permissions to create it
-    // Must be Admin, System Role, or have 'manageCategories' feature
-    const canCreateCategory =
-        role === 'admin' ||
-        isSystemRole(role) ||
-        (user.hasFeature && user.hasFeature('products', 'manageCategories'));
-
-    if (!canCreateCategory) {
-        const error = new Error(`You do not have permission to create the new category '${categoryName}'. Please select an existing category.`);
-        error.code = 'PERMISSION_DENIED';
-        throw error;
-    }
-
-    // 3. Create new category
+    // 2. Create new category (all authenticated users can create)
     return await Category.create({
         name: categoryName,
         organizationId: organizationId
@@ -86,12 +73,17 @@ const uploadToCloudinary = async (file, orgName, productId) => {
     return { public_id: result.public_id, url: result.secure_url };
 };
 
-// Cleanup temp file
-const cleanupTempFile = (filePath) => {
+// Cleanup temp file (async)
+const cleanupTempFile = async (filePath) => {
     if (filePath) {
-        fs.unlink(filePath, (err) => {
-            if (err) console.error(`Error removing temp file ${filePath}:`, err);
-        });
+        try {
+            await fs.unlink(filePath);
+        } catch (err) {
+            // Ignore ENOENT (file already deleted)
+            if (err.code !== 'ENOENT') {
+                console.error(`Error removing temp file ${filePath}:`, err);
+            }
+        }
     }
 };
 
@@ -113,7 +105,7 @@ exports.createProduct = async (req, res, next) => {
             organizationId: organizationId
         });
         if (existingProduct) {
-            cleanupTempFile(tempFilePath);
+            await cleanupTempFile(tempFilePath);
             return res.status(400).json({ success: false, message: 'A product with this name already exists in your organization.' });
         }
         // --- END CHECK ---
@@ -124,7 +116,7 @@ exports.createProduct = async (req, res, next) => {
         // 3. Fetch Organization name
         const organization = await Organization.findById(organizationId).select('name');
         if (!organization) {
-            cleanupTempFile(tempFilePath);
+            await cleanupTempFile(tempFilePath);
             return res.status(404).json({ success: false, message: 'Organization not found' });
         }
 
@@ -148,7 +140,7 @@ exports.createProduct = async (req, res, next) => {
                 newProduct._id.toString()
             );
             newProduct.image = imageObject;
-            cleanupTempFile(tempFilePath);
+            await cleanupTempFile(tempFilePath);
             tempFilePath = null;
         }
 
@@ -158,13 +150,9 @@ exports.createProduct = async (req, res, next) => {
         res.status(201).json({ success: true, data: newProduct });
 
     } catch (error) {
-        cleanupTempFile(tempFilePath);
+        await cleanupTempFile(tempFilePath);
         if (error instanceof z.ZodError) {
             return res.status(400).json({ success: false, message: "Validation failed", errors: error.flatten().fieldErrors });
-        }
-        // Handle permission error from getOrCreateCategory
-        if (error.code === 'PERMISSION_DENIED') {
-            return res.status(403).json({ success: false, message: error.message });
         }
         // Catch database-level unique constraint error
         if (error.code === 11000) {
@@ -231,7 +219,7 @@ exports.updateProduct = async (req, res, next) => {
             organizationId: organizationId
         });
         if (!product) {
-            cleanupTempFile(tempFilePath);
+            await cleanupTempFile(tempFilePath);
             return res.status(404).json({ success: false, message: 'Product not found' });
         }
 
@@ -249,7 +237,7 @@ exports.updateProduct = async (req, res, next) => {
         if (req.file) {
             const organization = await Organization.findById(organizationId).select('name');
             if (!organization) {
-                cleanupTempFile(tempFilePath);
+                await cleanupTempFile(tempFilePath);
                 return res.status(404).json({ success: false, message: 'Organization not found' });
             }
             tempFilePath = req.file.path;
@@ -259,7 +247,7 @@ exports.updateProduct = async (req, res, next) => {
                 product._id.toString()
             );
             product.image = imageObject;
-            cleanupTempFile(tempFilePath);
+            await cleanupTempFile(tempFilePath);
             tempFilePath = null;
         }
 
@@ -273,7 +261,7 @@ exports.updateProduct = async (req, res, next) => {
                 _id: { $ne: productId } // Check other products
             });
             if (existingProduct) {
-                cleanupTempFile(tempFilePath);
+                await cleanupTempFile(tempFilePath);
                 return res.status(400).json({ success: false, message: 'A product with this name already exists.' });
             }
             product.productName = validatedData.productName;
@@ -301,7 +289,7 @@ exports.updateProduct = async (req, res, next) => {
         res.status(200).json({ success: true, data: updatedProduct });
 
     } catch (error) {
-        cleanupTempFile(tempFilePath);
+        await cleanupTempFile(tempFilePath);
         if (error instanceof z.ZodError) {
             return res.status(400).json({ success: false, message: "Validation failed", errors: error.flatten().fieldErrors });
         }

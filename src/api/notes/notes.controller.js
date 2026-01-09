@@ -3,7 +3,7 @@ const Organization = require('../organizations/organization.model');
 const mongoose = require('mongoose');
 const { z } = require('zod');
 const cloudinary = require('../../config/cloudinary');
-const fs = require('fs');
+const fs = require('fs').promises;
 const User = require('../users/user.model');
 const { isSystemRole } = require('../../utils/defaultPermissions');
 
@@ -26,12 +26,17 @@ const noteSchemaValidation = z.object({
 const { getHierarchyFilter } = require('../../utils/hierarchyHelper');
 // Internal helper removed in favor of centralized deep hierarchy helper
 
-// Helper function to safely delete a file
-const cleanupTempFile = (filePath) => {
+// Helper function to safely delete a file (async)
+const cleanupTempFile = async (filePath) => {
     if (filePath) {
-        fs.unlink(filePath, (err) => {
-            if (err) console.error(`Error removing temp file ${filePath}:`, err);
-        });
+        try {
+            await fs.unlink(filePath);
+        } catch (err) {
+            // Ignore ENOENT (file already deleted)
+            if (err.code !== 'ENOENT') {
+                console.error(`Error removing temp file ${filePath}:`, err);
+            }
+        }
     }
 };
 
@@ -222,17 +227,17 @@ exports.getMyNotes = async (req, res, next) => {
 exports.getNoteById = async (req, res, next) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
-        const { organizationId, role, _id: userId } = req.user;
+        const { organizationId } = req.user;
         const { id } = req.params;
 
-        let query = { _id: id, organizationId };
+        // Use hierarchy filter - allows managers to see team notes
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'notes', 'viewTeamNotes');
 
-        // Salesperson can only see their own notes
-        if (role === 'salesperson') {
-            query.createdBy = userId;
-        }
-
-        const note = await Note.findOne(query)
+        const note = await Note.findOne({
+            _id: id,
+            organizationId,
+            ...hierarchyFilter
+        })
             .populate('createdBy', 'name email')
             .populate('party', 'partyName')
             .populate('prospect', 'prospectName')
@@ -272,8 +277,11 @@ exports.updateNote = async (req, res, next) => {
             return res.status(404).json({ success: false, message: 'Note not found' });
         }
 
-        // Only creator can update (Admin/Manager can update any)
-        if (role === 'salesperson' && note.createdBy.toString() !== userId.toString()) {
+        // Only creator or admin/system role can update
+        const isCreator = note.createdBy.toString() === userId.toString();
+        const isAdmin = role === 'admin' || isSystemRole(role);
+
+        if (!isCreator && !isAdmin) {
             return res.status(403).json({
                 success: false,
                 message: 'You can only edit your own notes'
@@ -322,8 +330,11 @@ exports.deleteNote = async (req, res, next) => {
             return res.status(404).json({ success: false, message: 'Note not found' });
         }
 
-        // Salesperson can only delete their own notes
-        if (role === 'salesperson' && note.createdBy.toString() !== userId.toString()) {
+        // Only creator or admin/system role can delete
+        const isCreator = note.createdBy.toString() === userId.toString();
+        const isAdmin = role === 'admin' || isSystemRole(role);
+
+        if (!isCreator && !isAdmin) {
             return res.status(403).json({
                 success: false,
                 message: 'You can only delete your own notes'
@@ -442,7 +453,7 @@ exports.bulkDeleteNotes = async (req, res, next) => {
 
 // @desc    Upload or update an image for a note
 // @route   POST /api/v1/notes/:id/images
-// @access  Private (Creator only)
+// @access  Private (Creator or admin only)
 exports.uploadNoteImage = async (req, res, next) => {
     let tempFilePath = req.file ? req.file.path : null;
     try {
@@ -459,7 +470,7 @@ exports.uploadNoteImage = async (req, res, next) => {
         // Validate imageNumber (1 or 2)
         const imageNum = parseInt(imageNumber);
         if (isNaN(imageNum) || imageNum < 1 || imageNum > 2) {
-            cleanupTempFile(tempFilePath);
+            await cleanupTempFile(tempFilePath);
             return res.status(400).json({
                 success: false,
                 message: 'imageNumber must be 1 or 2'
@@ -469,13 +480,16 @@ exports.uploadNoteImage = async (req, res, next) => {
         // Check if note exists and belongs to organization
         const note = await Note.findOne({ _id: id, organizationId });
         if (!note) {
-            cleanupTempFile(tempFilePath);
+            await cleanupTempFile(tempFilePath);
             return res.status(404).json({ success: false, message: 'Note not found' });
         }
 
-        // Salesperson can only upload to their own notes
-        if (role === 'salesperson' && note.createdBy.toString() !== userId.toString()) {
-            cleanupTempFile(tempFilePath);
+        // Only creator or admin/system role can upload images
+        const isCreator = note.createdBy.toString() === userId.toString();
+        const isAdmin = role === 'admin' || isSystemRole(role);
+
+        if (!isCreator && !isAdmin) {
+            await cleanupTempFile(tempFilePath);
             return res.status(403).json({
                 success: false,
                 message: 'You can only upload images to your own notes'
@@ -485,7 +499,7 @@ exports.uploadNoteImage = async (req, res, next) => {
         // Fetch Organization for folder path
         const organization = await Organization.findById(organizationId);
         if (!organization) {
-            cleanupTempFile(tempFilePath);
+            await cleanupTempFile(tempFilePath);
             return res.status(404).json({ success: false, message: 'Organization not found' });
         }
 
@@ -503,7 +517,7 @@ exports.uploadNoteImage = async (req, res, next) => {
             ]
         });
 
-        cleanupTempFile(tempFilePath);
+        await cleanupTempFile(tempFilePath);
         tempFilePath = null;
 
         // Check if image with this number already exists
@@ -533,7 +547,7 @@ exports.uploadNoteImage = async (req, res, next) => {
             }
         });
     } catch (error) {
-        cleanupTempFile(tempFilePath);
+        await cleanupTempFile(tempFilePath);
         console.error('Error uploading note image:', error);
         return res.status(500).json({ success: false, message: 'Server error' });
     }
@@ -541,7 +555,7 @@ exports.uploadNoteImage = async (req, res, next) => {
 
 // @desc    Delete an image from a note
 // @route   DELETE /api/v1/notes/:id/images/:imageNumber
-// @access  Private (Creator or Admin/Manager)
+// @access  Private (Creator or Admin)
 exports.deleteNoteImage = async (req, res, next) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
@@ -563,8 +577,11 @@ exports.deleteNoteImage = async (req, res, next) => {
             return res.status(404).json({ success: false, message: 'Note not found' });
         }
 
-        // Salesperson can only delete images from their own notes
-        if (role === 'salesperson' && note.createdBy.toString() !== userId.toString()) {
+        // Only creator or admin/system role can delete images
+        const isCreator = note.createdBy.toString() === userId.toString();
+        const isAdmin = role === 'admin' || isSystemRole(role);
+
+        if (!isCreator && !isAdmin) {
             return res.status(403).json({
                 success: false,
                 message: 'You can only delete images from your own notes'
@@ -616,17 +633,17 @@ exports.deleteNoteImage = async (req, res, next) => {
 exports.getNoteImages = async (req, res, next) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
-        const { organizationId, role, _id: userId } = req.user;
+        const { organizationId } = req.user;
         const { id } = req.params;
 
-        let query = { _id: id, organizationId };
+        // Use hierarchy filter - allows managers to see team notes
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'notes', 'viewTeamNotes');
 
-        // Salesperson can only see their own notes
-        if (role === 'salesperson') {
-            query.createdBy = userId;
-        }
-
-        const note = await Note.findOne(query).select('images');
+        const note = await Note.findOne({
+            _id: id,
+            organizationId,
+            ...hierarchyFilter
+        }).select('images');
         if (!note) {
             return res.status(404).json({ success: false, message: 'Note not found' });
         }

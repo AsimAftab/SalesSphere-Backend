@@ -36,4 +36,5 @@ router.route('/:id')
 router.put('/:roleId/assign/:userId', checkAccess('settings', 'manageRoles'), assignRoleToUser);
 router.delete('/assign/:userId', checkAccess('settings', 'manageRoles'), removeRoleFromUser);
 
+
 module.exports = router;

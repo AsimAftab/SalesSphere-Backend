@@ -1,52 +1,30 @@
 // src/api/product/category/category.routes.js
-// Product category routes - granular feature-based access control
+// Product category routes
 
 const express = require('express');
 const {
-    getAllCategories
+    getAllCategories,
+    createCategory,
+    updateCategory,
+    deleteCategory
 } = require('./category.controller');
-const { protect } = require('../../../middlewares/auth.middleware');
-const { checkAnyAccess } = require('../../../middlewares/compositeAccess.middleware');
+const { protect, requireOrgAdmin } = require('../../../middlewares/auth.middleware');
 
 const router = express.Router();
 
 // Apply 'protect' middleware to all routes
 router.use(protect);
 
-// GET / - View product categories for dropdown selection
-// Dependency: Users who can create or bulk-upload products also need to view categories
-router.get(
-    '/',
-    checkAnyAccess([
-        { module: 'products', feature: 'viewCategories' },
-        { module: 'products', feature: 'create' },
-        { module: 'products', feature: 'bulkUpload' }
-    ]),
-    getAllCategories
-);
+// GET / - View product categories (all authenticated users)
+router.get('/', getAllCategories);
 
-// ============================================
-// FUTURE CATEGORY MANAGEMENT ROUTES
-// ============================================
-// POST / - Create new category
-// router.post('/',
-//     checkAnyAccess([
-//         { module: 'products', feature: 'manageCategories' },
-//         { module: 'products', feature: 'bulkUpload' }
-//     ]),
-//     createCategory
-// );
+// POST / - Create new category (all authenticated users)
+router.post('/', createCategory);
 
-// PUT /:id - Update category
-// router.put('/:id',
-//     checkAccess('products', 'manageCategories'),
-//     updateCategory
-// );
+// PUT /:id - Update category (admin only)
+router.put('/:id', requireOrgAdmin, updateCategory);
 
-// DELETE /:id - Delete category
-// router.delete('/:id',
-//     checkAccess('products', 'manageCategories'),
-//     deleteCategory
-// );
+// DELETE /:id - Delete category (admin only)
+router.delete('/:id', requireOrgAdmin, deleteCategory);
 
 module.exports = router;

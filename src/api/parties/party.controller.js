@@ -5,6 +5,7 @@ const { z } = require('zod');
 const cloudinary = require('../../config/cloudinary');
 const User = require('../users/user.model');
 const { isSystemRole } = require('../../utils/defaultPermissions');
+const fs = require('fs').promises;
 
 // --- HELPER: Get Hierarchy Filter ---
 const { getHierarchyFilter, getEntityAccessFilter } = require('../../utils/hierarchyHelper');
@@ -76,6 +77,10 @@ exports.createParty = async (req, res, next) => {
             dateJoined: new Date(validatedData.dateJoined),
             organizationId: organizationId,
             createdBy: userId,
+            // Auto-assign creator to the party
+            assignedUsers: [userId],
+            assignedBy: userId,
+            assignedAt: new Date(),
         });
 
         res.status(201).json({ success: true, data: newParty });
@@ -251,12 +256,17 @@ exports.deleteParty = async (req, res, next) => { // Renamed function
 };
 
 
-// Helper function to safely delete a file
-const cleanupTempFile = (filePath) => {
+// Helper function to safely delete a file (async)
+const cleanupTempFile = async (filePath) => {
     if (filePath) {
-        fs.unlink(filePath, (err) => {
-            if (err) console.error(`Error removing temp file ${filePath}:`, err);
-        });
+        try {
+            await fs.unlink(filePath);
+        } catch (err) {
+            // Ignore ENOENT (file already deleted)
+            if (err.code !== 'ENOENT') {
+                console.error(`Error removing temp file ${filePath}:`, err);
+            }
+        }
     }
 };
 
@@ -278,14 +288,14 @@ exports.uploadPartyImage = async (req, res, next) => {
         // Check if party exists and belongs to organization
         const party = await Party.findOne({ _id: id, organizationId });
         if (!party) {
-            cleanupTempFile(tempFilePath);
+            await cleanupTempFile(tempFilePath);
             return res.status(404).json({ success: false, message: 'Party not found' });
         }
 
         // Fetch organization to get the name for folder structure
         const organization = await Organization.findById(organizationId);
         if (!organization) {
-            cleanupTempFile(tempFilePath);
+            await cleanupTempFile(tempFilePath);
             return res.status(404).json({ success: false, message: 'Organization not found' });
         }
 
@@ -301,7 +311,7 @@ exports.uploadPartyImage = async (req, res, next) => {
             ]
         });
 
-        cleanupTempFile(tempFilePath);
+        await cleanupTempFile(tempFilePath);
         tempFilePath = null;
 
         // Update party with new image URL
@@ -316,7 +326,7 @@ exports.uploadPartyImage = async (req, res, next) => {
             }
         });
     } catch (error) {
-        cleanupTempFile(tempFilePath);
+        await cleanupTempFile(tempFilePath);
         console.error('Error uploading party image:', error);
         return res.status(500).json({ success: false, message: 'Server error' });
     }
@@ -516,6 +526,129 @@ exports.getPartyTypes = async (req, res, next) => {
             .lean();
 
         res.status(200).json({ success: true, count: partyTypes.length, data: partyTypes });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// @desc    Create party type
+// @route   POST /api/v1/parties/types
+// @access  Private (All authenticated users)
+exports.createPartyType = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+        const { name } = req.body;
+
+        if (!name || name.trim().length === 0) {
+            return res.status(400).json({ success: false, message: 'Type name is required' });
+        }
+
+        // Check if type already exists
+        const existingType = await PartyType.findOne({
+            name: { $regex: new RegExp(`^${name.trim()}$`, 'i') },
+            organizationId
+        });
+
+        if (existingType) {
+            return res.status(400).json({ success: false, message: 'Party type with this name already exists' });
+        }
+
+        const partyType = await PartyType.create({
+            name: name.trim(),
+            organizationId
+        });
+
+        res.status(201).json({
+            success: true,
+            message: 'Party type created successfully',
+            data: partyType
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// @desc    Update party type
+// @route   PUT /api/v1/parties/types/:id
+// @access  Private (Admin only)
+exports.updatePartyType = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+        const { id } = req.params;
+        const { name } = req.body;
+
+        if (!name || name.trim().length === 0) {
+            return res.status(400).json({ success: false, message: 'Type name is required' });
+        }
+
+        const partyType = await PartyType.findOne({ _id: id, organizationId });
+
+        if (!partyType) {
+            return res.status(404).json({ success: false, message: 'Party type not found' });
+        }
+
+        // Check if new name conflicts with existing type
+        if (name.trim().toLowerCase() !== partyType.name.toLowerCase()) {
+            const existingType = await PartyType.findOne({
+                name: { $regex: new RegExp(`^${name.trim()}$`, 'i') },
+                organizationId,
+                _id: { $ne: id }
+            });
+
+            if (existingType) {
+                return res.status(400).json({ success: false, message: 'Party type with this name already exists' });
+            }
+        }
+
+        partyType.name = name.trim();
+        await partyType.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Party type updated successfully',
+            data: partyType
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// @desc    Delete party type
+// @route   DELETE /api/v1/parties/types/:id
+// @access  Private (Admin only)
+exports.deletePartyType = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+        const { id } = req.params;
+
+        const partyType = await PartyType.findOne({ _id: id, organizationId });
+
+        if (!partyType) {
+            return res.status(404).json({ success: false, message: 'Party type not found' });
+        }
+
+        // Check if type is being used by any party
+        const partiesUsingType = await Party.countDocuments({
+            partyType: partyType.name,
+            organizationId
+        });
+
+        if (partiesUsingType > 0) {
+            return res.status(400).json({
+                success: false,
+                message: `Cannot delete party type. It is being used by ${partiesUsingType} party/parties.`
+            });
+        }
+
+        await PartyType.deleteOne({ _id: id });
+
+        res.status(200).json({
+            success: true,
+            message: 'Party type deleted successfully'
+        });
     } catch (error) {
         next(error);
     }

@@ -7,7 +7,7 @@ const { sendEmail } = require('../../utils/emailSender'); // <-- Assumed email u
 const crypto = require('crypto'); // <-- Added for random string generation
 const { z } = require('zod');
 const cloudinary = require('../../config/cloudinary'); // Ensure this path matches your project structure
-const fs = require('fs'); // Required for file cleanup
+const fs = require('fs').promises; // Required for file cleanup
 const { getHierarchyFilter, getEntityAccessFilter } = require('../../utils/hierarchyHelper');
 // const { isValidFeature } = require('../../config/featureRegistry'); // Removed unused import
 
@@ -48,18 +48,6 @@ const categorySchemaValidation = z.object({
 const syncProspectInterest = async (interests, organizationId, user) => {
     if (!interests || interests.length === 0) return;
 
-    // Check if user has permission to manage categories
-    let canManageCategories = false;
-
-    // If user object is provided (which it should be), check permissions
-    if (user && user.role) {
-        if (user.role === 'admin' || user.role === 'superadmin') {
-            canManageCategories = true;
-        } else if (user.permissions && user.permissions.prospects && user.permissions.prospects.manageCategories) {
-            canManageCategories = true;
-        }
-    }
-
     for (const item of interests) {
         const categoryName = item.category.trim();
         const brands = item.brands || [];
@@ -77,23 +65,13 @@ const syncProspectInterest = async (interests, organizationId, user) => {
                     !category.brands.some(existing => existing.toLowerCase() === b.toLowerCase())
                 );
 
-                // Only allow adding new brands if user has manageCategories permission?
-                // OR allow strictly if category exists, but technically adding a brand modifies the category.
-                // STRICT MODE: adding brands modifies category -> requires permission.
                 if (newBrands.length > 0) {
-                    if (!canManageCategories) {
-                        throw new Error(`Permission denied: You cannot add new brands to category '${categoryName}'. Permission 'manageCategories' is required.`);
-                    }
                     category.brands.push(...newBrands);
                     await category.save();
                 }
             }
         } else {
-            // Create: New category with brands
-            if (!canManageCategories) {
-                throw new Error(`Permission denied: You cannot create new category '${categoryName}'. Permission 'manageCategories' is required.`);
-            }
-
+            // Create: New category with brands (all authenticated users can create)
             await ProspectCategory.create({
                 name: categoryName,
                 brands: brands,
@@ -127,6 +105,10 @@ exports.createProspect = async (req, res, next) => {
             dateJoined: new Date(validatedData.dateJoined),
             organizationId: organizationId,
             createdBy: userId,
+            // Auto-assign creator to the prospect
+            assignedUsers: [userId],
+            assignedBy: userId,
+            assignedAt: new Date(),
         });
 
         res.status(201).json({ success: true, data: newProspect });
@@ -464,11 +446,16 @@ exports.transferToParty = async (req, res, next) => {
     }
 };
 
-const cleanupTempFile = (filePath) => {
+const cleanupTempFile = async (filePath) => {
     if (filePath) {
-        fs.unlink(filePath, (err) => {
-            if (err) console.error(`Error removing temp file ${filePath}:`, err);
-        });
+        try {
+            await fs.unlink(filePath);
+        } catch (err) {
+            // Ignore ENOENT (file already deleted)
+            if (err.code !== 'ENOENT') {
+                console.error(`Error removing temp file ${filePath}:`, err);
+            }
+        }
     }
 };
 
@@ -489,7 +476,7 @@ exports.uploadProspectImage = async (req, res, next) => {
         // Validate imageNumber (Limit: 5 for prospects)
         const imageNum = parseInt(imageNumber);
         if (isNaN(imageNum) || imageNum < 1 || imageNum > 5) {
-            cleanupTempFile(tempFilePath);
+            await cleanupTempFile(tempFilePath);
             return res.status(400).json({
                 success: false,
                 message: 'imageNumber must be between 1 and 5'
@@ -499,14 +486,14 @@ exports.uploadProspectImage = async (req, res, next) => {
         // Check if prospect exists and belongs to organization
         const prospect = await Prospect.findOne({ _id: id, organizationId });
         if (!prospect) {
-            cleanupTempFile(tempFilePath);
+            await cleanupTempFile(tempFilePath);
             return res.status(404).json({ success: false, message: 'Prospect not found' });
         }
 
         // Fetch Organization for folder path
         const organization = await Organization.findById(organizationId);
         if (!organization) {
-            cleanupTempFile(tempFilePath);
+            await cleanupTempFile(tempFilePath);
             return res.status(404).json({ success: false, message: 'Organization not found' });
         }
 
@@ -529,7 +516,7 @@ exports.uploadProspectImage = async (req, res, next) => {
             ]
         });
 
-        cleanupTempFile(tempFilePath);
+        await cleanupTempFile(tempFilePath);
         tempFilePath = null;
 
         // Initialize images array if it doesn't exist
@@ -562,7 +549,7 @@ exports.uploadProspectImage = async (req, res, next) => {
             }
         });
     } catch (error) {
-        cleanupTempFile(tempFilePath);
+        await cleanupTempFile(tempFilePath);
         console.error('Error uploading prospect image:', error);
         return res.status(500).json({ success: false, message: 'Server error' });
     }
@@ -713,6 +700,120 @@ exports.createProspectCategory = async (req, res, next) => {
                 message: 'Category with this name already exists'
             });
         }
+        next(error);
+    }
+};
+
+// @desc    Update prospect category
+// @route   PUT /api/v1/prospects/categories/:id
+// @access  Private (requires manageCategories - admin only)
+exports.updateProspectCategory = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+        const { id } = req.params;
+
+        // Validate request body
+        const validatedData = categorySchemaValidation.parse(req.body);
+
+        // Find category
+        const category = await ProspectCategory.findOne({
+            _id: id,
+            organizationId: organizationId
+        });
+
+        if (!category) {
+            return res.status(404).json({
+                success: false,
+                message: 'Category not found'
+            });
+        }
+
+        // Check if new name conflicts with existing category
+        if (validatedData.name && validatedData.name.toLowerCase() !== category.name.toLowerCase()) {
+            const existingCategory = await ProspectCategory.findOne({
+                name: { $regex: new RegExp(`^${validatedData.name}$`, 'i') },
+                organizationId: organizationId,
+                _id: { $ne: id }
+            });
+
+            if (existingCategory) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Category with this name already exists'
+                });
+            }
+        }
+
+        // Update category
+        if (validatedData.name) {
+            category.name = validatedData.name.trim();
+        }
+        if (validatedData.brands) {
+            category.brands = validatedData.brands;
+        }
+
+        await category.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Prospect category updated successfully',
+            data: category
+        });
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({
+                success: false,
+                message: 'Validation failed',
+                errors: error.flatten().fieldErrors
+            });
+        }
+        next(error);
+    }
+};
+
+// @desc    Delete prospect category
+// @route   DELETE /api/v1/prospects/categories/:id
+// @access  Private (requires manageCategories - admin only)
+exports.deleteProspectCategory = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+        const { id } = req.params;
+
+        // Find category
+        const category = await ProspectCategory.findOne({
+            _id: id,
+            organizationId: organizationId
+        });
+
+        if (!category) {
+            return res.status(404).json({
+                success: false,
+                message: 'Category not found'
+            });
+        }
+
+        // Check if category is being used by any prospect
+        const prospectsUsingCategory = await Prospect.countDocuments({
+            'prospectInterest.category': category.name,
+            organizationId: organizationId
+        });
+
+        if (prospectsUsingCategory > 0) {
+            return res.status(400).json({
+                success: false,
+                message: `Cannot delete category. It is being used by ${prospectsUsingCategory} prospect(s).`
+            });
+        }
+
+        await ProspectCategory.deleteOne({ _id: id });
+
+        res.status(200).json({
+            success: true,
+            message: 'Category deleted successfully'
+        });
+    } catch (error) {
         next(error);
     }
 };

@@ -313,18 +313,35 @@ exports.updateLeaveRequest = async (req, res, next) => {
 exports.deleteLeaveRequest = async (req, res, next) => {
     try {
         const { organizationId, role, _id: userId } = req.user;
-        const query = { _id: req.params.id, organizationId };
 
-        if (role === 'salesperson') {
-            query.createdBy = userId;
-            query.status = 'pending';
-        }
+        // 1. Find the request first
+        const leaveRequest = await LeaveRequest.findOne({
+            _id: req.params.id,
+            organizationId
+        });
 
-        const leaveRequest = await LeaveRequest.findOneAndDelete(query);
         if (!leaveRequest) {
-            return res.status(404).json({ success: false, message: 'Request not found or cannot be deleted' });
+            return res.status(404).json({ success: false, message: 'Leave request not found' });
         }
 
+        // 2. Permission Logic (role-agnostic)
+        const isAdmin = role === 'admin' || isSystemRole(role);
+        const isCreator = leaveRequest.createdBy.toString() === userId.toString();
+
+        if (!isAdmin) {
+            // Non-admin users: can only delete own pending requests
+            if (!isCreator) {
+                return res.status(403).json({ success: false, message: 'You can only delete your own leave requests' });
+            }
+            if (leaveRequest.status !== 'pending') {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Cannot delete a processed leave request. Contact admin to cancel it.'
+                });
+            }
+        }
+
+        await LeaveRequest.findByIdAndDelete(req.params.id);
         res.status(200).json({ success: true, message: 'Leave request deleted successfully' });
     } catch (error) {
         next(error);
@@ -433,7 +450,7 @@ exports.updateLeaveRequestStatus = async (req, res, next) => {
 // @route   DELETE /api/v1/leave-requests/bulk-delete
 exports.bulkDeleteLeaveRequests = async (req, res, next) => {
     try {
-        const { organizationId } = req.user;
+        const { organizationId, role, _id: userId } = req.user;
         const { ids } = req.body;
 
         if (!ids || !Array.isArray(ids) || ids.length === 0) {
@@ -441,13 +458,29 @@ exports.bulkDeleteLeaveRequests = async (req, res, next) => {
         }
 
         const validIds = ids.filter(id => mongoose.Types.ObjectId.isValid(id));
-        if (validIds.length !== ids.length) {
-            return res.status(400).json({ success: false, message: 'One or more invalid IDs' });
+        if (validIds.length === 0) {
+            return res.status(400).json({ success: false, message: 'No valid IDs provided' });
         }
 
-        const result = await LeaveRequest.deleteMany({ _id: { $in: validIds }, organizationId });
+        const isAdmin = role === 'admin' || isSystemRole(role);
 
-        res.status(200).json({ success: true, message: `${result.deletedCount} leave request(s) deleted` });
+        let query = {
+            _id: { $in: validIds },
+            organizationId
+        };
+
+        // Non-admin users: can only delete own pending requests
+        if (!isAdmin) {
+            query.createdBy = userId;
+            query.status = 'pending';
+        }
+
+        const result = await LeaveRequest.deleteMany(query);
+
+        res.status(200).json({
+            success: true,
+            message: `${result.deletedCount} leave request(s) deleted`
+        });
     } catch (error) {
         next(error);
     }

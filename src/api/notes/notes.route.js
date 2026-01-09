@@ -87,7 +87,7 @@ router.patch('/:id',
 
 // POST /:id/images - Upload images to note
 router.post('/:id/images',
-    checkAccess('notes', 'uploadImage'),
+    checkAccess('notes', 'create'),
     imageUpload.single('image'),
     uploadNoteImage
 );

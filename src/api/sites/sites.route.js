@@ -14,13 +14,19 @@ const {
     deleteSiteImage,
     getSiteCategories,
     getSiteSubOrganizations,
+    createSiteCategory,
+    updateSiteCategory,
+    deleteSiteCategory,
+    createSiteSubOrganization,
+    updateSiteSubOrganization,
+    deleteSiteSubOrganization,
     // Assignment controllers
     assignUsersToSite,
     removeUserFromSite,
     getSiteAssignments,
     getMyAssignedSites
 } = require('./sites.controller');
-const { protect } = require('../../middlewares/auth.middleware');
+const { protect, requireOrgAdmin } = require('../../middlewares/auth.middleware');
 const { checkAccess, checkAnyAccess } = require('../../middlewares/compositeAccess.middleware');
 
 const router = express.Router();
@@ -54,27 +60,20 @@ router.get('/details',
     getAllSitesDetails
 );
 
-// GET /categories - View site categories
-// Dependency: Users who can create/update sites also need to view categories (auto-created via syncSiteInterest)
-router.get('/categories',
-    checkAnyAccess([
-        { module: 'sites', feature: 'viewInterests' },
-        { module: 'sites', feature: 'create' },
-        { module: 'sites', feature: 'update' }
-    ]),
-    getSiteCategories
-);
+// GET /categories - View site categories (all authenticated users)
+router.get('/categories', getSiteCategories);
 
-// GET /sub-organizations - View available sub-organizations
-// Dependency: Users who can create/update sites also need to view sub-orgs (auto-created via syncSubOrganization)
-router.get('/sub-organizations',
-    checkAnyAccess([
-        { module: 'sites', feature: 'viewSubOrganizations' },
-        { module: 'sites', feature: 'create' },
-        { module: 'sites', feature: 'update' }
-    ]),
-    getSiteSubOrganizations
-);
+// GET /sub-organizations - View available sub-organizations (all authenticated users)
+router.get('/sub-organizations', getSiteSubOrganizations);
+
+// POST /sub-organizations - Create sub-organization (all authenticated users)
+router.post('/sub-organizations', createSiteSubOrganization);
+
+// PUT /sub-organizations/:id - Update sub-organization (admin only)
+router.put('/sub-organizations/:id', requireOrgAdmin, updateSiteSubOrganization);
+
+// DELETE /sub-organizations/:id - Delete sub-organization (admin only)
+router.delete('/sub-organizations/:id', requireOrgAdmin, deleteSiteSubOrganization);
 
 // ============================================
 // ASSIGNMENT ROUTES (must be before /:id wildcard)
@@ -121,7 +120,7 @@ router.post('/',
 
 // POST /:id/images - Upload site photos, blueprints, or progress images
 router.post('/:id/images',
-    checkAccess('sites', 'uploadImage'),
+    checkAccess('sites', 'create'),
     imageUpload.single('image'),
     uploadSiteImage
 );
@@ -166,19 +165,15 @@ router.delete('/:id/images/:imageNumber',
 // );
 
 // ============================================
-// CATEGORY MANAGEMENT ROUTES (Future)
+// CATEGORY MANAGEMENT ROUTES
 // ============================================
-// Note: Site categories are auto-created via syncSiteInterest when creating/updating sites
-// Users with 'create' or 'update' permission can implicitly create site categories
-// For explicit category management routes, use:
-// POST /categories - Create site category
-// router.post('/categories',
-//     checkAnyAccess([
-//         { module: 'sites', feature: 'manageCategories' },
-//         { module: 'sites', feature: 'create' },
-//         { module: 'sites', feature: 'update' }
-//     ]),
-//     createSiteCategory
-// );
+// POST /categories - Create site category (all authenticated users)
+router.post('/categories', createSiteCategory);
+
+// PUT /categories/:id - Update site category (admin only)
+router.put('/categories/:id', requireOrgAdmin, updateSiteCategory);
+
+// DELETE /categories/:id - Delete site category (admin only)
+router.delete('/categories/:id', requireOrgAdmin, deleteSiteCategory);
 
 module.exports = router;

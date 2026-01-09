@@ -4,9 +4,12 @@ const SiteSubOrganization = require('./siteSubOrganization.model');
 const Organization = require('../organizations/organization.model');
 const { z } = require('zod');
 const cloudinary = require('../../config/cloudinary');
-const fs = require('fs');
+const fs = require('fs').promises;
 const { getHierarchyFilter, getEntityAccessFilter } = require('../../utils/hierarchyHelper');
 const { isValidFeature } = require('../../config/featureRegistry');
+
+// Helper to escape regex metacharacters (prevents NoSQL injection via regex)
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // --- Zod Validation Schema ---
 const siteSchemaValidation = z.object({
@@ -26,82 +29,58 @@ const siteSchemaValidation = z.object({
     description: z.string().optional(),
     siteInterest: z.array(z.object({
         category: z.string({ required_error: "Category is required" }).min(1, "Category is required"),
-        brands: z.array(z.string()).min(1, "At least one brand is required"),
+        brands: z.array(z.string()).min(1, "At least one brand is required").max(50, "Maximum 50 brands allowed per category"),
         technicians: z.array(z.object({
             name: z.string().min(1, "Technician name is required"),
             phone: z.string().min(1, "Technician phone is required")
-        })).optional()
-    })).optional(),
+        })).max(20, "Maximum 20 technicians allowed per category").optional()
+    })).max(10, "Maximum 10 categories allowed per site").optional(),
 });
 
-// Sync Site Interest Helper
-// Sync Site Interest Helper
+// Sync Site Interest Helper (atomic operations to prevent race conditions)
 const syncSiteInterest = async (interests, organizationId, user) => {
     if (!interests || interests.length === 0) return;
-
-    // Check if user has permission to manage categories
-    let canManageCategories = false;
-    if (user && user.role) {
-        if (user.role === 'admin' || user.role === 'superadmin') {
-            canManageCategories = true;
-        } else if (user.permissions && user.permissions.sites && user.permissions.sites.manageCategories) {
-            canManageCategories = true;
-        }
-    }
 
     for (const item of interests) {
         const categoryName = item.category.trim();
         const brands = item.brands || [];
         const technicians = item.technicians || [];
 
-        // Check if category exists
+        // Check if category exists (with escaped regex to prevent NoSQL injection)
+        const escapedCategoryName = escapeRegex(categoryName);
         let category = await SiteCategory.findOne({
-            name: { $regex: new RegExp(`^${categoryName}$`, 'i') },
+            name: { $regex: new RegExp(`^${escapedCategoryName}$`, 'i') },
             organizationId: organizationId
         });
 
         if (category) {
-            let isUpdated = false;
+            // Use atomic updates for existing category
+            const updateOps = {};
 
-            // Update: Add new unique brands
+            // Add brands atomically (case-insensitive deduplication)
             if (brands.length > 0) {
-                const newBrands = brands.filter(b =>
-                    !category.brands.some(existing => existing.toLowerCase() === b.toLowerCase())
-                );
+                // Get current brands for deduplication
+                const existingBrandNames = new Set(category.brands.map(b => b.toLowerCase()));
+                const newBrands = brands.filter(b => !existingBrandNames.has(b.toLowerCase()));
                 if (newBrands.length > 0) {
-                    if (!canManageCategories) {
-                        throw new Error(`Permission denied: You cannot add new brands to category '${categoryName}'. Permission 'manageCategories' is required.`);
-                    }
-                    category.brands.push(...newBrands);
-                    isUpdated = true;
+                    updateOps.$push = { brands: { $each: newBrands } };
                 }
             }
 
-            // Update: Add new unique technicians
+            // Add technicians atomically (using addToSet for phone-based deduplication)
             if (technicians.length > 0) {
-                const newTechnicians = technicians.filter(t =>
-                    !category.technicians.some(existing =>
-                        existing.phone === t.phone // Assume phone is unique identifier for simplicity
-                    )
-                );
-                if (newTechnicians.length > 0) {
-                    if (!canManageCategories) {
-                        throw new Error(`Permission denied: You cannot add new technicians to category '${categoryName}'. Permission 'manageCategories' is required.`);
-                    }
-                    category.technicians.push(...newTechnicians);
-                    isUpdated = true;
-                }
+                if (!updateOps.$addToSet) updateOps.$addToSet = {};
+                updateOps.$addToSet.technicians = { $each: technicians };
             }
 
-            if (isUpdated) {
-                await category.save();
+            if (Object.keys(updateOps).length > 0) {
+                await SiteCategory.updateOne(
+                    { _id: category._id },
+                    updateOps
+                );
             }
         } else {
-            // Create: New category with brands and technicians
-            if (!canManageCategories) {
-                throw new Error(`Permission denied: You cannot create new category '${categoryName}'. Permission 'manageCategories' is required.`);
-            }
-
+            // Create: New category with brands and technicians (all authenticated users can create)
             await SiteCategory.create({
                 name: categoryName,
                 brands: brands,
@@ -112,40 +91,27 @@ const syncSiteInterest = async (interests, organizationId, user) => {
     }
 };
 
-// Sync Sub-Organization Helper
-// Sync Sub-Organization Helper
+// Sync Sub-Organization Helper (atomic operation to prevent race conditions)
 const syncSubOrganization = async (subOrgName, organizationId, user) => {
     if (!subOrgName) return;
 
     const trimmedName = subOrgName.trim();
+    const escapedName = escapeRegex(trimmedName);
 
-    // Check if sub-organization exists
-    const existingSubOrg = await SiteSubOrganization.findOne({
-        name: { $regex: new RegExp(`^${trimmedName}$`, 'i') },
-        organizationId: organizationId
-    });
-
-    if (!existingSubOrg) {
-        // Check permissions
-        let canManageCategories = false;
-        if (user && user.role) {
-            if (user.role === 'admin' || user.role === 'superadmin') {
-                canManageCategories = true;
-            } else if (user.permissions && user.permissions.sites && user.permissions.sites.manageCategories) {
-                canManageCategories = true;
-            }
-        }
-
-        if (!canManageCategories) {
-            throw new Error(`Permission denied: You cannot create new sub-organization '${trimmedName}'. Permission 'manageCategories' is required.`);
-        }
-
-        // Create new sub-organization
-        await SiteSubOrganization.create({
-            name: trimmedName,
+    // Use findOneAndUpdate with upsert for atomic operation (prevents race conditions)
+    await SiteSubOrganization.findOneAndUpdate(
+        {
+            name: { $regex: new RegExp(`^${escapedName}$`, 'i') },
             organizationId: organizationId
-        });
-    }
+        },
+        {
+            $setOnInsert: {
+                name: trimmedName,
+                organizationId: organizationId
+            }
+        },
+        { upsert: true, new: true }
+    );
 };
 
 // @desc    Create a new site
@@ -157,30 +123,33 @@ exports.createSite = async (req, res, next) => {
         // Validate request body
         const validatedData = siteSchemaValidation.parse(req.body);
 
-        // --- Sync Site Interest ---
+        // ⚡ Run sync operations in parallel for better performance
+        const syncOps = [];
         if (validatedData.siteInterest) {
-            try {
-                await syncSiteInterest(validatedData.siteInterest, organizationId, req.user);
-            } catch (err) {
-                return res.status(403).json({ success: false, message: err.message });
-            }
+            syncOps.push(syncSiteInterest(validatedData.siteInterest, organizationId, req.user));
+        } else {
+            syncOps.push(Promise.resolve());
         }
-        // -----------------------------
-
-        // --- Sync Sub-Organization ---
         if (validatedData.subOrganization) {
-            try {
-                await syncSubOrganization(validatedData.subOrganization, organizationId, req.user);
-            } catch (err) {
-                return res.status(403).json({ success: false, message: err.message });
-            }
+            syncOps.push(syncSubOrganization(validatedData.subOrganization, organizationId, req.user));
+        } else {
+            syncOps.push(Promise.resolve());
         }
-        // -----------------------------
+
+        try {
+            await Promise.all(syncOps);
+        } catch (err) {
+            return res.status(403).json({ success: false, message: err.message });
+        }
 
         const newSite = await Site.create({
             ...validatedData,
             organizationId,
             createdBy: userId,
+            // Auto-assign creator to the site
+            assignedUsers: [userId],
+            assignedBy: userId,
+            assignedAt: new Date(),
         });
 
         return res.status(201).json({
@@ -312,32 +281,35 @@ exports.updateSite = async (req, res, next) => {
         const { id } = req.params;
 
         // Validate request body
-        // Validate request body
         const validatedData = siteSchemaValidation.parse(req.body);
 
-        // --- Sync Site Interest ---
+        // ⚡ Run sync operations in parallel for better performance
+        const syncOps = [];
         if (validatedData.siteInterest) {
-            try {
-                await syncSiteInterest(validatedData.siteInterest, organizationId, req.user);
-            } catch (err) {
-                return res.status(403).json({ success: false, message: err.message });
-            }
+            syncOps.push(syncSiteInterest(validatedData.siteInterest, organizationId, req.user));
+        } else {
+            syncOps.push(Promise.resolve());
         }
-        // -----------------------------
-
-        // --- Sync Sub-Organization ---
         if (validatedData.subOrganization) {
-            try {
-                await syncSubOrganization(validatedData.subOrganization, organizationId, req.user);
-            } catch (err) {
-                return res.status(403).json({ success: false, message: err.message });
-            }
+            syncOps.push(syncSubOrganization(validatedData.subOrganization, organizationId, req.user));
+        } else {
+            syncOps.push(Promise.resolve());
         }
-        // -----------------------------
 
-        // Check if user has permission to access this site based on hierarchy
-        const hierarchyFilter = await getHierarchyFilter(req.user, 'sites', 'viewTeamSites');
-        const query = { _id: id, organizationId, ...hierarchyFilter };
+        try {
+            await Promise.all(syncOps);
+        } catch (err) {
+            return res.status(403).json({ success: false, message: err.message });
+        }
+
+        // Check if user has permission to access this site (uses entity access filter for assignedUsers)
+        const accessFilter = await getEntityAccessFilter(
+            req.user,
+            'sites',
+            'viewTeamSites',
+            'viewAllSites'
+        );
+        const query = { _id: id, organizationId, ...accessFilter };
 
         const site = await Site.findOne(query);
         if (!site) {
@@ -375,9 +347,14 @@ exports.deleteSite = async (req, res, next) => {
         const { organizationId } = req.user;
         const { id } = req.params;
 
-        // Check if user has permission to access this site based on hierarchy
-        const hierarchyFilter = await getHierarchyFilter(req.user, 'sites', 'viewTeamSites');
-        const query = { _id: id, organizationId, ...hierarchyFilter };
+        // Check if user has permission to access this site (uses entity access filter for assignedUsers)
+        const accessFilter = await getEntityAccessFilter(
+            req.user,
+            'sites',
+            'viewTeamSites',
+            'viewAllSites'
+        );
+        const query = { _id: id, organizationId, ...accessFilter };
 
         const site = await Site.findOne(query);
         if (!site) {
@@ -396,12 +373,17 @@ exports.deleteSite = async (req, res, next) => {
     }
 };
 
-// Helper function to safely delete a file
-const cleanupTempFile = (filePath) => {
+// Helper function to safely delete a file (async)
+const cleanupTempFile = async (filePath) => {
     if (filePath) {
-        fs.unlink(filePath, (err) => {
-            if (err) console.error(`Error removing temp file ${filePath}:`, err);
-        });
+        try {
+            await fs.unlink(filePath);
+        } catch (err) {
+            // Ignore ENOENT (file already deleted)
+            if (err.code !== 'ENOENT') {
+                console.error(`Error removing temp file ${filePath}:`, err);
+            }
+        }
     }
 };
 
@@ -422,24 +404,30 @@ exports.uploadSiteImage = async (req, res, next) => {
         // Validate imageNumber
         const imageNum = parseInt(imageNumber);
         if (isNaN(imageNum) || imageNum < 1 || imageNum > 9) {
-            cleanupTempFile(tempFilePath);
+            await cleanupTempFile(tempFilePath);
             return res.status(400).json({
                 success: false,
                 message: 'imageNumber must be between 1 and 9'
             });
         }
 
-        // Check if site exists and belongs to organization
-        const site = await Site.findOne({ _id: id, organizationId });
+        // Check if user has permission to access this site (uses entity access filter for assignedUsers)
+        const accessFilter = await getEntityAccessFilter(
+            req.user,
+            'sites',
+            'viewTeamSites',
+            'viewAllSites'
+        );
+        const site = await Site.findOne({ _id: id, organizationId, ...accessFilter });
         if (!site) {
-            cleanupTempFile(tempFilePath);
+            await cleanupTempFile(tempFilePath);
             return res.status(404).json({ success: false, message: 'Site not found' });
         }
 
         // Fetch Organization for folder path
         const organization = await Organization.findById(organizationId);
         if (!organization) {
-            cleanupTempFile(tempFilePath);
+            await cleanupTempFile(tempFilePath);
             return res.status(404).json({ success: false, message: 'Organization not found' });
         }
 
@@ -458,7 +446,7 @@ exports.uploadSiteImage = async (req, res, next) => {
             ]
         });
 
-        cleanupTempFile(tempFilePath);
+        await cleanupTempFile(tempFilePath);
         tempFilePath = null;
 
         // Check if image with this number already exists
@@ -486,7 +474,7 @@ exports.uploadSiteImage = async (req, res, next) => {
             }
         });
     } catch (error) {
-        cleanupTempFile(tempFilePath);
+        await cleanupTempFile(tempFilePath);
         console.error('Error uploading site image:', error);
         return res.status(500).json({ success: false, message: 'Server error' });
     }
@@ -508,8 +496,14 @@ exports.deleteSiteImage = async (req, res, next) => {
             });
         }
 
-        // Check if site exists and belongs to organization
-        const site = await Site.findOne({ _id: id, organizationId });
+        // Check if user has permission to access this site (uses entity access filter for assignedUsers)
+        const accessFilter = await getEntityAccessFilter(
+            req.user,
+            'sites',
+            'viewTeamSites',
+            'viewAllSites'
+        );
+        const site = await Site.findOne({ _id: id, organizationId, ...accessFilter });
         if (!site) {
             return res.status(404).json({ success: false, message: 'Site not found' });
         }
@@ -591,6 +585,263 @@ exports.getSiteSubOrganizations = async (req, res, next) => {
             .lean();
 
         res.status(200).json({ success: true, count: subOrgs.length, data: subOrgs });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// @desc    Create site category
+// @route   POST /api/sites/categories
+// @access  Private (All authenticated users)
+exports.createSiteCategory = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+        const { name, brands, technicians } = req.body;
+
+        if (!name || name.trim().length === 0) {
+            return res.status(400).json({ success: false, message: 'Category name is required' });
+        }
+
+        // Check if category already exists (with escaped regex to prevent NoSQL injection)
+        const escapedName = escapeRegex(name.trim());
+        const existingCategory = await SiteCategory.findOne({
+            name: { $regex: new RegExp(`^${escapedName}$`, 'i') },
+            organizationId
+        });
+
+        if (existingCategory) {
+            return res.status(400).json({ success: false, message: 'Site category with this name already exists' });
+        }
+
+        const category = await SiteCategory.create({
+            name: name.trim(),
+            brands: brands || [],
+            technicians: technicians || [],
+            organizationId
+        });
+
+        res.status(201).json({
+            success: true,
+            message: 'Site category created successfully',
+            data: category
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// @desc    Update site category
+// @route   PUT /api/sites/categories/:id
+// @access  Private (Admin only)
+exports.updateSiteCategory = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+        const { id } = req.params;
+        const { name, brands, technicians } = req.body;
+
+        const category = await SiteCategory.findOne({ _id: id, organizationId });
+
+        if (!category) {
+            return res.status(404).json({ success: false, message: 'Site category not found' });
+        }
+
+        // Check if new name conflicts with existing category
+        if (name && name.trim().length > 0 && name.trim().toLowerCase() !== category.name.toLowerCase()) {
+            const escapedName = escapeRegex(name.trim());
+            const existingCategory = await SiteCategory.findOne({
+                name: { $regex: new RegExp(`^${escapedName}$`, 'i') },
+                organizationId,
+                _id: { $ne: id }
+            });
+
+            if (existingCategory) {
+                return res.status(400).json({ success: false, message: 'Site category with this name already exists' });
+            }
+        }
+
+        if (name && name.trim().length > 0) {
+            category.name = name.trim();
+        }
+        if (brands !== undefined) {
+            category.brands = brands;
+        }
+        if (technicians !== undefined) {
+            category.technicians = technicians;
+        }
+
+        await category.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Site category updated successfully',
+            data: category
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// @desc    Delete site category
+// @route   DELETE /api/sites/categories/:id
+// @access  Private (Admin only)
+exports.deleteSiteCategory = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+        const { id } = req.params;
+
+        const category = await SiteCategory.findOne({ _id: id, organizationId });
+
+        if (!category) {
+            return res.status(404).json({ success: false, message: 'Site category not found' });
+        }
+
+        // Check if category is being used by any site
+        const sitesUsingCategory = await Site.countDocuments({
+            siteInterest: category.name,
+            organizationId
+        });
+
+        if (sitesUsingCategory > 0) {
+            return res.status(400).json({
+                success: false,
+                message: `Cannot delete category. It is being used by ${sitesUsingCategory} site(s).`
+            });
+        }
+
+        await SiteCategory.deleteOne({ _id: id });
+
+        res.status(200).json({
+            success: true,
+            message: 'Site category deleted successfully'
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// @desc    Create site sub-organization
+// @route   POST /api/sites/sub-organizations
+// @access  Private (All authenticated users)
+exports.createSiteSubOrganization = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+        const { name } = req.body;
+
+        if (!name || name.trim().length === 0) {
+            return res.status(400).json({ success: false, message: 'Sub-organization name is required' });
+        }
+
+        // Check if sub-organization already exists (with escaped regex to prevent NoSQL injection)
+        const escapedName = escapeRegex(name.trim());
+        const existingSubOrg = await SiteSubOrganization.findOne({
+            name: { $regex: new RegExp(`^${escapedName}$`, 'i') },
+            organizationId
+        });
+
+        if (existingSubOrg) {
+            return res.status(400).json({ success: false, message: 'Sub-organization with this name already exists' });
+        }
+
+        const subOrg = await SiteSubOrganization.create({
+            name: name.trim(),
+            organizationId
+        });
+
+        res.status(201).json({
+            success: true,
+            message: 'Sub-organization created successfully',
+            data: subOrg
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// @desc    Update site sub-organization
+// @route   PUT /api/sites/sub-organizations/:id
+// @access  Private (Admin only)
+exports.updateSiteSubOrganization = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+        const { id } = req.params;
+        const { name } = req.body;
+
+        if (!name || name.trim().length === 0) {
+            return res.status(400).json({ success: false, message: 'Sub-organization name is required' });
+        }
+
+        const subOrg = await SiteSubOrganization.findOne({ _id: id, organizationId });
+
+        if (!subOrg) {
+            return res.status(404).json({ success: false, message: 'Sub-organization not found' });
+        }
+
+        // Check if new name conflicts with existing sub-organization
+        if (name.trim().toLowerCase() !== subOrg.name.toLowerCase()) {
+            const escapedName = escapeRegex(name.trim());
+            const existingSubOrg = await SiteSubOrganization.findOne({
+                name: { $regex: new RegExp(`^${escapedName}$`, 'i') },
+                organizationId,
+                _id: { $ne: id }
+            });
+
+            if (existingSubOrg) {
+                return res.status(400).json({ success: false, message: 'Sub-organization with this name already exists' });
+            }
+        }
+
+        subOrg.name = name.trim();
+        await subOrg.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Sub-organization updated successfully',
+            data: subOrg
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// @desc    Delete site sub-organization
+// @route   DELETE /api/sites/sub-organizations/:id
+// @access  Private (Admin only)
+exports.deleteSiteSubOrganization = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+        const { id } = req.params;
+
+        const subOrg = await SiteSubOrganization.findOne({ _id: id, organizationId });
+
+        if (!subOrg) {
+            return res.status(404).json({ success: false, message: 'Sub-organization not found' });
+        }
+
+        // Check if sub-organization is being used by any site
+        const sitesUsingSubOrg = await Site.countDocuments({
+            subOrganization: subOrg.name,
+            organizationId
+        });
+
+        if (sitesUsingSubOrg > 0) {
+            return res.status(400).json({
+                success: false,
+                message: `Cannot delete sub-organization. It is being used by ${sitesUsingSubOrg} site(s).`
+            });
+        }
+
+        await SiteSubOrganization.deleteOne({ _id: id });
+
+        res.status(200).json({
+            success: true,
+            message: 'Sub-organization deleted successfully'
+        });
     } catch (error) {
         next(error);
     }
