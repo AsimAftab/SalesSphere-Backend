@@ -226,13 +226,6 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         exportPdf: true,
         exportExcel: true
     },
-    settings: {
-        view: true,
-        manage: true,
-        manageUsers: true,
-        manageRoles: true,
-        manageSubscription: true
-    },
     employees: {
         viewList: true,
         viewOwn: true,
@@ -479,13 +472,6 @@ const DEVELOPER_GRANULAR_PERMISSIONS = {
         bulkDelete: false,
         exportPdf: true,
         exportExcel: true
-    },
-    settings: {
-        view: true,
-        manage: true,
-        manageUsers: true,
-        manageRoles: true,
-        manageSubscription: true
     },
     employees: {
         viewList: true,
@@ -736,13 +722,6 @@ const ADMIN_GRANULAR_PERMISSIONS = {
         exportPdf: true,
         exportExcel: true
     },
-    settings: {
-        view: true,
-        manage: true,
-        manageUsers: true,
-        manageRoles: true,
-        manageSubscription: true
-    },
     employees: {
         viewList: true,
         viewOwn: true,
@@ -970,13 +949,6 @@ const USER_GRANULAR_PERMISSIONS = {
         bulkDelete: false,
         exportPdf: false,
         exportExcel: false
-    },
-    settings: {
-        view: false,
-        manage: false,
-        manageUsers: false,
-        manageRoles: false,
-        manageSubscription: false
     },
     employees: {
         viewList: false,
