@@ -69,7 +69,7 @@ const prospectSchema = new mongoose.Schema({
         }],
         default: [],
         validate: {
-            validator: function(images) {
+            validator: function (images) {
                 return images.length <= 5;
             },
             message: 'A Prospect can have a maximum of 5 images'
@@ -129,6 +129,8 @@ const prospectSchema = new mongoose.Schema({
 prospectSchema.index({ organizationId: 1, assignedUsers: 1 });
 // Index for queries combining createdBy and assignment
 prospectSchema.index({ organizationId: 1, createdBy: 1, assignedUsers: 1 });
+// Index for category sync queries
+prospectSchema.index({ organizationId: 1, 'prospectInterest.category': 1 });
 
 const Prospect = mongoose.model('Prospect', prospectSchema);
 

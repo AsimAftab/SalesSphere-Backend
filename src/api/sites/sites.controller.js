@@ -647,9 +647,12 @@ exports.updateSiteCategory = async (req, res, next) => {
             return res.status(404).json({ success: false, message: 'Site category not found' });
         }
 
+        const oldName = category.name; // Store for sync
+        const newName = (name && name.trim().length > 0) ? name.trim() : oldName;
+
         // Check if new name conflicts with existing category
-        if (name && name.trim().length > 0 && name.trim().toLowerCase() !== category.name.toLowerCase()) {
-            const escapedName = escapeRegex(name.trim());
+        if (newName.toLowerCase() !== oldName.toLowerCase()) {
+            const escapedName = escapeRegex(newName);
             const existingCategory = await SiteCategory.findOne({
                 name: { $regex: new RegExp(`^${escapedName}$`, 'i') },
                 organizationId,
@@ -662,7 +665,7 @@ exports.updateSiteCategory = async (req, res, next) => {
         }
 
         if (name && name.trim().length > 0) {
-            category.name = name.trim();
+            category.name = newName;
         }
         if (brands !== undefined) {
             category.brands = brands;
@@ -673,10 +676,29 @@ exports.updateSiteCategory = async (req, res, next) => {
 
         await category.save();
 
+        // SYNC: Update category name in all sites' siteInterest array
+        let sitesUpdated = 0;
+        if (oldName !== newName) {
+            const updateResult = await Site.updateMany(
+                {
+                    organizationId,
+                    'siteInterest.category': oldName
+                },
+                {
+                    $set: { 'siteInterest.$[elem].category': newName }
+                },
+                {
+                    arrayFilters: [{ 'elem.category': oldName }]
+                }
+            );
+            sitesUpdated = updateResult.modifiedCount;
+        }
+
         res.status(200).json({
             success: true,
-            message: 'Site category updated successfully',
-            data: category
+            message: `Site category updated successfully${sitesUpdated > 0 ? `. ${sitesUpdated} sites synced.` : ''}`,
+            data: category,
+            sitesUpdated
         });
     } catch (error) {
         next(error);
@@ -781,9 +803,12 @@ exports.updateSiteSubOrganization = async (req, res, next) => {
             return res.status(404).json({ success: false, message: 'Sub-organization not found' });
         }
 
+        const oldName = subOrg.name; // Store for sync
+        const newName = name.trim();
+
         // Check if new name conflicts with existing sub-organization
-        if (name.trim().toLowerCase() !== subOrg.name.toLowerCase()) {
-            const escapedName = escapeRegex(name.trim());
+        if (newName.toLowerCase() !== oldName.toLowerCase()) {
+            const escapedName = escapeRegex(newName);
             const existingSubOrg = await SiteSubOrganization.findOne({
                 name: { $regex: new RegExp(`^${escapedName}$`, 'i') },
                 organizationId,
@@ -795,13 +820,24 @@ exports.updateSiteSubOrganization = async (req, res, next) => {
             }
         }
 
-        subOrg.name = name.trim();
+        subOrg.name = newName;
         await subOrg.save();
+
+        // SYNC: Update subOrganization field in all sites with the old name
+        let sitesUpdated = 0;
+        if (oldName !== newName) {
+            const updateResult = await Site.updateMany(
+                { organizationId, subOrganization: oldName },
+                { $set: { subOrganization: newName } }
+            );
+            sitesUpdated = updateResult.modifiedCount;
+        }
 
         res.status(200).json({
             success: true,
-            message: 'Sub-organization updated successfully',
-            data: subOrg
+            message: `Sub-organization updated successfully${sitesUpdated > 0 ? `. ${sitesUpdated} sites synced.` : ''}`,
+            data: subOrg,
+            sitesUpdated
         });
     } catch (error) {
         next(error);
