@@ -22,9 +22,9 @@ router.get('/', getAllCategories);
 router.post('/', checkAccess('categories', 'create'), createCategory);
 
 // PUT /:id - Update category (admin only)
-router.put('/:id', requireOrgAdmin, updateCategory);
+router.put('/:id', requireOrgAdmin(), updateCategory);
 
 // DELETE /:id - Delete category (admin only)
-router.delete('/:id', requireOrgAdmin, deleteCategory);
+router.delete('/:id', requireOrgAdmin(), deleteCategory);
 
 module.exports = router;

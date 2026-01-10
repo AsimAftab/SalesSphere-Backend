@@ -153,13 +153,13 @@ router.post('/categories',
 
 // PUT /categories/:id - Update prospect category (admin only)
 router.put('/categories/:id',
-    requireOrgAdmin,
+    requireOrgAdmin(),
     updateProspectCategory
 );
 
 // DELETE /categories/:id - Delete prospect category (admin only)
 router.delete('/categories/:id',
-    requireOrgAdmin,
+    requireOrgAdmin(),
     deleteProspectCategory
 );
 

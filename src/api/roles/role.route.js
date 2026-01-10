@@ -24,17 +24,17 @@ router.get('/modules', getAvailableModules);
 
 // CRUD routes - Admin only
 router.route('/')
-    .get(requireOrgAdmin, getAllRoles)
-    .post(requireOrgAdmin, createRole);
+    .get(requireOrgAdmin(), getAllRoles)
+    .post(requireOrgAdmin(), createRole);
 
 router.route('/:id')
-    .get(requireOrgAdmin, getRoleById)
-    .put(requireOrgAdmin, updateRole)
-    .delete(requireOrgAdmin, deleteRole);
+    .get(requireOrgAdmin(), getRoleById)
+    .put(requireOrgAdmin(), updateRole)
+    .delete(requireOrgAdmin(), deleteRole);
 
 // Role assignment routes
-router.put('/:roleId/assign/:userId', requireOrgAdmin, assignRoleToUser);
-router.delete('/assign/:userId', requireOrgAdmin, removeRoleFromUser);
+router.put('/:roleId/assign/:userId', requireOrgAdmin(), assignRoleToUser);
+router.delete('/assign/:userId', requireOrgAdmin(), removeRoleFromUser);
 
 
 module.exports = router;

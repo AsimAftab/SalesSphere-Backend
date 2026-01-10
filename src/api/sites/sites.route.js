@@ -70,10 +70,10 @@ router.get('/sub-organizations', getSiteSubOrganizations);
 router.post('/sub-organizations', checkAccess('sites', 'create'), createSiteSubOrganization);
 
 // PUT /sub-organizations/:id - Update sub-organization (admin only)
-router.put('/sub-organizations/:id', requireOrgAdmin, updateSiteSubOrganization);
+router.put('/sub-organizations/:id', requireOrgAdmin(), updateSiteSubOrganization);
 
 // DELETE /sub-organizations/:id - Delete sub-organization (admin only)
-router.delete('/sub-organizations/:id', requireOrgAdmin, deleteSiteSubOrganization);
+router.delete('/sub-organizations/:id', requireOrgAdmin(), deleteSiteSubOrganization);
 
 // ============================================
 // ASSIGNMENT ROUTES (must be before /:id wildcard)
@@ -174,9 +174,9 @@ router.delete('/:id/images/:imageNumber',
 router.post('/categories', checkAccess('sites', 'create'), createSiteCategory);
 
 // PUT /categories/:id - Update site category (admin only)
-router.put('/categories/:id', requireOrgAdmin, updateSiteCategory);
+router.put('/categories/:id', requireOrgAdmin(), updateSiteCategory);
 
 // DELETE /categories/:id - Delete site category (admin only)
-router.delete('/categories/:id', requireOrgAdmin, deleteSiteCategory);
+router.delete('/categories/:id', requireOrgAdmin(), deleteSiteCategory);
 
 module.exports = router;
