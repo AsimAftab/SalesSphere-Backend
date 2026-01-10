@@ -7,7 +7,7 @@ const User = require('../users/user.model');
 const mongoose = require('mongoose');
 const { z } = require('zod');
 const { isSystemRole } = require('../../utils/defaultPermissions');
-const { getHierarchyFilter } = require('../../utils/hierarchyHelper');
+const { getHierarchyFilter,canApprove } = require('../../utils/hierarchyHelper');
 // Internal helper removed in favor of centralized deep hierarchy helper
 
 // --- Zod Validation Schema ---
