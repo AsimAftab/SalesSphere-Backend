@@ -130,6 +130,10 @@ const siteSchema = new mongoose.Schema({
 siteSchema.index({ organizationId: 1, assignedUsers: 1 });
 // Index for queries combining createdBy and assignment
 siteSchema.index({ organizationId: 1, createdBy: 1, assignedUsers: 1 });
+// Index for category sync queries
+siteSchema.index({ organizationId: 1, 'siteInterest.category': 1 });
+// Index for sub-organization sync queries
+siteSchema.index({ organizationId: 1, subOrganization: 1 });
 
 const Site = mongoose.model('Site', siteSchema);
 

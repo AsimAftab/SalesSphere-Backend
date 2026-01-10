@@ -106,6 +106,8 @@ partySchema.index({ panVatNumber: 1, organizationId: 1 }, { unique: true });
 partySchema.index({ organizationId: 1, assignedUsers: 1 });
 // Index for queries combining createdBy and assignment
 partySchema.index({ organizationId: 1, createdBy: 1, assignedUsers: 1 });
+// Index for partyType queries and sync operations
+partySchema.index({ organizationId: 1, partyType: 1 });
 
 const Party = mongoose.model('Party', partySchema);
 

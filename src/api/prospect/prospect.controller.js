@@ -729,10 +729,13 @@ exports.updateProspectCategory = async (req, res, next) => {
             });
         }
 
+        const oldName = category.name; // Store for sync
+        const newName = validatedData.name ? validatedData.name.trim() : oldName;
+
         // Check if new name conflicts with existing category
-        if (validatedData.name && validatedData.name.toLowerCase() !== category.name.toLowerCase()) {
+        if (newName.toLowerCase() !== oldName.toLowerCase()) {
             const existingCategory = await ProspectCategory.findOne({
-                name: { $regex: new RegExp(`^${validatedData.name}$`, 'i') },
+                name: { $regex: new RegExp(`^${newName}$`, 'i') },
                 organizationId: organizationId,
                 _id: { $ne: id }
             });
@@ -747,7 +750,7 @@ exports.updateProspectCategory = async (req, res, next) => {
 
         // Update category
         if (validatedData.name) {
-            category.name = validatedData.name.trim();
+            category.name = newName;
         }
         if (validatedData.brands) {
             category.brands = validatedData.brands;
@@ -755,10 +758,29 @@ exports.updateProspectCategory = async (req, res, next) => {
 
         await category.save();
 
+        // SYNC: Update category name in all prospects' prospectInterest array
+        let prospectsUpdated = 0;
+        if (oldName !== newName) {
+            const updateResult = await Prospect.updateMany(
+                {
+                    organizationId,
+                    'prospectInterest.category': oldName
+                },
+                {
+                    $set: { 'prospectInterest.$[elem].category': newName }
+                },
+                {
+                    arrayFilters: [{ 'elem.category': oldName }]
+                }
+            );
+            prospectsUpdated = updateResult.modifiedCount;
+        }
+
         res.status(200).json({
             success: true,
-            message: 'Prospect category updated successfully',
-            data: category
+            message: `Prospect category updated successfully${prospectsUpdated > 0 ? `. ${prospectsUpdated} prospects synced.` : ''}`,
+            data: category,
+            prospectsUpdated
         });
     } catch (error) {
         if (error instanceof z.ZodError) {

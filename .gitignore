@@ -99,6 +99,9 @@ data/
 mongodb-triggers/
 TRACKING_README.md
 
+# Docs
+docs/
+
 # Deployment and testing files
 DEPLOYMENT-WEBSOCKET.md
 nginx-salessphere360.conf

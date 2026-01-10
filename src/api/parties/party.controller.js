@@ -589,10 +589,13 @@ exports.updatePartyType = async (req, res, next) => {
             return res.status(404).json({ success: false, message: 'Party type not found' });
         }
 
+        const oldName = partyType.name; // Store old name for sync
+        const newName = name.trim();
+
         // Check if new name conflicts with existing type
-        if (name.trim().toLowerCase() !== partyType.name.toLowerCase()) {
+        if (newName.toLowerCase() !== oldName.toLowerCase()) {
             const existingType = await PartyType.findOne({
-                name: { $regex: new RegExp(`^${name.trim()}$`, 'i') },
+                name: { $regex: new RegExp(`^${newName}$`, 'i') },
                 organizationId,
                 _id: { $ne: id }
             });
@@ -602,13 +605,25 @@ exports.updatePartyType = async (req, res, next) => {
             }
         }
 
-        partyType.name = name.trim();
+        // Update the party type
+        partyType.name = newName;
         await partyType.save();
+
+        // SYNC: Update all parties with the old type name to the new name
+        let partiesUpdated = 0;
+        if (oldName !== newName) {
+            const updateResult = await Party.updateMany(
+                { organizationId, partyType: oldName },
+                { $set: { partyType: newName } }
+            );
+            partiesUpdated = updateResult.modifiedCount;
+        }
 
         res.status(200).json({
             success: true,
-            message: 'Party type updated successfully',
-            data: partyType
+            message: `Party type updated successfully${partiesUpdated > 0 ? `. ${partiesUpdated} parties synced.` : ''}`,
+            data: partyType,
+            partiesUpdated
         });
     } catch (error) {
         next(error);

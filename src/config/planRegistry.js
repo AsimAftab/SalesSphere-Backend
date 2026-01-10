@@ -71,7 +71,7 @@ const STANDARD_UPGRADES = {
     notes: ['viewList', 'viewOwn', 'viewDetails', 'create', 'update'],
 
     // Expenses: Submit expenses
-    expenses: ['viewList', 'viewDetails', 'create', 'uploadReceipt'],
+    expenses: ['viewList', 'viewDetails', 'create'],
 
     // Misc work
     miscellaneousWork: ['viewList', 'viewOwn', 'viewDetails', 'create', 'update']
@@ -87,19 +87,19 @@ const PREMIUM_UPGRADES = {
     attendance: ['exportPdf', 'exportExcel'],
 
     // Products: High-value tools
-    products: ['delete', 'bulkUpload', 'bulkDelete', 'exportPdf', 'exportExcel', 'manageCategories'],
+    products: ['delete', 'bulkUpload', 'bulkDelete', 'exportPdf', 'exportExcel'],
 
     // Leaves: Bulk operations & exports
     leaves: ['delete', 'bulkDelete', 'exportPdf', 'exportExcel'],
 
     // Parties: Full CRM + bulk operations
-    parties: ['create', 'update', 'uploadImage', 'delete', 'bulkImport', 'manageTypes', 'exportPdf', 'exportExcel', 'viewOrders'],
+    parties: ['create', 'update', 'delete', 'bulkImport', 'exportPdf', 'exportExcel', 'viewOrders', 'assign'],
 
     // Prospects: Full lead management
-    prospects: ['delete', 'uploadImage', 'deleteImage', 'manageCategories', 'import', 'exportPdf', 'exportExcel'],
+    prospects: ['delete', 'import', 'exportPdf', 'exportExcel', 'assign'],
 
     // Sites: Full location management
-    sites: ['create', 'update', 'uploadImage', 'delete', 'deleteImage', 'assign', 'manageCategories', 'exportPdf', 'exportExcel'],
+    sites: ['create', 'update', 'delete', 'assign', 'exportPdf', 'exportExcel'],
 
     // Invoicing: Full billing + exports
     invoices: ['create', 'delete', 'bulkDelete', 'viewPartyStats', 'exportPdf', 'exportDetailPdf'],
@@ -121,13 +121,13 @@ const PREMIUM_UPGRADES = {
     liveTracking: ['viewLocations', 'viewLiveTracking', 'viewActiveSessions', 'viewSessionHistory', 'viewCurrentLocation', 'historyPlayback'],
 
     // Notes: Full note management
-    notes: ['delete', 'bulkDelete', 'exportPdf', 'exportExcel', 'uploadImage'],
+    notes: ['delete', 'bulkDelete', 'exportPdf', 'exportExcel'],
 
     // Misc work: Full management
-    miscellaneousWork: ['delete', 'bulkDelete', 'exportPdf', 'exportExcel', 'uploadImage'],
+    miscellaneousWork: ['delete', 'bulkDelete', 'exportPdf', 'exportExcel'],
 
     // Expenses: Full expense management
-    expenses: ['update', 'updateStatus', 'delete', 'bulkDelete', 'exportPdf', 'exportExcel', 'viewCategories'],
+    expenses: ['update', 'updateStatus', 'delete', 'bulkDelete', 'exportPdf', 'exportExcel'],
 
     // Dashboard: Full insights
     dashboard: ['viewTeamPerformance', 'viewAttendanceSummary', 'viewSalesTrend'],

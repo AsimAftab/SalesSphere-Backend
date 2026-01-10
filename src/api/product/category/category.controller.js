@@ -126,7 +126,7 @@ exports.deleteCategory = async (req, res, next) => {
 
         // Check if category is being used by any product
         const productsUsingCategory = await Product.countDocuments({
-            category: category.name,
+            category: category._id,  // Compare by ObjectId, not name
             organizationId
         });
 
