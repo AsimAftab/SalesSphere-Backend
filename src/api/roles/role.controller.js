@@ -14,15 +14,7 @@ exports.createRole = async (req, res) => {
     try {
         const { name, description, permissions } = req.body;
 
-        // Must be admin or system role
-        if (!isSystemRole(req.user.role) && req.user.role !== 'admin') {
-            return res.status(403).json({
-                status: 'error',
-                message: 'Only admins can create roles'
-            });
-        }
-
-        // Get organization ID
+        // Get organization ID (system roles can specify, others use their own)
         const organizationId = isSystemRole(req.user.role)
             ? req.body.organizationId
             : req.user.organizationId;
@@ -164,14 +156,6 @@ exports.updateRole = async (req, res) => {
     try {
         const { name, description, permissions, isActive } = req.body;
 
-        // Must be admin or system role
-        if (!isSystemRole(req.user.role) && req.user.role !== 'admin') {
-            return res.status(403).json({
-                status: 'error',
-                message: 'Only admins can update roles'
-            });
-        }
-
         const role = await Role.findById(req.params.id);
 
         if (!role) {
@@ -250,14 +234,6 @@ exports.updateRole = async (req, res) => {
  */
 exports.deleteRole = async (req, res) => {
     try {
-        // Must be admin or system role
-        if (!isSystemRole(req.user.role) && req.user.role !== 'admin') {
-            return res.status(403).json({
-                status: 'error',
-                message: 'Only admins can delete roles'
-            });
-        }
-
         const role = await Role.findById(req.params.id);
 
         if (!role) {
@@ -359,14 +335,6 @@ exports.assignRoleToUser = async (req, res) => {
     try {
         const { roleId, userId } = req.params;
 
-        // Must be admin or system role
-        if (!isSystemRole(req.user.role) && req.user.role !== 'admin') {
-            return res.status(403).json({
-                status: 'error',
-                message: 'Only admins can assign roles'
-            });
-        }
-
         const [role, user] = await Promise.all([
             Role.findById(roleId),
             User.findById(userId)
@@ -438,14 +406,6 @@ exports.assignRoleToUser = async (req, res) => {
 exports.removeRoleFromUser = async (req, res) => {
     try {
         const { userId } = req.params;
-
-        // Must be admin or system role
-        if (!isSystemRole(req.user.role) && req.user.role !== 'admin') {
-            return res.status(403).json({
-                status: 'error',
-                message: 'Only admins can remove roles'
-            });
-        }
 
         const user = await User.findById(userId);
 
