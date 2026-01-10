@@ -222,28 +222,6 @@ userSchema.methods.hasFeature = function (moduleName, featureKey) {
 };
 
 /**
- * Legacy method: Check if user has specific permission (action-based)
- * Maps to granular features for backward compatibility
- * @param {string} module - Module name (e.g., 'products', 'parties')
- * @param {string} action - Action type ('view', 'add', 'update', 'delete', 'approve')
- * @returns {boolean}
- */
-userSchema.methods.hasPermission = function (module, action) {
-    const actionToFeatureMap = {
-        view: 'view',
-        add: 'create',
-        update: 'update',
-        delete: 'delete',
-        approve: 'approve'
-    };
-
-    const featureKey = actionToFeatureMap[action];
-    if (!featureKey) return false;
-
-    return this.hasFeature(module, featureKey);
-};
-
-/**
  * Get effective permissions intersected with organization's subscription plan
  * @param {Object} orgWithPlan - Organization object with subscriptionPlanId populated
  * @returns {Object} Permissions filtered by plan features
@@ -268,7 +246,14 @@ userSchema.methods.getEffectivePermissionsWithPlan = function (orgWithPlan) {
     const intersectedPermissions = {};
 
     for (const [moduleName, perms] of Object.entries(basePermissions)) {
-        const systemModules = ['organizations', 'systemUsers', 'subscriptions', 'settings'];
+        // System-only modules - skip entirely for org users
+        const SYSTEM_ONLY_MODULES = ['systemUsers'];
+        if (SYSTEM_ONLY_MODULES.includes(moduleName)) {
+            continue; // Don't include in org user permissions at all
+        }
+
+        // Modules that bypass plan restrictions (org-level context modules only)
+        const systemModules = ['organizations', 'subscriptions'];
 
         if (systemModules.includes(moduleName) || enabledModules.includes(moduleName)) {
             // Module is in plan - include permissions (further filter by features if needed)
@@ -385,6 +370,10 @@ userSchema.set('toJSON', {
     }
 });
 // --- End Virtual ---
+
+userSchema.set('toObject', {
+    virtuals: true
+});
 
 const User = mongoose.model('User', userSchema);
 

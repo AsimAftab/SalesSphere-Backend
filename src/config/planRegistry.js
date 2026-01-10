@@ -184,15 +184,22 @@ const getModulesFromBucket = (featureBucket) => {
     return Object.keys(featureBucket);
 };
 
+// Modules that should NEVER be included in organization subscription plans
+// These are system-level modules for superadmin/developer only
+const SYSTEM_ONLY_MODULES = ['systemUsers'];
+
 /**
- * Generates a feature map with ALL features enabled
- * Used for Premium plan which gets everything
+ * Generates a feature map with ALL features enabled (excluding system-only modules)
+ * Used for Premium plan which gets everything available to organizations
  *
- * @return {Object} All features set to true
+ * @return {Object} All organization features set to true
  */
 const getAllFeatures = () => {
     const features = {};
     for (const [moduleName, moduleKeys] of Object.entries(FEATURE_REGISTRY)) {
+        // Skip system-only modules
+        if (SYSTEM_ONLY_MODULES.includes(moduleName)) continue;
+
         features[moduleName] = {};
         for (const key of Object.keys(moduleKeys)) {
             features[moduleName][key] = true;
@@ -234,8 +241,9 @@ const DEFAULT_PLANS = [
         description: 'Full access with analytics and live tracking',
         maxEmployees: 50,
         price: { amount: 14999, currency: 'INR', billingCycle: 'yearly' },
-        enabledModules: Object.keys(FEATURE_REGISTRY),
-        // Logic: Gets EVERYTHING auto-generated from registry
+        // Exclude system-only modules from organization plans
+        enabledModules: Object.keys(FEATURE_REGISTRY).filter(m => !SYSTEM_ONLY_MODULES.includes(m)),
+        // Logic: Gets EVERYTHING auto-generated from registry (except system modules)
         moduleFeatures: getAllFeatures(),
         isSystemPlan: true
     }

@@ -67,6 +67,9 @@ temp/
 # Optional eslint cache
 .eslintcache
 
+# Scripts
+scripts/
+
 # Optional REPL history
 .node_repl_history
 
