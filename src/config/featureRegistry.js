@@ -280,17 +280,6 @@ const FEATURE_REGISTRY = {
   },
 
   // ============================================
-  // SETTINGS / ORGANIZATION MODULE
-  // ============================================
-  settings: {
-    view: 'View organization settings',
-    manage: 'Edit organization settings',
-    manageUsers: 'Add/edit organization users',
-    manageRoles: 'Create/edit custom roles',
-    manageSubscription: 'View/manage subscription',
-  },
-
-  // ============================================
   // EMPLOYEES MODULE
   // ============================================
   employees: {

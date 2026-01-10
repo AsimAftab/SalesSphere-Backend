@@ -12,29 +12,30 @@ const {
     assignRoleToUser,
     removeRoleFromUser
 } = require('./role.controller');
-const { protect, checkAccess } = require('../../middlewares/auth.middleware');
+const { protect, requireOrgAdmin } = require('../../middlewares/auth.middleware');
 
 const router = express.Router();
 
 // Apply protect to all routes
 router.use(protect);
 
-// Get available modules for permissions (useful for frontend)
+// Get available modules/feature registry
 router.get('/modules', getAvailableModules);
 
 // CRUD routes - Admin only
 router.route('/')
-    .get(getAllRoles)
-    .post(checkAccess('settings', 'manageRoles'), createRole);
+    .get(requireOrgAdmin, getAllRoles)
+    .post(requireOrgAdmin, createRole);
 
 router.route('/:id')
-    .get(getRoleById)
-    .put(checkAccess('settings', 'manageRoles'), updateRole)
-    .delete(checkAccess('settings', 'manageRoles'), deleteRole);
+    .get(requireOrgAdmin, getRoleById)
+    .put(requireOrgAdmin, updateRole)
+    .delete(requireOrgAdmin, deleteRole);
 
 // Role assignment routes
-router.put('/:roleId/assign/:userId', checkAccess('settings', 'manageRoles'), assignRoleToUser);
-router.delete('/assign/:userId', checkAccess('settings', 'manageRoles'), removeRoleFromUser);
+router.put('/:roleId/assign/:userId', requireOrgAdmin, assignRoleToUser);
+router.delete('/assign/:userId', requireOrgAdmin, removeRoleFromUser);
 
 
 module.exports = router;
+
