@@ -67,7 +67,7 @@ router.get('/categories', getSiteCategories);
 router.get('/sub-organizations', getSiteSubOrganizations);
 
 // POST /sub-organizations - Create sub-organization (all authenticated users)
-router.post('/sub-organizations', createSiteSubOrganization);
+router.post('/sub-organizations', checkAccess('sites', 'create'), createSiteSubOrganization);
 
 // PUT /sub-organizations/:id - Update sub-organization (admin only)
 router.put('/sub-organizations/:id', requireOrgAdmin, updateSiteSubOrganization);
@@ -120,7 +120,10 @@ router.post('/',
 
 // POST /:id/images - Upload site photos, blueprints, or progress images
 router.post('/:id/images',
-    checkAccess('sites', 'create'),
+    checkAnyAccess([
+        { module: 'sites', feature: 'create' }, // For initial upload workflow
+        { module: 'sites', feature: 'update' }  // For corrections later
+    ]), 
     imageUpload.single('image'),
     uploadSiteImage
 );
@@ -168,7 +171,7 @@ router.delete('/:id/images/:imageNumber',
 // CATEGORY MANAGEMENT ROUTES
 // ============================================
 // POST /categories - Create site category (all authenticated users)
-router.post('/categories', createSiteCategory);
+router.post('/categories', checkAccess('sites', 'create'), createSiteCategory);
 
 // PUT /categories/:id - Update site category (admin only)
 router.put('/categories/:id', requireOrgAdmin, updateSiteCategory);

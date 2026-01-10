@@ -7,7 +7,7 @@ const User = require('../users/user.model');
 const mongoose = require('mongoose');
 const { z } = require('zod');
 const { isSystemRole } = require('../../utils/defaultPermissions');
-const { getHierarchyFilter,canApprove } = require('../../utils/hierarchyHelper');
+const { getHierarchyFilter, canApprove } = require('../../utils/hierarchyHelper');
 // Internal helper removed in favor of centralized deep hierarchy helper
 
 // --- Zod Validation Schema ---
@@ -394,8 +394,11 @@ exports.updateInvoiceStatus = async (req, res, next) => {
                 });
             }
 
-            // Prevent self-approval (users cannot update their own invoice status)
-            if (invoice.createdBy._id.toString() === userId.toString()) {
+            // Prevent self-approval for regular users (Admins and system roles can update their own invoice status)
+            const adminRoles = ['admin', 'superadmin', 'developer'];
+            const isAdminOrSystem = adminRoles.includes(req.user.role);
+
+            if (invoice.createdBy._id.toString() === userId.toString() && !isAdminOrSystem) {
                 await session.abortTransaction();
                 return res.status(403).json({
                     success: false,

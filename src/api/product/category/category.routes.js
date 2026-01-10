@@ -8,7 +8,7 @@ const {
     updateCategory,
     deleteCategory
 } = require('./category.controller');
-const { protect, requireOrgAdmin } = require('../../../middlewares/auth.middleware');
+const { protect, requireOrgAdmin, checkAccess } = require('../../../middlewares/auth.middleware');
 
 const router = express.Router();
 
@@ -19,7 +19,7 @@ router.use(protect);
 router.get('/', getAllCategories);
 
 // POST / - Create new category (all authenticated users)
-router.post('/', createCategory);
+router.post('/', checkAccess('categories', 'create'), createCategory);
 
 // PUT /:id - Update category (admin only)
 router.put('/:id', requireOrgAdmin, updateCategory);

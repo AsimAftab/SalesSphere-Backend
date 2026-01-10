@@ -147,6 +147,7 @@ router.delete('/:id/images/:imageNumber',
 // ============================================
 // POST /categories - Create new prospect category (all authenticated users)
 router.post('/categories',
+    checkAccess('prospects', 'create'),
     createProspectCategory
 );
 

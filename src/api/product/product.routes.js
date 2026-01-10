@@ -68,10 +68,7 @@ router.post('/bulk-import',
 // ============================================
 // PUT /:id - Edit existing product details and pricing
 router.put('/:id',
-    checkAnyAccess([
-        { module: 'products', feature: 'create' },
-        { module: 'products', feature: 'update' }
-    ]),
+    checkAccess('products', 'update'),
     imageUpload.single('image'),
     updateProduct
 );

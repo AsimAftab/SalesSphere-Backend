@@ -111,7 +111,10 @@ router.post('/bulk-import',
 
 // POST /:id/image - Upload profile photos or business-related images
 router.post('/:id/image',
-    checkAccess('parties', 'create'),
+    checkAnyAccess([
+        { module: 'parties', feature: 'create' }, // For initial upload workflow
+        { module: 'parties', feature: 'update' }  // For corrections later
+    ]), 
     imageUpload.single('image'),
     uploadPartyImage
 );
@@ -159,7 +162,7 @@ router.delete('/:id/image',
 // PARTY TYPE MANAGEMENT ROUTES
 // ============================================
 // POST /types - Create party type (all authenticated users)
-router.post('/types', createPartyType);
+router.post('/types', checkAccess('parties', 'create'), createPartyType);
 
 // PUT /types/:id - Update party type (admin only)
 router.put('/types/:id', requireOrgAdmin, updatePartyType);
