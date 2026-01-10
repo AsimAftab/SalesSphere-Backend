@@ -165,9 +165,9 @@ router.delete('/:id/image',
 router.post('/types', checkAccess('parties', 'create'), createPartyType);
 
 // PUT /types/:id - Update party type (admin only)
-router.put('/types/:id', requireOrgAdmin, updatePartyType);
+router.put('/types/:id', requireOrgAdmin(), updatePartyType);
 
 // DELETE /types/:id - Delete party type (admin only)
-router.delete('/types/:id', requireOrgAdmin, deletePartyType);
+router.delete('/types/:id', requireOrgAdmin(), deletePartyType);
 
 module.exports = router;
