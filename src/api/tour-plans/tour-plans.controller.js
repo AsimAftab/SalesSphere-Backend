@@ -297,8 +297,11 @@ exports.updateTourPlanStatus = async (req, res, next) => {
             });
         }
 
-        // Prevent self-approval
-        if (tourPlan.createdBy._id.toString() === userId.toString()) {
+        // Prevent self-approval for regular users (Admins and system roles can approve their own tour plans)
+        const adminRoles = ['admin', 'superadmin', 'developer'];
+        const isAdminOrSystem = adminRoles.includes(req.user.role);
+
+        if (tourPlan.createdBy._id.toString() === userId.toString() && !isAdminOrSystem) {
             return res.status(403).json({
                 success: false,
                 message: 'You cannot approve your own tour plan'

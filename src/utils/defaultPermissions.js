@@ -47,8 +47,7 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         bulkUpload: true,
         bulkDelete: true,
         exportPdf: true,
-        exportExcel: true,
-        viewCategories: true
+        exportExcel: true
     },
     prospects: {
         viewList: true,
@@ -302,8 +301,7 @@ const DEVELOPER_GRANULAR_PERMISSIONS = {
         bulkUpload: true,
         bulkDelete: false,
         exportPdf: true,
-        exportExcel: true,
-        viewCategories: true
+        exportExcel: true
     },
     prospects: {
         viewList: true,
@@ -557,8 +555,7 @@ const ADMIN_GRANULAR_PERMISSIONS = {
         bulkUpload: true,
         bulkDelete: true,
         exportPdf: true,
-        exportExcel: true,
-        viewCategories: true
+        exportExcel: true
     },
     prospects: {
         viewList: true,
@@ -794,8 +791,7 @@ const USER_GRANULAR_PERMISSIONS = {
         bulkUpload: false,
         bulkDelete: false,
         exportPdf: false,
-        exportExcel: false,
-        viewCategories: true
+        exportExcel: false
     },
     prospects: {
         viewList: true,

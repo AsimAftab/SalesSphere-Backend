@@ -38,7 +38,6 @@ const FEATURE_REGISTRY = {
     bulkDelete: 'Perform mass deletion of selected products',
     exportPdf: 'Generate and download the product list as a PDF document',
     exportExcel: 'Export product data into an Excel spreadsheet for reporting',
-    viewCategories: 'View product categories for dropdown selection',
   },
 
   // ============================================

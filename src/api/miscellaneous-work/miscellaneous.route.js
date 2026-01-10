@@ -90,7 +90,10 @@ router.put('/:id',
 
 // POST /:id/images - Upload images to miscellaneous work entry
 router.post('/:id/images',
-    checkAccess('miscellaneousWork', 'create'),
+    checkAnyAccess([
+        { module: 'miscellaneousWork', feature: 'create' }, // For initial upload workflow
+        { module: 'miscellaneousWork', feature: 'update' }  // For corrections later
+    ]), 
     imageUpload.single('image'),
     uploadMiscellaneousWorkImage
 );
