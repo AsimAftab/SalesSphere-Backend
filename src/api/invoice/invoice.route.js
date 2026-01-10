@@ -54,17 +54,17 @@ router.post('/estimates/:id/convert',
     convertEstimateToInvoice
 );
 
-// DELETE
-// DELETE /estimates/:id - Delete individual estimate
-router.delete('/estimates/:id',
-    checkAccess('estimates', 'delete'),
-    deleteEstimate
-);
-
+// DELETE (specific routes first, before wildcard /:id)
 // DELETE /estimates/bulk-delete - Remove multiple estimate records simultaneously
 router.delete('/estimates/bulk-delete',
     checkAccess('estimates', 'bulkDelete'),
     bulkDeleteEstimates
+);
+
+// DELETE /estimates/:id - Delete individual estimate
+router.delete('/estimates/:id',
+    checkAccess('estimates', 'delete'),
+    deleteEstimate
 );
 
 // ============================================

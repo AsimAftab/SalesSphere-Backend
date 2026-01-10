@@ -166,12 +166,6 @@ const FEATURE_REGISTRY = {
     bulkDelete: 'Bulk delete expense claims',
     exportPdf: 'Export expense reports as PDF documents for filing',
     exportExcel: 'Export expense data to Excel spreadsheet for accounting',
-    uploadReceipt: 'Upload receipt images for expense claims',
-    // Category management (separate features)
-    viewCategories: 'View expense categories',
-    createCategory: 'Add new expense category',
-    updateCategory: 'Edit expense category',
-    deleteCategory: 'Delete expense category',
   },
 
   // ============================================

@@ -374,8 +374,11 @@ exports.updateLeaveRequestStatus = async (req, res, next) => {
             });
         }
 
-        // Prevent Self-Approval (Redundant if hierarchy check works correctly but good safety)
-        if (leaveRequest.employee._id.toString() === userId.toString()) {
+        // Prevent Self-Approval for regular users (Admins and system roles can approve their own requests)
+        const adminRoles = ['admin', 'superadmin', 'developer'];
+        const isAdminOrSystem = adminRoles.includes(req.user.role);
+
+        if (leaveRequest.employee._id.toString() === userId.toString() && !isAdminOrSystem) {
             return res.status(403).json({ success: false, message: 'Cannot approve own request' });
         }
 

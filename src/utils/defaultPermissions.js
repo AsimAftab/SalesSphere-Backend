@@ -142,12 +142,7 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         delete: true,
         bulkDelete: true,
         exportPdf: true,
-        exportExcel: true,
-        uploadReceipt: true,
-        viewCategories: true,
-        createCategory: true,
-        updateCategory: true,
-        deleteCategory: true
+        exportExcel: true
     },
     leaves: {
         viewList: true,
@@ -402,12 +397,7 @@ const DEVELOPER_GRANULAR_PERMISSIONS = {
         delete: false,
         bulkDelete: false,
         exportPdf: true,
-        exportExcel: true,
-        uploadReceipt: true,
-        viewCategories: true,
-        createCategory: true,
-        updateCategory: true,
-        deleteCategory: false
+        exportExcel: true
     },
     leaves: {
         viewList: true,
@@ -664,13 +654,7 @@ const ADMIN_GRANULAR_PERMISSIONS = {
         delete: true,
         bulkDelete: true,
         exportPdf: true,
-        exportExcel: true,
-        uploadReceipt: true,
-        // Category management
-        viewCategories: true,
-        createCategory: true,
-        updateCategory: true,
-        deleteCategory: true
+        exportExcel: true
     },
     leaves: {
         viewList: true,
@@ -907,13 +891,7 @@ const USER_GRANULAR_PERMISSIONS = {
         delete: false,
         bulkDelete: false,
         exportPdf: false,
-        exportExcel: false,
-        uploadReceipt: true,
-        // Category management
-        viewCategories: true,    // Can view (needed to create expenses)
-        createCategory: false,   // Cannot create categories
-        updateCategory: false,   // Cannot edit categories
-        deleteCategory: false    // Cannot delete categories
+        exportExcel: false
     },
     leaves: {
         viewList: false,

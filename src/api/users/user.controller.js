@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const { sendWelcomeEmail } = require('../../utils/emailSender');
 const path = require('path');
 const fs = require('fs');
+const mongoose = require('mongoose');
 
 // Helper function to safely delete a file
 const cleanupTempFile = (filePath) => {

@@ -19,7 +19,7 @@ const {
     deleteReceipt,
 } = require('./expense-claim.controller');
 const { protect } = require('../../middlewares/auth.middleware');
-const { checkAccess, checkAnyAccess } = require('../../middlewares/compositeAccess.middleware');
+const { checkAccess, checkAnyAccess, requireOrgAdmin } = require('../../middlewares/compositeAccess.middleware');
 
 const router = express.Router();
 
@@ -38,35 +38,19 @@ const imageUpload = multer({
 router.use(protect);
 
 // ============================================
-// EXPENSE CATEGORY ROUTES (Separate Features)
+// EXPENSE CATEGORY ROUTES
 // ============================================
-// GET /categories - View expense categories
-// Users with viewCategories OR create permission can view
-router.get('/categories',
-    checkAnyAccess([
-        { module: 'expenses', feature: 'viewCategories' },
-        { module: 'expenses', feature: 'create' }  // If you can create expenses, you need to see categories
-    ]),
-    getExpenseCategories
-);
+// GET /categories - View expense categories (all authenticated users)
+router.get('/categories', getExpenseCategories);
 
-// POST /categories - Create new expense category
-router.post('/categories',
-    checkAccess('expenses', 'createCategory'),
-    createExpenseCategory
-);
+// POST /categories - Create new expense category (all authenticated users)
+router.post('/categories', createExpenseCategory);
 
-// PUT /categories/:id - Update expense category
-router.put('/categories/:id',
-    checkAccess('expenses', 'updateCategory'),
-    updateExpenseCategory
-);
+// PUT /categories/:id - Update expense category (admin only)
+router.put('/categories/:id', requireOrgAdmin(), updateExpenseCategory);
 
-// DELETE /categories/:id - Delete expense category
-router.delete('/categories/:id',
-    checkAccess('expenses', 'deleteCategory'),
-    deleteExpenseCategory
-);
+// DELETE /categories/:id - Delete expense category (admin only)
+router.delete('/categories/:id', requireOrgAdmin(), deleteExpenseCategory);
 
 // ============================================
 // EXPENSE CLAIM ROUTES
@@ -92,12 +76,8 @@ router.post('/',
     createExpenseClaim
 );
 
-// POST /:id/receipt - Upload receipt for expense claim
-router.post('/:id/receipt',
-    checkAccess('expenses', 'uploadReceipt'),
-    imageUpload.single('receipt'),
-    uploadReceipt
-);
+// POST /:id/receipt - Upload receipt for expense claim (all authenticated users)
+router.post('/:id/receipt', imageUpload.single('receipt'), uploadReceipt);
 
 // UPDATE
 // PUT /:id - Update expense claim details (also auto-creates category if new)
