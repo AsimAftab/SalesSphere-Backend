@@ -135,7 +135,7 @@ exports.getAllNotes = async (req, res, next) => {
 
         // Get hierarchy filter
         // Get hierarchy filter
-        const hierarchyFilter = await getHierarchyFilter(req.user, 'notes', 'viewTeamNotes');
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'notes', 'viewAllNotes');
 
         let query = { organizationId, ...hierarchyFilter };
 
@@ -231,7 +231,7 @@ exports.getNoteById = async (req, res, next) => {
         const { id } = req.params;
 
         // Use hierarchy filter - allows managers to see team notes
-        const hierarchyFilter = await getHierarchyFilter(req.user, 'notes', 'viewTeamNotes');
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'notes', 'viewAllNotes');
 
         const note = await Note.findOne({
             _id: id,

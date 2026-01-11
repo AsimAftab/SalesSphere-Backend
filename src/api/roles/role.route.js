@@ -24,11 +24,11 @@ router.get('/modules', getAvailableModules);
 
 // CRUD routes - Admin only
 router.route('/')
-    .get(requireOrgAdmin(), getAllRoles)
+    .get(getAllRoles)
     .post(requireOrgAdmin(), createRole);
 
 router.route('/:id')
-    .get(requireOrgAdmin(), getRoleById)
+    .get(getRoleById)
     .put(requireOrgAdmin(), updateRole)
     .delete(requireOrgAdmin(), deleteRole);
 

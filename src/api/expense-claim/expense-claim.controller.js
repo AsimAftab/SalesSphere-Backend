@@ -106,7 +106,7 @@ exports.getAllExpenseClaims = async (req, res, next) => {
         const { organizationId } = req.user;
 
         // Get hierarchy filter
-        const hierarchyFilter = await getHierarchyFilter(req.user);
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'expenses', 'viewAllClaims');
 
         // Combine with organization filter
         const query = { organizationId: organizationId, ...hierarchyFilter };
@@ -134,7 +134,7 @@ exports.getExpenseClaimById = async (req, res, next) => {
         const { organizationId } = req.user;
 
         // Get hierarchy filter
-        const hierarchyFilter = await getHierarchyFilter(req.user, 'expenses', 'viewTeamClaims');
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'expenses', 'viewAllClaims');
 
         const query = {
             _id: req.params.id,

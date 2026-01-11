@@ -39,7 +39,8 @@ const userSchema = new mongoose.Schema({
     // Validation: Cannot report to users with the same role/customRoleId
     reportsTo: [{
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'User'
+        ref: 'User',
+        index: true // Optimized for hierarchy lookups
     }],
     organizationId: {
         type: mongoose.Schema.Types.ObjectId,

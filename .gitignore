@@ -112,3 +112,5 @@ test-socket.js
 
 postman/
 .postman/
+
+.claude/

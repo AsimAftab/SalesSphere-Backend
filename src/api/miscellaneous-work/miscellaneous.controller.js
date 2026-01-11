@@ -182,7 +182,7 @@ exports.getAllMiscellaneousWork = async (req, res, next) => {
         // It returns `{ $or: [{ createdBy: userId }, { createdBy: { $in: subordinateIds } }] }`
         // We need to change 'createdBy' to 'employeeId' in the result.
 
-        const rawFilter = await getHierarchyFilter(req.user, 'miscellaneousWork', 'viewTeamMiscellaneous');
+        const rawFilter = await getHierarchyFilter(req.user, 'miscellaneousWork', 'viewAllMiscellaneous');
         const hierarchyFilter = JSON.parse(JSON.stringify(rawFilter).replace(/createdBy/g, 'employeeId'));
 
         let query = { organizationId, ...hierarchyFilter };

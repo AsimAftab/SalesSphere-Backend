@@ -180,7 +180,6 @@ exports.getAllSites = async (req, res, next) => {
         const accessFilter = await getEntityAccessFilter(
             req.user,
             'sites',
-            'viewTeamSites',
             'viewAllSites'
         );
         const query = { organizationId, ...accessFilter };

@@ -36,6 +36,7 @@ exports.canApprove = (approver, requester, moduleName) => {
     // Determine the correct key ('approve' for Odometer, 'updateStatus' for others)
     let permissionKey = 'updateStatus';
     if (moduleName === 'odometer') permissionKey = 'approve';
+    if (moduleName === 'attendance') permissionKey = 'updateAttendance';
 
     // Use the centralized helper. This works even if 'hasFeature' isn't on the User model.
     const permCheck = checkRoleFeaturePermission(approver, moduleName, permissionKey);
@@ -69,15 +70,17 @@ exports.canApprove = (approver, requester, moduleName) => {
     return false;
 };
 
+
+
 /**
  * OPTIMIZED: Get all subordinate IDs in ONE database call
  * Uses MongoDB's native $graphLookup for deep hierarchy traversal
- * Performance: 1 query instead of 50+ queries for nested hierarchies
- *
- * @param {string|ObjectId} userId - Starting user ID
- * @param {string|ObjectId} organizationId - Organization ID (for tenant isolation)
- * @returns {Promise<Array<mongoose.Types.ObjectId>>} Array of subordinate user IDs
- */
+    * Performance: 1 query instead of 50 + queries for nested hierarchies
+        *
+ * @param { string| ObjectId} userId - Starting user ID
+    * @param { string | ObjectId } organizationId - Organization ID(for tenant isolation)
+ * @returns { Promise < Array < mongoose.Types.ObjectId >>} Array of subordinate user IDs
+    */
 const getAllSubordinateIds = async (userId, organizationId) => {
     try {
         const result = await User.aggregate([
@@ -115,15 +118,17 @@ const getAllSubordinateIds = async (userId, organizationId) => {
     }
 };
 
+exports.getAllSubordinateIds = getAllSubordinateIds;
+
 /**
  * Helper to construct hierarchy-based query for data filtering
  * Returns a query object to be merged with other filters
  * @param {Object} user - The user object from req.user
  * @param {string} moduleName - The module name (e.g., 'prospects', 'parties')
- * @param {string} teamViewFeature - The feature key for team view (e.g., 'viewTeamProspects')
+ * @param {string} viewAllFeature - The feature key for view all (e.g., 'viewAllAttendance')
  * @returns {Promise<Object>} Filter object for MongoDB queries
  */
-exports.getHierarchyFilter = async (user, moduleName, teamViewFeature) => {
+exports.getHierarchyFilter = async (user, moduleName, viewAllFeature) => {
     const { role, _id: userId, organizationId } = user;
 
     // 1. System Role: No additional filter (View All)
@@ -136,23 +141,31 @@ exports.getHierarchyFilter = async (user, moduleName, teamViewFeature) => {
         return {};
     }
 
-    // 3. Manager with team view feature: View Self + Subordinates (Recursive)
-    if (user.hasFeature && user.hasFeature(moduleName, teamViewFeature)) {
-        // Use the optimized $graphLookup helper
-        const subordinateIds = await getAllSubordinateIds(userId, organizationId);
-
-        if (subordinateIds.length > 0) {
-            // Return filter for "CreatedBy Me OR CreatedBy Any Subordinate (Deep)"
-            return {
-                $or: [
-                    { createdBy: userId },
-                    { createdBy: { $in: subordinateIds } }
-                ]
-            };
-        }
+    // 3. View All Feature (Global Access within Org)
+    // If user has the specific 'View All' feature enabled, return empty filter (view everything)
+    if (user.hasFeature && user.hasFeature(moduleName, viewAllFeature)) {
+        return {};
     }
 
-    // 4. Regular User: View Self Only
+    // 4. Manager/Supervisor: View Self + Subordinates (Implicit Access)
+    // Implicit: If you have subordinates, you see them.
+
+    // Always fetch subordinates to check for implicit supervisor status
+    const subordinateIds = await getAllSubordinateIds(userId, organizationId);
+
+    const hasSubordinates = subordinateIds.length > 0;
+
+    if (hasSubordinates) {
+        // Return filter for "CreatedBy Me OR CreatedBy Any Subordinate (Deep)"
+        return {
+            $or: [
+                { createdBy: userId },
+                { createdBy: { $in: subordinateIds } }
+            ]
+        };
+    }
+
+    // 5. Regular User: View Self Only
     return { createdBy: userId };
 };
 
@@ -169,11 +182,10 @@ exports.getHierarchyFilter = async (user, moduleName, teamViewFeature) => {
  *
  * @param {Object} user - The user object from req.user
  * @param {string} moduleName - The module name (e.g., 'parties', 'prospects', 'sites')
- * @param {string} teamViewFeature - The feature key for team view (e.g., 'viewTeamParties')
  * @param {string} viewAllFeature - The feature key for view all (e.g., 'viewAllParties')
  * @returns {Promise<Object>} Filter object for MongoDB queries
  */
-exports.getEntityAccessFilter = async (user, moduleName, teamViewFeature, viewAllFeature) => {
+exports.getEntityAccessFilter = async (user, moduleName, viewAllFeature) => {
     const { role, _id: userId, organizationId } = user;
 
     // ==================================================
@@ -210,19 +222,23 @@ exports.getEntityAccessFilter = async (user, moduleName, teamViewFeature, viewAl
     // ==================================================
     // 5. TEAM VIEW: See subordinates' data (Deep Hierarchy)
     // ==================================================
-    const hasTeamView = user.hasFeature && user.hasFeature(moduleName, teamViewFeature);
-    if (hasTeamView) {
-        // Use the optimized $graphLookup helper (single DB query)
-        const subordinateIds = await getAllSubordinateIds(userId, organizationId);
+    // Implicit Access: Supervisors automatically see team data
+    // Use the optimized $graphLookup helper (single DB query)
+    const subordinateIds = await getAllSubordinateIds(userId, organizationId);
 
-        if (subordinateIds.length > 0) {
-            // A. See data CREATED by team
-            orConditions.push({ createdBy: { $in: subordinateIds } });
+    // Check if user has subordinates - if yes, grant implicit access
+    const hasImplicitAccess = subordinateIds.length > 0;
 
-            // B. See data ASSIGNED to team (Fixes the Manager Blind Spot)
-            // If Admin assigns a lead to Salesperson, Manager must see it
-            orConditions.push({ assignedUsers: { $in: subordinateIds } });
-        }
+    // NOTE: 'teamViewFeature' usage is deprecated/removed in favor of implicit access
+    // 'viewAllFeature' is handled in step 3.
+
+    if (hasImplicitAccess) {
+        // A. See data CREATED by team
+        orConditions.push({ createdBy: { $in: subordinateIds } });
+
+        // B. See data ASSIGNED to team (Fixes the Manager Blind Spot)
+        // If Admin assigns a lead to Salesperson, Manager must see it
+        orConditions.push({ assignedUsers: { $in: subordinateIds } });
     }
 
     // ==================================================
@@ -233,8 +249,15 @@ exports.getEntityAccessFilter = async (user, moduleName, teamViewFeature, viewAl
     // - Assigned to self
     // - Created by subordinate (if hasTeamView)
     // - Assigned to subordinate (if hasTeamView) ← Manager Blind Spot fix
+
+    if (orConditions.length === 0) {
+        // Fallback safety: If no conditions, user sees nothing (or just their own)
+        return { createdBy: userId };
+    }
+
     if (orConditions.length === 1) {
-        return { $or: orConditions };
+        // Optimization: No need for $or if there's only one condition
+        return orConditions[0];
     }
 
     return { $or: orConditions };

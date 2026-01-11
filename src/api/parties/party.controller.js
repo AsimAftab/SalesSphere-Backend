@@ -106,7 +106,6 @@ exports.getAllParties = async (req, res, next) => {
         const accessFilter = await getEntityAccessFilter(
             req.user,
             'parties',
-            'viewTeamParties',
             'viewAllParties'
         );
 
@@ -140,7 +139,6 @@ exports.getAllPartiesDetails = async (req, res, next) => {
         const accessFilter = await getEntityAccessFilter(
             req.user,
             'parties',
-            'viewTeamParties',
             'viewAllParties'
         );
 

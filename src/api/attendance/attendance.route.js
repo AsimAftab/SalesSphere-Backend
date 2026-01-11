@@ -29,7 +29,8 @@ router.use(protect);
 const BASIC_ATTENDANCE_ACCESS = [
     { module: 'attendance', feature: 'webCheckIn' },
     { module: 'attendance', feature: 'mobileCheckIn' },
-    { module: 'attendance', feature: 'viewMyAttendance' } // Standalone view-only permission
+    { module: 'attendance', feature: 'viewMyAttendance' },
+    // Standalone view-only permission
 ];
 
 // ============================================
@@ -54,19 +55,16 @@ router.get('/my-monthly-report',
 // ============================================
 // GET /search - Search attendance records (view team/subordinates)
 router.get('/search',
-    checkAccess('attendance', 'viewTeamAttendance'),
     searchAttendance
 );
 
 // GET /report - Get attendance report (view team/subordinates)
 router.get('/report',
-    checkAccess('attendance', 'viewTeamAttendance'),
     getAttendanceReport
 );
 
 // GET /employee/:employeeId/date/:date - View specific employee's attendance (view team/subordinates)
 router.get('/employee/:employeeId/date/:date',
-    checkAccess('attendance', 'viewTeamAttendance'),
     getEmployeeAttendanceByDate
 );
 

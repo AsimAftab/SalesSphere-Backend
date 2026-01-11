@@ -283,7 +283,7 @@ exports.getInvoiceById = async (req, res, next) => {
         const { organizationId, role, _id: userId } = req.user;
 
         // Get hierarchy filter
-        const hierarchyFilter = await getHierarchyFilter(req.user, 'invoices', 'viewTeamInvoices');
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'invoices', 'viewAllInvoices');
 
         const query = {
             _id: req.params.id,
@@ -491,7 +491,7 @@ exports.getPartiesOrderStats = async (req, res, next) => {
 
         // Build match condition based on dynamic role
         // Get hierarchy filter
-        const hierarchyFilter = await getHierarchyFilter(req.user, 'invoices', 'viewTeamInvoices');
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'invoices', 'viewAllInvoices');
 
         // Build match condition
         const matchCondition = {
@@ -585,7 +585,7 @@ exports.getPartyOrderStats = async (req, res, next) => {
 
         // Build match condition based on dynamic role
         // Get hierarchy filter
-        const hierarchyFilter = await getHierarchyFilter(req.user, 'invoices', 'viewTeamInvoices');
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'invoices', 'viewAllInvoices');
 
         // Build match condition
         const matchCondition = {
@@ -803,22 +803,14 @@ exports.getAllEstimates = async (req, res, next) => {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId, role, _id: userId } = req.user;
 
-        const query = { organizationId: organizationId, isEstimate: true };
+        // Get hierarchy filter
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'invoices', 'viewAllInvoices');
 
-        // Dynamic role filtering:
-        // - System roles and org admin: see all org data
-        // - Regular users: see own + subordinates' data only estimates
-        if (role !== 'admin' && !isSystemRole(role)) {
-            // Find direct subordinates (reportsTo is now an array)
-            const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
-            const subordinateIds = subordinates.map(u => u._id);
-
-            // Show Own estimates OR Subordinate estimates
-            query.$or = [
-                { createdBy: userId },
-                { createdBy: { $in: subordinateIds } }
-            ];
-        }
+        const query = {
+            organizationId: organizationId,
+            isEstimate: true,
+            ...hierarchyFilter
+        };
 
         const estimates = await Invoice.find(query)
             .select('estimateNumber partyName totalAmount createdAt createdBy')
@@ -839,23 +831,14 @@ exports.getEstimateById = async (req, res, next) => {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId, role, _id: userId } = req.user;
 
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'invoices', 'viewAllInvoices');
+
         const query = {
             _id: req.params.id,
             organizationId: organizationId,
-            isEstimate: true
+            isEstimate: true,
+            ...hierarchyFilter
         };
-
-        // Dynamic role filtering: non-system users can only see own or subordinates' estimates
-        if (role !== 'admin' && !isSystemRole(role)) {
-            // Find direct subordinates (reportsTo is now an array)
-            const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
-            const subordinateIds = subordinates.map(u => u._id);
-
-            query.$or = [
-                { createdBy: userId },
-                { createdBy: { $in: subordinateIds } }
-            ];
-        }
 
         const estimate = await Invoice.findOne(query)
             .populate('createdBy', 'name email');

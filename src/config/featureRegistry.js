@@ -13,8 +13,8 @@ const FEATURE_REGISTRY = {
   // ATTENDANCE MODULE
   // ============================================
   attendance: {
+    viewAllAttendance: 'Master Key: View ALL attendance records in organization',
     viewMyAttendance: 'View own attendance records',
-    viewTeamAttendance: 'View subordinates/team attendance records',
     exportPdf: 'Export the attendance data as a PDF',
     exportExcel: 'Export attendance data to an Excel spreadsheet',
     webCheckIn: 'Allow check-in/check-out via web portal',
@@ -29,7 +29,7 @@ const FEATURE_REGISTRY = {
   // PRODUCTS MODULE
   // ============================================
   products: {
-    viewList: 'View the complete product catalog and details',
+    viewList: 'Access product list page',
     viewDetails: 'View detailed information about a specific product',
     create: 'Add new products to the inventory (includes image upload)',
     update: 'Edit existing product details and pricing (includes image update)',
@@ -44,13 +44,11 @@ const FEATURE_REGISTRY = {
   // PROSPECTS MODULE
   // ============================================
   prospects: {
-    viewList: 'View the list of potential leads and prospects',
+    viewAllProspects: 'Master Key: View ALL prospects in the organization (bypass hierarchy filter)',
+    viewList: 'Access prospect list page',
     viewDetails: 'Access deep-dive information and history for a specific prospect',
     viewOwn: 'View own prospects only',
-    viewTeamProspects: 'View subordinates/team prospects',
-    viewAllProspects: 'View ALL prospects in the organization (bypass hierarchy filter)',
     viewAssigned: 'View prospects assigned to the current user',
-    viewInterests: 'View specific products or services the prospect has shown interest in',
     create: 'Add new prospective clients to the system (includes image upload)',
     update: 'Edit prospect contact information and lead details (includes image update)',
     delete: 'Remove prospect records from the system (includes image deletion)',
@@ -65,7 +63,7 @@ const FEATURE_REGISTRY = {
   // ESTIMATES MODULE
   // ============================================
   estimates: {
-    viewList: 'View all generated price estimates and quotes',
+    viewList: 'Access estimate list page',
     viewDetails: 'Access detailed breakdown and items within an estimate',
     create: 'Create new price estimates for potential customers',
     convertToInvoice: 'Convert approved estimate to invoice',
@@ -79,9 +77,10 @@ const FEATURE_REGISTRY = {
   // INVOICES MODULE
   // ============================================
   invoices: {
-    viewList: 'View all customer orders and their current status',
+    viewAllInvoices: 'Master Key: View ALL organization invoices',
+    viewList: 'Access invoice list page',
     viewDetails: 'Access deep-dive information for specific orders',
-    viewTeamInvoices: 'View subordinates/team invoices',
+    viewDetails: 'Access deep-dive information for specific orders',
     create: 'Generate new customer invoices',
     updateStatus: 'Modify invoice status (e.g., Pending, Shipped, Delivered)',
     delete: 'Delete invoice record',
@@ -95,8 +94,9 @@ const FEATURE_REGISTRY = {
   // COLLECTIONS MODULE
   // ============================================
   collections: {
+    viewAllCollections: 'Master Key: View ALL organization collection entries',
     view: 'View collection entries',
-    viewTeamCollections: 'View subordinates/team collection entries',
+    view: 'View collection entries',
     collectPayment: 'Add payment entry',
     verifyPayment: 'Verify/approve payment',
     updateChequeStatus: 'Update cheque status (cleared/bounced)',
@@ -107,9 +107,10 @@ const FEATURE_REGISTRY = {
   // BEAT PLANS MODULE
   // ============================================
   beatPlan: {
-    viewList: 'View all beat plans and routes',
+    viewAllBeatPlans: 'Master Key: View ALL organization beat plans',
+    viewList: 'Access beat plan list page',
     viewOwn: 'View own assigned beat plans',
-    viewTeamBeatPlans: 'View subordinates/team beat plans',
+    viewOwn: 'View own assigned beat plans',
     viewDetails: 'View detailed beat plan information including parties and visits',
     viewSalespersons: 'View list of salespersons for beat plan assignment',
     viewDirectories: 'View available beat plan directories/categories',
@@ -126,7 +127,8 @@ const FEATURE_REGISTRY = {
   // TOUR PLANS MODULE
   // ============================================
   tourPlan: {
-    viewList: 'View the list of all scheduled employee tours',
+    viewAllTourPlans: 'Master Key: View ALL organization tour plans',
+    viewList: 'Access tour plan list page',
     viewOwn: 'View own tour plans and requests',
     viewDetails: 'Access in-depth information, itinerary, and stops within a tour',
     create: 'Create and schedule new tours for staff',
@@ -155,8 +157,9 @@ const FEATURE_REGISTRY = {
   // EXPENSE CLAIMS MODULE
   // ============================================
   expenses: {
+    viewAllClaims: 'Master Key: View ALL organization expense claims',
+    viewList: 'Access expense claim list page',
     viewList: 'View all employee expense claims and operational costs',
-    viewTeamClaims: 'View subordinates/team expense claims',
     viewDetails: 'Access detailed breakdown, receipts, and approval history',
     create: 'Submit and record new expense claims',
     update: 'Edit specific details of an existing expense record',
@@ -171,9 +174,10 @@ const FEATURE_REGISTRY = {
   // LEAVE REQUESTS MODULE
   // ============================================
   leaves: {
-    viewList: 'View all employee leave requests and history',
+    viewAllLeaves: 'Master Key: View ALL organization leave requests',
+    viewList: 'Access leave request list page',
     viewOwn: 'View own leave requests only',
-    viewTeamLeaves: 'View subordinates/team leave requests',
+    viewOwn: 'View own leave requests only',
     viewDetails: 'View leave request details and comments',
     create: 'Create new leave request',
     update: 'Edit own leave request (before approval)',
@@ -188,13 +192,12 @@ const FEATURE_REGISTRY = {
   // PARTIES MODULE
   // ============================================
   parties: {
-    viewList: 'View list of all parties',
+    viewAllParties: 'Master Key: View ALL parties in the organization (bypass hierarchy filter)',
+    viewList: 'Access party list page',
     viewDetails: 'View specific party details',
     viewOwn: 'View own parties only',
-    viewTeamParties: 'View subordinates/team parties',
-    viewAllParties: 'View ALL parties in the organization (bypass hierarchy filter)',
+    viewOwn: 'View own parties only',
     viewAssigned: 'View parties assigned to the current user',
-    viewTypes: 'View available party types for categorization',
     create: 'Add new parties to the system (includes image upload, implicitly creates party types)',
     update: 'Edit party contact information and business details (includes image update)',
     delete: 'Remove party records from the database (includes image deletion)',
@@ -209,13 +212,12 @@ const FEATURE_REGISTRY = {
   // SITES MODULE
   // ============================================
   sites: {
-    viewList: 'View all registered sites and project locations',
+    viewAllSites: 'Master Key: View ALL sites in the organization (bypass hierarchy filter)',
+    viewList: 'Access site list page',
     viewDetails: 'Access detailed configuration and history for a specific site',
     viewOwn: 'View own sites only',
-    viewTeamSites: 'View subordinates/team sites',
-    viewAllSites: 'View ALL sites in the organization (bypass hierarchy filter)',
+    viewOwn: 'View own sites only',
     viewAssigned: 'View sites assigned to the current user',
-    viewInterests: 'Monitor specific business interests or activities linked to sites',
     viewSubOrganizations: 'View available sub-organizations for site categorization',
     create: 'Register new site locations in the system (includes image upload, implicitly creates categories/sub-orgs)',
     update: 'Edit site details, boundaries, or contact information (includes image update)',
@@ -229,8 +231,9 @@ const FEATURE_REGISTRY = {
   // DASHBOARD MODULE
   // ============================================
   dashboard: {
+    viewAllPerformance: 'Master Key: View real-time organization performance metrics',
     viewStats: 'View high-level business metrics and overview cards',
-    viewTeamPerformance: 'View real-time team performance metrics for today',
+    viewStats: 'View high-level business metrics and overview cards',
     viewAttendanceSummary: 'View daily attendance overview across the organization',
     viewSalesTrend: 'View sales revenue and growth trends for the last 7 days',
   },
@@ -239,8 +242,9 @@ const FEATURE_REGISTRY = {
   // ANALYTICS MODULE
   // ============================================
   analytics: {
+    viewAllAnalytics: 'Master Key: View aggregated analytics for organization',
     viewMonthlyOverview: 'View month-over-month performance summaries and KPIs',
-    viewTeamAnalytics: 'View aggregated analytics for subordinates/team',
+    viewMonthlyOverview: 'View month-over-month performance summaries and KPIs',
     viewSalesTrend: 'Access detailed revenue charts and growth trends',
     viewCategorySales: 'View breakdown of products sold by specific categories',
     viewTopProducts: 'Analyze the highest performing products by volume and value',
@@ -251,9 +255,10 @@ const FEATURE_REGISTRY = {
   // NOTES MODULE
   // ============================================
   notes: {
-    viewList: 'View all created notes, memos, and internal reminders',
+    viewAllNotes: 'Master Key: View ALL organization notes',
+    viewList: 'Access note list page',
     viewOwn: 'View own created notes only',
-    viewTeamNotes: 'View subordinates/team notes',
+    viewOwn: 'View own created notes only',
     viewDetails: 'Access the full content, attachments, and metadata of a specific note',
     create: 'Create and save new notes or documentation (includes image upload)',
     update: 'Edit the content, title, or tags of an existing note (includes image update)',
@@ -267,9 +272,10 @@ const FEATURE_REGISTRY = {
   // MISCELLANEOUS WORK MODULE
   // ============================================
   miscellaneousWork: {
-    viewList: 'View all recorded miscellaneous or uncategorized task records',
+    viewAllMiscellaneous: 'Master Key: View ALL organization miscellaneous work',
+    viewList: 'Access miscellaneous work list page',
     viewOwn: 'View own miscellaneous work entries',
-    viewTeamMiscellaneous: 'View subordinates/team miscellaneous work',
+    viewOwn: 'View own miscellaneous work entries',
     viewDetails: 'View specific miscellaneous work entry details and images',
     create: 'Create new miscellaneous work entry (includes image upload)',
     update: 'Edit existing miscellaneous work entry (includes image update)',
@@ -283,7 +289,7 @@ const FEATURE_REGISTRY = {
   // EMPLOYEES MODULE
   // ============================================
   employees: {
-    viewList: 'View all registered employees and their basic info',
+    viewList: 'Access employee list page',
     viewOwn: 'View own profile only',
     viewDetails: 'Access full profile, including personal and professional info',
     create: 'Onboard and add new employees to the system',
@@ -311,7 +317,7 @@ const FEATURE_REGISTRY = {
   // SYSTEM USERS MODULE (superadmin/developer only)
   // ============================================
   systemUsers: {
-    viewList: 'View all system users (superadmin, developer)',
+    viewList: 'Access system user list page',
     viewDetails: 'View detailed system user information',
     create: 'Add new system user (superadmin/developer)',
     update: 'Edit system user details',

@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const { z } = require('zod');
 const { DateTime } = require('luxon');
 const { isSystemRole } = require('../../utils/defaultPermissions');
-const { canApprove } = require('../../utils/hierarchyHelper');
+const { canApprove, getHierarchyFilter } = require('../../utils/hierarchyHelper');
 
 // --- Zod Validation Schema ---
 const tourPlanSchemaValidation = z.object({
@@ -73,13 +73,9 @@ exports.getAllTourPlans = async (req, res, next) => {
 
         const query = { organizationId: organizationId };
 
-        // Non-system users (without viewList permission) can only see their own tour plans
-        // Note: Permission check happens at route level, this is for data filtering
-        if (role !== 'admin' && !isSystemRole(role)) {
-            // Check if user has explicit viewList permission via custom role
-            // For non-admin roles without viewList, restrict to own tours
-            query.createdBy = userId;
-        }
+        // Apply hierarchy filter (View All vs Supervisor vs Own)
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'tourPlan', 'viewAllTourPlans');
+        Object.assign(query, hierarchyFilter);
 
         const tourPlans = await TourPlan.find(query)
             .select('placeOfVisit startDate endDate purposeOfVisit status createdBy approvedBy createdAt')
