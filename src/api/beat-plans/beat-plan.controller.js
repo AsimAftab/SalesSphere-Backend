@@ -926,9 +926,9 @@ exports.getBeatPlanDetails = async (req, res, next) => {
         // Populate all directory types with only necessary fields
         // Exclude location.address (not needed for distance calculations) to reduce payload size
         await beatPlan.populate([
-            { path: 'parties', select: 'partyName ownerName contact.phone contact.email location.latitude location.longitude panVatNumber' },
-            { path: 'sites', select: 'siteName ownerName contact.phone contact.email location.latitude location.longitude' },
-            { path: 'prospects', select: 'prospectName ownerName contact.phone contact.email location.latitude location.longitude panVatNumber' }
+            { path: 'parties', select: 'partyName ownerName contact.phone contact.email location.address location.latitude location.longitude panVatNumber' },
+            { path: 'sites', select: 'siteName ownerName contact.phone contact.email location.address location.latitude location.longitude' },
+            { path: 'prospects', select: 'prospectName ownerName contact.phone contact.email location.address location.latitude location.longitude panVatNumber' }
         ]);
 
         // Create a combined list of all directories with type and name
