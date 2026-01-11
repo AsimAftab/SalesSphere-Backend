@@ -63,6 +63,15 @@ router.get('/details',
 // GET /categories - View site categories (all authenticated users)
 router.get('/categories', getSiteCategories);
 
+// POST /categories - Create site category (all authenticated users)
+router.post('/categories', checkAccess('sites', 'create'), createSiteCategory);
+
+// PUT /categories/:id - Update site category (admin only)
+router.put('/categories/:id', requireOrgAdmin(), updateSiteCategory);
+
+// DELETE /categories/:id - Delete site category (admin only)
+router.delete('/categories/:id', requireOrgAdmin(), deleteSiteCategory);
+
 // GET /sub-organizations - View available sub-organizations (all authenticated users)
 router.get('/sub-organizations', getSiteSubOrganizations);
 
@@ -123,7 +132,7 @@ router.post('/:id/images',
     checkAnyAccess([
         { module: 'sites', feature: 'create' }, // For initial upload workflow
         { module: 'sites', feature: 'update' }  // For corrections later
-    ]), 
+    ]),
     imageUpload.single('image'),
     uploadSiteImage
 );
@@ -140,16 +149,16 @@ router.put('/:id',
 // ============================================
 // DELETE OPERATIONS
 // ============================================
-// DELETE /:id - Permanently remove site records from the system
-router.delete('/:id',
-    checkAccess('sites', 'delete'),
-    deleteSite
-);
-
 // DELETE /:id/images/:imageNumber - Permanently remove images from the site profile
 router.delete('/:id/images/:imageNumber',
     checkAccess('sites', 'deleteImage'),
     deleteSiteImage
+);
+
+// DELETE /:id - Permanently remove site records from the system
+router.delete('/:id',
+    checkAccess('sites', 'delete'),
+    deleteSite
 );
 
 // ============================================
@@ -167,16 +176,6 @@ router.delete('/:id/images/:imageNumber',
 //     exportSitesExcel
 // );
 
-// ============================================
-// CATEGORY MANAGEMENT ROUTES
-// ============================================
-// POST /categories - Create site category (all authenticated users)
-router.post('/categories', checkAccess('sites', 'create'), createSiteCategory);
 
-// PUT /categories/:id - Update site category (admin only)
-router.put('/categories/:id', requireOrgAdmin(), updateSiteCategory);
-
-// DELETE /categories/:id - Delete site category (admin only)
-router.delete('/categories/:id', requireOrgAdmin(), deleteSiteCategory);
 
 module.exports = router;

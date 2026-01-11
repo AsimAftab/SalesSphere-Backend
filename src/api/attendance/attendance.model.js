@@ -18,7 +18,7 @@ const attendanceSchema = new mongoose.Schema({
         required: [true, 'Attendance status is required'],
         enum: ['P', 'A', 'W', 'L', 'H'],
     },
-    
+
     // Check-in related fields
     checkInTime: {
         type: Date, // Full timestamp of check-in
@@ -76,20 +76,7 @@ const attendanceSchema = new mongoose.Schema({
     },
 }, { timestamps: true });
 
-// Helper function to get the start of a given day (to ignore time) - uses UTC
-const getStartOfDay = (date) => {
-    const d = new Date(date);
-    d.setUTCHours(0, 0, 0, 0);
-    return d;
-};
 
-// Pre-save hook to normalize the date
-attendanceSchema.pre('save', function(next) {
-    if (this.isModified('date')) {
-        this.date = getStartOfDay(this.date);
-    }
-    next();
-});
 
 // Unique index to prevent an employee from having two records on the same day
 attendanceSchema.index({ employee: 1, date: 1, organizationId: 1 }, { unique: true });

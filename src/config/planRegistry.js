@@ -127,7 +127,7 @@ const PREMIUM_UPGRADES = {
     miscellaneousWork: ['delete', 'bulkDelete', 'exportPdf', 'exportExcel'],
 
     // Expenses: Full expense management
-    expenses: ['update', 'updateStatus', 'delete', 'bulkDelete', 'exportPdf', 'exportExcel'],
+    expenses: ['viewAllClaims', 'update', 'updateStatus', 'delete', 'bulkDelete', 'exportPdf', 'exportExcel'],
 
     // Dashboard: Full insights
     dashboard: ['viewTeamPerformance', 'viewAttendanceSummary', 'viewSalesTrend'],

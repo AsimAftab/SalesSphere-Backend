@@ -186,6 +186,7 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
     dashboard: {
         viewStats: true,
         viewAllPerformance: true,
+        viewTeamPerformance: true,
         viewAttendanceSummary: true,
         viewSalesTrend: true
     },
@@ -428,6 +429,7 @@ const DEVELOPER_GRANULAR_PERMISSIONS = {
     dashboard: {
         viewStats: true,
         viewAllPerformance: true,
+        viewTeamPerformance: true,
         viewAttendanceSummary: true,
         viewSalesTrend: true
     },
@@ -672,6 +674,7 @@ const ADMIN_GRANULAR_PERMISSIONS = {
     dashboard: {
         viewStats: true,
         viewAllPerformance: true,
+        viewTeamPerformance: true,
         viewAttendanceSummary: true,
         viewSalesTrend: true
     },
@@ -896,9 +899,9 @@ const USER_GRANULAR_PERMISSIONS = {
     },
     dashboard: {
         viewStats: true,
-        viewTeamPerformance: false,
-        viewAttendanceSummary: false,
-        viewSalesTrend: false
+        viewTeamPerformance: true,
+        viewAttendanceSummary: true,
+        viewSalesTrend: true
     },
     analytics: {
         viewMonthlyOverview: false,

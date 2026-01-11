@@ -49,6 +49,17 @@ router.get('/my-work',
     getMyMiscellaneousWork
 );
 
+// GET /:id/images - View images for a specific miscellaneous work entry
+// NOTE: Must come before /:id to avoid route matching issues
+router.get('/:id/images',
+    checkAnyAccess([
+        { module: 'miscellaneousWork', feature: 'viewList' },
+        { module: 'miscellaneousWork', feature: 'viewDetails' },
+        { module: 'miscellaneousWork', feature: 'viewOwn' }
+    ]),
+    getMiscellaneousWorkImages
+);
+
 // GET /:id - View specific miscellaneous work entry details
 // Users with viewList can view any, users with viewOwn can view their own
 router.get('/:id',
@@ -58,16 +69,6 @@ router.get('/:id',
         { module: 'miscellaneousWork', feature: 'viewOwn' }
     ]),
     getMiscellaneousWorkById
-);
-
-// GET /:id/images - View images for a specific miscellaneous work entry
-router.get('/:id/images',
-    checkAnyAccess([
-        { module: 'miscellaneousWork', feature: 'viewList' },
-        { module: 'miscellaneousWork', feature: 'viewDetails' },
-        { module: 'miscellaneousWork', feature: 'viewOwn' }
-    ]),
-    getMiscellaneousWorkImages
 );
 
 // ============================================
@@ -101,13 +102,8 @@ router.post('/:id/images',
 // ============================================
 // DELETE OPERATIONS
 // ============================================
-// DELETE /:id - Delete specific miscellaneous work entry
-router.delete('/:id',
-    checkAccess('miscellaneousWork', 'delete'),
-    deleteMiscellaneousWork
-);
-
 // DELETE /mass-delete - Bulk delete miscellaneous work entries
+// NOTE: Must come before /:id to avoid route matching issues
 router.delete('/mass-delete',
     checkAccess('miscellaneousWork', 'bulkDelete'),
     massBulkDeleteMiscellaneousWork
@@ -117,6 +113,12 @@ router.delete('/mass-delete',
 router.delete('/:id/images/:imageNumber',
     checkAccess('miscellaneousWork', 'update'),
     deleteMiscellaneousWorkImage
+);
+
+// DELETE /:id - Delete specific miscellaneous work entry
+router.delete('/:id',
+    checkAccess('miscellaneousWork', 'delete'),
+    deleteMiscellaneousWork
 );
 
 // ============================================

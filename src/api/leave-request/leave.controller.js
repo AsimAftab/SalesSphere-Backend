@@ -438,28 +438,26 @@ exports.updateLeaveRequestStatus = async (req, res, next) => {
 // @route   DELETE /api/v1/leave-requests/bulk-delete
 exports.bulkDeleteLeaveRequests = async (req, res, next) => {
     try {
-        const { organizationId, role, _id: userId } = req.user;
+        const { organizationId, role } = req.user;
         const { ids } = req.body;
 
         if (!ids || !Array.isArray(ids) || ids.length === 0) {
             return res.status(400).json({ success: false, message: 'Please provide an array of IDs' });
         }
 
-        const validIds = ids.filter(id => mongoose.Types.ObjectId.isValid(id));
-        if (validIds.length === 0) {
-            return res.status(400).json({ success: false, message: 'No valid IDs provided' });
-        }
+        // 1. Get Hierarchy Filter
+        // Managers delete team requests; Admins delete all.
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'leaves', 'delete');
 
-        const isAdmin = role === 'admin' || isSystemRole(role);
-
-        let query = {
-            _id: { $in: validIds },
-            organizationId
+        // 2. Build SECURE query
+        const query = {
+            _id: { $in: ids },
+            organizationId,
+            ...hierarchyFilter // <--- CRITICAL SECURITY ADDITION
         };
 
-        // Non-admin users: can only delete own pending requests
-        if (!isAdmin) {
-            query.createdBy = userId;
+        // If not admin/system, ensure we only delete PENDING requests
+        if (role !== 'admin' && !isSystemRole(role)) {
             query.status = 'pending';
         }
 

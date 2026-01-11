@@ -6,7 +6,7 @@ const User = require('../users/user.model');
 const { z } = require('zod');
 const { calculateDistance, calculateRouteDistance, optimizeRoute } = require('../../utils/distanceCalculator');
 const { closeTrackingSessionsForBeatPlan } = require('./tracking/tracking.controller');
-const { getAllSubordinateIds, canApprove } = require('../../utils/hierarchyHelper');
+const { getAllSubordinateIds, canApprove, getEntityAccessFilter } = require('../../utils/hierarchyHelper');
 
 // --- Zod Validation Schemas ---
 // Simple validation for UI create beat plan
@@ -204,12 +204,16 @@ exports.getBeatPlanData = async (req, res, next) => {
 
         const commonFilter = { organizationId, ...hierarchyFilter };
 
-        // 1. Get total directories (parties, sites, prospects) in the organization
-        // Note: Directories are usually org-wide visible, but we can filter if needed.
-        // For now, keeping total directories as org-wide capability, but totalBeatPlans is filtered.
-        const totalParties = await Party.countDocuments({ organizationId });
-        const totalSites = await Site.countDocuments({ organizationId });
-        const totalProspects = await Prospect.countDocuments({ organizationId });
+        // 1. Get total directories (parties, sites, prospects) - Respecting Visibility
+        // Use getEntityAccessFilter to ensure consistency with list views
+        const partyAccessFilter = await getEntityAccessFilter(req.user, 'parties', 'viewAllParties');
+        const siteAccessFilter = await getEntityAccessFilter(req.user, 'sites', 'viewAllSites');
+        const prospectAccessFilter = await getEntityAccessFilter(req.user, 'prospects', 'viewAllProspects');
+
+        const totalParties = await Party.countDocuments({ organizationId, ...partyAccessFilter });
+        const totalSites = await Site.countDocuments({ organizationId, ...siteAccessFilter });
+        const totalProspects = await Prospect.countDocuments({ organizationId, ...prospectAccessFilter });
+
         const totalDirectories = totalParties + totalSites + totalProspects;
 
         // 2. Get total beat plans (Filtered)
@@ -1396,13 +1400,16 @@ exports.markPartyVisited = async (req, res, next) => {
         // Fix: Strictly ensure req.user is in the beatPlan.employees list
         // Even Admins should not "mark visited" remotely unless they optimize/update. 
         // Visiting implies physical presence or direct action by the assigned user.
-        // If you want to allow Admins for testing, add || role === 'admin'
+        // Update: User requested Admin override for manual marking cases (e.g. app crash)
 
+        const { role } = req.user;
+        const isAdmin = role === 'admin' || isSystemRole(role);
         const isAssigned = beatPlan.employees.some(empId => empId.toString() === userId.toString());
-        if (!isAssigned) {
+
+        if (!isAssigned && !isAdmin) {
             return res.status(403).json({
                 success: false,
-                message: 'Only the assigned employee can mark items as visited.'
+                message: 'Only the assigned employee (or Admin) can mark items as visited.'
             });
         }
 
