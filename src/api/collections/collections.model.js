@@ -42,7 +42,8 @@ const collectionSchema = new mongoose.Schema({
         enum: ['pending', 'deposited', 'cleared', 'bounced'],
         default: 'pending',
     },
-    chequeImages: [{
+    // Generic Images (Bank Transfer receipt, Cheque photo, QR screenshot)
+    images: [{
         type: String, // Cloudinary URLs
     }],
     // System fields
@@ -60,12 +61,14 @@ const collectionSchema = new mongoose.Schema({
 
 // Custom validation for payment method specific fields
 collectionSchema.pre('validate', function (next) {
+    // 1. Bank Transfer
     if (this.paymentMethod === 'bank_transfer') {
         if (!this.bankName || this.bankName.trim() === '') {
             this.invalidate('bankName', 'Bank name is required for bank transfer');
         }
     }
 
+    // 2. Cheque
     if (this.paymentMethod === 'cheque') {
         if (!this.bankName || this.bankName.trim() === '') {
             this.invalidate('bankName', 'Bank name is required for cheque payment');
@@ -78,9 +81,22 @@ collectionSchema.pre('validate', function (next) {
         }
     }
 
-    // Limit cheque images to 2
-    if (this.chequeImages && this.chequeImages.length > 2) {
-        this.invalidate('chequeImages', 'Maximum 2 cheque images allowed');
+    // 3. QR Code
+    // No specific extra fields required for QR besides generic ones, but images encouraged
+
+    // 4. Cash
+    // Typically no bankName or extra fields
+
+    // IMAGE VALIDATION
+    if (this.images && this.images.length > 0) {
+        // Cash should not have images (business rule per user request)
+        if (this.paymentMethod === 'cash') {
+            this.invalidate('images', 'Images are not allowed for cash payments');
+        }
+        // Limit images to 3
+        if (this.images.length > 3) {
+            this.invalidate('images', 'Maximum 3 images allowed');
+        }
     }
 
     next();

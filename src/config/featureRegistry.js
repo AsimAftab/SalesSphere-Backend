@@ -96,8 +96,7 @@ const FEATURE_REGISTRY = {
   collections: {
     viewAllCollections: 'Master Key: View ALL organization collection entries',
     view: 'View collection entries',
-    view: 'View collection entries',
-    collectPayment: 'Add payment entry',
+    collectPayment: 'Add payment entry (includes image upload)',
     verifyPayment: 'Verify/approve payment',
     updateChequeStatus: 'Update cheque status (cleared/bounced)',
     delete: 'Delete collection entry',

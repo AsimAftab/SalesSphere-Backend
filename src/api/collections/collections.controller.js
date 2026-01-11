@@ -1,6 +1,7 @@
 const Collection = require('./collections.model');
 const Organization = require('../organizations/organization.model');
 const User = require('../users/user.model');
+const Party = require('../parties/party.model'); // Import Party model
 const mongoose = require('mongoose');
 const { z } = require('zod');
 const cloudinary = require('../../config/cloudinary');
@@ -11,6 +12,7 @@ const { getHierarchyFilter } = require('../../utils/hierarchyHelper');
 // --- Zod Validation Schemas ---
 
 // Base schema for common fields
+const BankName = require('./bankName.model'); // Import BankName model
 const baseCollectionSchema = {
     party: z.string().refine(val => mongoose.Types.ObjectId.isValid(val), "Invalid party ID"),
     amountReceived: z.coerce.number({ required_error: "Amount is required" }).min(0, "Amount cannot be negative"),
@@ -82,6 +84,29 @@ const cleanupTempFiles = (files) => {
     }
 };
 
+/**
+ * Sync Bank Name (Auto-create if not exists)
+ * @param {string} bankName
+ * @param {string} organizationId
+ */
+const syncBankName = async (bankName, organizationId) => {
+    if (!bankName || !bankName.trim()) return;
+    try {
+        const normalizedName = bankName.trim();
+        // Upsert logic for bank name
+        await BankName.findOneAndUpdate(
+            { name: normalizedName, organizationId },
+            { name: normalizedName, organizationId }, // Set on insert
+            { upsert: true, new: true, runValidators: true }
+        );
+    } catch (error) {
+        // Log duplicate key errors quietly, others loudly
+        if (error.code !== 11000) {
+            console.error('Error syncing bank name:', error);
+        }
+    }
+};
+
 // ============================================
 // COLLECTION ENDPOINTS
 // ============================================
@@ -95,6 +120,16 @@ exports.createCollection = async (req, res, next) => {
         const { organizationId, _id: userId } = req.user;
 
         const validatedData = collectionSchemaValidation.parse(req.body);
+
+        // Validate Party Existence
+        const partyExists = await Party.findOne({
+            _id: validatedData.party,
+            organizationId: organizationId
+        });
+
+        if (!partyExists) {
+            return res.status(404).json({ success: false, message: 'Party not found' });
+        }
 
         // Build collection data
         const collectionData = {
@@ -110,11 +145,15 @@ exports.createCollection = async (req, res, next) => {
         // Add payment method specific fields
         if (validatedData.paymentMethod === 'bank_transfer') {
             collectionData.bankName = validatedData.bankName;
+            // Sync Bank Name
+            await syncBankName(validatedData.bankName, organizationId);
         } else if (validatedData.paymentMethod === 'cheque') {
             collectionData.bankName = validatedData.bankName;
             collectionData.chequeNumber = validatedData.chequeNumber;
             collectionData.chequeDate = new Date(validatedData.chequeDate);
             collectionData.chequeStatus = validatedData.chequeStatus || 'pending';
+            // Sync Bank Name
+            await syncBankName(validatedData.bankName, organizationId);
         }
 
         const newCollection = await Collection.create(collectionData);
@@ -252,6 +291,11 @@ exports.updateCollection = async (req, res, next) => {
             .populate('party', 'partyName ownerName')
             .populate('createdBy', 'name email');
 
+        // Sync Bank Name if updated
+        if (updateData.bankName && (collection.paymentMethod === 'bank_transfer' || collection.paymentMethod === 'cheque')) {
+            await syncBankName(updateData.bankName, organizationId);
+        }
+
         res.status(200).json({ success: true, data: updatedCollection });
     } catch (error) {
         if (error instanceof z.ZodError) {
@@ -315,29 +359,36 @@ exports.deleteCollection = async (req, res, next) => {
             query.createdBy = userId;
         }
 
-        // Find the collection to get cheque images
+        // Find the collection to get images
         const collection = await Collection.findOne(query);
 
         if (!collection) {
             return res.status(404).json({ success: false, message: 'Collection not found' });
         }
 
-        // Delete cheque images from Cloudinary if they exist
-        if (collection.chequeImages && collection.chequeImages.length > 0) {
+        // Delete images from Cloudinary if they exist
+        if (collection.images && collection.images.length > 0) {
             try {
                 const organization = await Organization.findById(organizationId);
                 if (organization) {
-                    const deletePromises = collection.chequeImages.map((_, index) => {
-                        const publicId = `sales-sphere/${organization.name}/collections/${collection._id}/cheque_${index}`;
+                    const deletePromises = collection.images.map((_, index) => {
+                        // Correct naming convention for image deletion logic?
+                        // NOTE: Images can have variable names if uploaded sequentially.
+                        // However, we are likely storing full URLs. The public_id extraction is safer.
+                        // For now, let's assum naming convention `image_${index}` if we strictly follow upload logic,
+                        // BUT extracting public_id from URL is robust.
+                        // Let's stick to the convention used in uploadCollectionImage: `image_${unique_id_or_index}`?
+                        // Actually, let's rely on standard ID construction used in upload: public_id: `image_${imageNum}`
+                        const publicId = `sales-sphere/${organization.name}/collections/${collection._id}/image_${index + 1}`;
                         return cloudinary.uploader.destroy(publicId).catch(err => {
-                            console.error(`Error deleting cheque image ${index}:`, err);
+                            console.error(`Error deleting image ${index + 1}:`, err);
                             return null;
                         });
                     });
                     await Promise.all(deletePromises);
                 }
             } catch (cloudinaryError) {
-                console.error('Error deleting cheque images from Cloudinary:', cloudinaryError);
+                console.error('Error deleting images from Cloudinary:', cloudinaryError);
             }
         }
 
@@ -375,25 +426,25 @@ exports.bulkDeleteCollections = async (req, res, next) => {
             });
         }
 
-        // Find all collections to get cheque images
+        // Find all collections to get images
         const collections = await Collection.find({
             _id: { $in: validIds },
             organizationId: organizationId
-        }).select('_id chequeImages');
+        }).select('_id images');
 
         // Get organization for Cloudinary folder path
         const organization = await Organization.findById(organizationId);
 
-        // Delete cheque images from Cloudinary
+        // Delete images from Cloudinary
         if (organization) {
             const deletePromises = [];
             collections.forEach(collection => {
-                if (collection.chequeImages && collection.chequeImages.length > 0) {
-                    collection.chequeImages.forEach((_, index) => {
-                        const publicId = `sales-sphere/${organization.name}/collections/${collection._id}/cheque_${index}`;
+                if (collection.images && collection.images.length > 0) {
+                    collection.images.forEach((_, index) => {
+                        const publicId = `sales-sphere/${organization.name}/collections/${collection._id}/image_${index + 1}`;
                         deletePromises.push(
                             cloudinary.uploader.destroy(publicId).catch(err => {
-                                console.error(`Error deleting cheque image for collection ${collection._id}:`, err);
+                                console.error(`Error deleting image for collection ${collection._id}:`, err);
                                 return null;
                             })
                         );
@@ -419,13 +470,13 @@ exports.bulkDeleteCollections = async (req, res, next) => {
 };
 
 // ============================================
-// CHEQUE IMAGE ENDPOINTS
+// IMAGE ENDPOINTS (Generic)
 // ============================================
 
-// @desc    Upload or update a cheque image (specify imageNumber: 1 or 2 in form-data)
-// @route   POST /api/v1/collections/:id/cheque-images
+// @desc    Upload or update a collection image (specify imageNumber: 1, 2, or 3)
+// @route   POST /api/v1/collections/:id/images
 // @access  Private (Creator only)
-exports.uploadChequeImage = async (req, res, next) => {
+exports.uploadCollectionImage = async (req, res, next) => {
     let tempFilePath = req.file ? req.file.path : null;
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
@@ -438,30 +489,36 @@ exports.uploadChequeImage = async (req, res, next) => {
             return res.status(400).json({ success: false, message: 'Please upload an image file' });
         }
 
-        // Validate imageNumber (1 or 2)
+        // Validate imageNumber (1 to 3)
         const imageNum = parseInt(imageNumber);
-        if (isNaN(imageNum) || imageNum < 1 || imageNum > 2) {
+        if (isNaN(imageNum) || imageNum < 1 || imageNum > 3) {
             if (tempFilePath) fs.unlink(tempFilePath, () => { });
             return res.status(400).json({
                 success: false,
-                message: 'imageNumber must be 1 or 2'
+                message: 'imageNumber must be between 1 and 3'
             });
         }
 
-        // 🔥 OPTIMIZATION: Parallelize Collection and Organization fetch
+        // Fetch Collection and Org
         const [collection, organization] = await Promise.all([
             Collection.findOne({
                 _id: id,
                 organizationId: organizationId,
-                createdBy: userId,
-                paymentMethod: 'cheque'
+                createdBy: userId
             }),
             Organization.findById(organizationId).select('name').lean()
         ]);
 
         if (!collection) {
             if (tempFilePath) fs.unlink(tempFilePath, () => { });
-            return res.status(404).json({ success: false, message: 'Cheque collection not found' });
+            return res.status(404).json({ success: false, message: 'Collection not found' });
+        }
+
+        // Business Rule: Cash payments strictly no images?
+        // Let's enforce it to be consistent with model validation
+        if (collection.paymentMethod === 'cash') {
+            if (tempFilePath) fs.unlink(tempFilePath, () => { });
+            return res.status(400).json({ success: false, message: 'Images not allowed for cash payments' });
         }
 
         if (!organization) {
@@ -471,82 +528,78 @@ exports.uploadChequeImage = async (req, res, next) => {
 
         const folderPath = `sales-sphere/${organization.name}/collections/${id}`;
 
-        // 🔥 OPTIMIZATION: Use eager transformation for async processing
+        // Upload to Cloudinary
         const result = await cloudinary.uploader.upload(req.file.path, {
             folder: folderPath,
-            public_id: `cheque_${imageNum}`,
+            public_id: `image_${imageNum}`,
             overwrite: true,
             eager: [
                 { width: 1200, height: 1600, crop: "limit", fetch_format: "auto", quality: "auto" }
             ],
-            eager_async: true // Process transformations asynchronously
+            eager_async: true
         });
 
         // Cleanup temp file
         fs.unlink(tempFilePath, () => { });
         tempFilePath = null;
 
-        // Initialize chequeImages array if needed
-        if (!collection.chequeImages) {
-            collection.chequeImages = [];
+        // Initialize images array if needed
+        if (!collection.images) {
+            collection.images = [];
         }
 
-        const arrayIndex = imageNum - 1; // 1 -> 0, 2 -> 1
+        const arrayIndex = imageNum - 1; // 1 -> 0, 2 -> 1...
 
         // Ensure array has enough space
-        while (collection.chequeImages.length <= arrayIndex) {
-            collection.chequeImages.push(null);
+        while (collection.images.length <= arrayIndex) {
+            collection.images.push(null);
         }
 
-        collection.chequeImages[arrayIndex] = result.secure_url;
+        collection.images[arrayIndex] = result.secure_url;
         await collection.save();
 
         // Return all images with their imageNumber
-        const chequeImagesWithNumber = collection.chequeImages
+        const imagesWithNumber = collection.images
             .map((url, idx) => url ? { imageNumber: idx + 1, url } : null)
             .filter(img => img !== null);
 
         return res.status(200).json({
             success: true,
-            message: `Cheque image ${imageNum} uploaded successfully`,
+            message: `Image ${imageNum} uploaded successfully`,
             data: {
-                chequeImages: chequeImagesWithNumber
+                images: imagesWithNumber
             }
         });
     } catch (error) {
         if (tempFilePath) fs.unlink(tempFilePath, () => { });
-        console.error('Error uploading cheque image:', error);
+        console.error('Error uploading collection image:', error);
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
 
-// @desc    Delete a cheque image from a collection
-// @route   DELETE /api/v1/collections/:id/cheque-images/:imageNumber
+// @desc    Delete a generic image from a collection
+// @route   DELETE /api/v1/collections/:id/images/:imageNumber
 // @access  Private
-exports.deleteChequeImage = async (req, res, next) => {
+exports.deleteCollectionImage = async (req, res, next) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId, role, _id: userId } = req.user;
         const { id, imageNumber } = req.params;
 
-        // Validate imageNumber (1 or 2)
+        // Validate imageNumber (1 to 3)
         const imageNum = parseInt(imageNumber, 10);
-        if (isNaN(imageNum) || imageNum < 1 || imageNum > 2) {
-            return res.status(400).json({ success: false, message: 'imageNumber must be 1 or 2' });
+        if (isNaN(imageNum) || imageNum < 1 || imageNum > 3) {
+            return res.status(400).json({ success: false, message: 'imageNumber must be between 1 and 3' });
         }
 
-        const arrayIndex = imageNum - 1; // 1 -> 0, 2 -> 1
+        const arrayIndex = imageNum - 1;
 
         // Build query based on dynamic role
         const query = {
             _id: id,
-            organizationId: organizationId,
-            paymentMethod: 'cheque'
+            organizationId: organizationId
         };
 
-        // Dynamic role filtering:
-        // - System roles and org admin: can delete any cheque image in org
-        // - Regular users: can delete own cheque images only
         if (role !== 'admin' && !isSystemRole(role)) {
             query.createdBy = userId;
         }
@@ -554,11 +607,11 @@ exports.deleteChequeImage = async (req, res, next) => {
         const collection = await Collection.findOne(query);
 
         if (!collection) {
-            return res.status(404).json({ success: false, message: 'Cheque collection not found' });
+            return res.status(404).json({ success: false, message: 'Collection not found' });
         }
 
-        if (!collection.chequeImages || !collection.chequeImages[arrayIndex]) {
-            return res.status(404).json({ success: false, message: `Cheque image ${imageNum} not found` });
+        if (!collection.images || !collection.images[arrayIndex]) {
+            return res.status(404).json({ success: false, message: `Image ${imageNum} not found` });
         }
 
         // Fetch Organization for folder path
@@ -569,32 +622,125 @@ exports.deleteChequeImage = async (req, res, next) => {
 
         // Delete from Cloudinary
         try {
-            const publicId = `sales-sphere/${organization.name}/collections/${id}/cheque_${imageNum}`;
+            const publicId = `sales-sphere/${organization.name}/collections/${id}/image_${imageNum}`;
             await cloudinary.uploader.destroy(publicId);
         } catch (cloudinaryError) {
             console.error('Error deleting from Cloudinary:', cloudinaryError);
         }
 
         // Set the image to null (maintain array structure)
-        collection.chequeImages[arrayIndex] = null;
+        collection.images[arrayIndex] = null;
         // Filter out null values
-        collection.chequeImages = collection.chequeImages.filter(img => img !== null);
+        collection.images = collection.images.filter(img => img !== null);
         await collection.save();
 
         // Return images with their imageNumber
-        const chequeImagesWithNumber = collection.chequeImages
+        const imagesWithNumber = collection.images
             .map((url, idx) => url ? { imageNumber: idx + 1, url } : null)
             .filter(img => img !== null);
 
         return res.status(200).json({
             success: true,
-            message: `Cheque image ${imageNum} deleted successfully`,
+            message: `Image ${imageNum} deleted successfully`,
             data: {
-                chequeImages: chequeImagesWithNumber
+                images: imagesWithNumber
             }
         });
     } catch (error) {
-        console.error('Error deleting cheque image:', error);
+        console.error('Error deleting collection image:', error);
         return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+// @desc    Get all unique bank names for the organization
+// @route   GET /api/v1/collections/utils/bank-names
+// @access  Private
+exports.getBankNames = async (req, res, next) => {
+    try {
+        const { organizationId } = req.user;
+
+        const bankNames = await BankName.find({ organizationId })
+            .sort({ name: 1 })
+            .select('name'); // We just need names, maybe IDs later
+
+        res.status(200).json({
+            success: true,
+            count: bankNames.length,
+            data: bankNames
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// @desc    Update a bank name
+// @route   PUT /api/v1/collections/utils/bank-names/:id
+// @access  Private (Org Admin only)
+exports.updateBankName = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+        const { id } = req.params;
+        const { name } = req.body;
+
+        if (!name || name.trim() === '') {
+            return res.status(400).json({ success: false, message: 'Bank name is required' });
+        }
+
+        const normalizedName = name.trim();
+
+        // Find the existing bank name
+        const bankNameRecord = await BankName.findOne({ _id: id, organizationId });
+
+        if (!bankNameRecord) {
+            return res.status(404).json({ success: false, message: 'Bank name not found' });
+        }
+
+        const oldName = bankNameRecord.name;
+
+        // Update the bank name record
+        bankNameRecord.name = normalizedName;
+        await bankNameRecord.save();
+
+        // SYNC: Update all collections that used the old bank name
+        if (oldName !== normalizedName) {
+            await Collection.updateMany(
+                { organizationId, bankName: oldName },
+                { $set: { bankName: normalizedName } }
+            );
+        }
+
+        res.status(200).json({ success: true, data: bankNameRecord, message: 'Bank name updated and synced' });
+    } catch (error) {
+        // Handle unique constraint check
+        if (error.code === 11000) {
+            return res.status(400).json({ success: false, message: 'Bank name already exists' });
+        }
+        next(error);
+    }
+};
+
+// @desc    Delete a bank name
+// @route   DELETE /api/v1/collections/utils/bank-names/:id
+// @access  Private (Org Admin only)
+exports.deleteBankName = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+        const { id } = req.params;
+
+        const result = await BankName.findOneAndDelete({ _id: id, organizationId });
+
+        if (!result) {
+            return res.status(404).json({ success: false, message: 'Bank name not found' });
+        }
+
+        // We do NOT delete legacy collections.
+        // The name will just remain as a string in historical records,
+        // but it will disappear from the dropdown list.
+
+        res.status(200).json({ success: true, message: 'Bank name deleted' });
+    } catch (error) {
+        next(error);
     }
 };

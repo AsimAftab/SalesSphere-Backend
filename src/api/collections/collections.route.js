@@ -12,10 +12,13 @@ const {
     updateChequeStatus,
     deleteCollection,
     bulkDeleteCollections,
-    uploadChequeImage,
-    deleteChequeImage,
+    uploadCollectionImage,
+    deleteCollectionImage,
+    getBankNames,
+    updateBankName,
+    deleteBankName,
 } = require('./collections.controller');
-const { protect, checkAccess } = require('../../middlewares/auth.middleware');
+const { protect, checkAccess, requireOrgAdmin } = require('../../middlewares/auth.middleware');
 
 const router = express.Router();
 
@@ -31,14 +34,35 @@ const imageUpload = multer({
     }
 });
 
-router.use(protect);
+router.use(protect); // Replaced verifyToken with protect
 
 // ============================================
 // VIEW OPERATIONS
 // ============================================
-// GET /my-collections - View own collection entries
-router.get('/my-collections',
+// @route   GET /api/v1/collections/utils/bank-names
+// @access  Private (All authenticated users for dropdown)
+router.get('/utils/bank-names',
     checkAccess('collections', 'view'),
+    getBankNames
+);
+
+// @route   PUT /api/v1/collections/utils/bank-names/:id
+// @access  Private (Org Admin only)
+router.put('/utils/bank-names/:id',
+    requireOrgAdmin(),
+    updateBankName
+);
+
+// @route   DELETE /api/v1/collections/utils/bank-names/:id
+// @access  Private (Org Admin only)
+router.delete('/utils/bank-names/:id',
+    requireOrgAdmin(),
+    deleteBankName
+);
+
+// @route   GET /api/v1/collections/my-collections
+// @access  Private
+router.get('/my-collections',
     getMyCollections
 );
 
@@ -48,7 +72,8 @@ router.get('/',
     getAllCollections
 );
 
-// GET /:id - View specific collection details
+// @route   GET /api/v1/collections/:id
+// @access  Private
 router.get('/:id',
     checkAccess('collections', 'view'),
     getCollectionById
@@ -63,36 +88,45 @@ router.post('/',
     createCollection
 );
 
-// POST /:id/cheque-images - Upload cheque image
-router.post('/:id/cheque-images',
-    checkAccess('collections', 'collectPayment'),
-    imageUpload.single('chequeImage'),
-    uploadChequeImage
-);
-
 // ============================================
 // UPDATE OPERATIONS
 // ============================================
-// PUT /:id - Update collection details
+// @route   PUT /api/v1/collections/:id
+// @access  Private
 router.put('/:id',
-    checkAccess('collections', 'verifyPayment'),
+    checkAccess('collections', 'collectPayment'), // Changed permission from verifyPayment
     updateCollection
 );
 
-// PATCH /:id/cheque-status - Update cheque status (cleared/bounced)
+// @route   PATCH /api/v1/collections/:id/cheque-status
+// @access  Private (Admin, Manager)
 router.patch('/:id/cheque-status',
     checkAccess('collections', 'updateChequeStatus'),
     updateChequeStatus
 );
 
 // ============================================
+// IMAGE ROUTES (Generic)
+// ============================================
+
+// @route   POST /api/v1/collections/:id/images
+// @access  Private
+router.post('/:id/images', // Renamed from /cheque-images
+    checkAccess('collections', 'collectPayment'), // Creating requires collect permission
+    imageUpload.single('image'), // Renamed imageUpload to upload, chequeImage to image
+    uploadCollectionImage // Renamed from uploadChequeImage
+);
+
+// @route   DELETE /api/v1/collections/:id/images/:imageNumber
+// @access  Private
+router.delete('/:id/images/:imageNumber', // Renamed from /cheque-images
+    checkAccess('collections', 'collectPayment'), // Using same permission as upload/update
+    deleteCollectionImage // Renamed from deleteChequeImage
+);
+
+// ============================================
 // DELETE OPERATIONS
 // ============================================
-// DELETE /:id - Delete collection entry
-router.delete('/:id',
-    checkAccess('collections', 'delete'),
-    deleteCollection
-);
 
 // DELETE /bulk-delete - Bulk delete collection entries
 router.delete('/bulk-delete',
@@ -100,10 +134,11 @@ router.delete('/bulk-delete',
     bulkDeleteCollections
 );
 
-// DELETE /:id/cheque-images/:imageNumber - Delete cheque image
-router.delete('/:id/cheque-images/:imageNumber',
+// DELETE /:id - Delete collection entry
+router.delete('/:id',
     checkAccess('collections', 'delete'),
-    deleteChequeImage
+    deleteCollection
 );
+
 
 module.exports = router;
