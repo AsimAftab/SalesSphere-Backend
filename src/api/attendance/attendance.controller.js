@@ -6,7 +6,7 @@ const { z } = require('zod');
 const mongoose = require('mongoose');
 const { DateTime } = require('luxon');
 const { isSystemRole } = require('../../utils/defaultPermissions');
-const { canApprove } = require('../../utils/hierarchyHelper');
+const { canApprove, getAllSubordinateIds } = require('../../utils/hierarchyHelper');
 
 /* ======================
    Helpers & Timezone utils
@@ -720,17 +720,27 @@ exports.getAttendanceReport = async (req, res, next) => {
       // 1. Admin/System: View All (exclude superadmin/developer)
       employeeQuery.role = { $nin: ['superadmin', 'developer'] };
     }
-    else if (req.user.hasFeature('attendance', 'viewTeamAttendance')) {
-      // 2. Manager with Permission: View Self + Subordinates
-      // Find users where 'reportsTo' array contains the current user's ID
-      employeeQuery.$or = [
-        { _id: req.user._id },
-        { reportsTo: req.user._id }
-      ];
+    else if (req.user.hasFeature('attendance', 'viewAllAttendance')) {
+      // 2. View All (Organization Wide)
+      employeeQuery.organizationId = orgObjectId;
+      // No employee filter needed (fetch all for org)
     }
+    // 3. Implicit Supervisor Check (Logic below handles both Supervisor and Regular User)
     else {
-      // 3. Regular User: View Self Only
-      employeeQuery._id = req.user._id;
+      // If user has subordinates, they will be fetched.
+      // If no subordinates, they only see themselves.
+      const subordinateIds = await getAllSubordinateIds(req.user._id, req.user.organizationId);
+
+      if (subordinateIds.length > 0) {
+        // Manager: View Self + Subordinates
+        employeeQuery.$or = [
+          { _id: req.user._id },
+          { _id: { $in: subordinateIds } }
+        ];
+      } else {
+        // Regular User: View Self Only
+        employeeQuery._id = req.user._id;
+      }
     }
 
     const employees = await User.find(employeeQuery).select('name email role').lean();
@@ -845,21 +855,14 @@ exports.getEmployeeAttendanceByDate = async (req, res, next) => {
       // 1. Admin/System: Access All
       isAuthorized = true;
     }
-    else if (req.user.hasFeature('attendance', 'viewTeamAttendance')) {
-      // 2. Manager: Access Self + Subordinates
+    else {
+      // 2. Manager/Regular User: Access Self + Subordinates (Implicit)
       if (employeeId.toString() === userId.toString()) {
         isAuthorized = true;
       } else {
         // Check if the target employee reports to the current user
-        // reportsTo is an array of IDs. We check if userId is in that array.
         const isSubordinate = employee.reportsTo && employee.reportsTo.some(id => id.toString() === userId.toString());
         if (isSubordinate) isAuthorized = true;
-      }
-    }
-    else {
-      // 3. Regular User: Access Self Only
-      if (employeeId.toString() === userId.toString()) {
-        isAuthorized = true;
       }
     }
 
@@ -956,7 +959,7 @@ exports.adminMarkAttendance = async (req, res, next) => {
 
     const { employeeId, date, status, notes } = adminMarkSchema.parse(req.body);
 
-    const employee = await User.findOne({ _id: employeeId, organizationId: orgObjectId }).select('role name reportsTo customRoleId');
+    const employee = await User.findOne({ _id: employeeId, organizationId: orgObjectId }).select('role name reportsTo customRoleId organizationId');
     if (!employee) return res.status(404).json({ success: false, message: "Employee not found in your organization." });
 
     // Hierarchy Check: Admin can mark anyone's attendance; Manager can only mark subordinates' attendance

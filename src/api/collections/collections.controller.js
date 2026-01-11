@@ -6,6 +6,7 @@ const { z } = require('zod');
 const cloudinary = require('../../config/cloudinary');
 const fs = require('fs');
 const { isSystemRole } = require('../../utils/defaultPermissions');
+const { getHierarchyFilter } = require('../../utils/hierarchyHelper');
 
 // --- Zod Validation Schemas ---
 
@@ -142,26 +143,11 @@ exports.getAllCollections = async (req, res, next) => {
         const query = { organizationId: organizationId };
 
         // Dynamic role filtering:
-        // 1. System roles (superadmin/developer) and org admin: see all org data
-        // 2. Users with 'viewTeamCollections' permission: see own + subordinates' data
-        // 3. Regular users: see own data only
-        if (role === 'admin' || isSystemRole(role)) {
-            // Admin/System: View All - No additional filters needed (already filtered by orgId)
-        }
-        else if (req.user.hasFeature('collections', 'viewTeamCollections')) {
-            // Manager: View Self + Subordinates
-            const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
-            const subordinateIds = subordinates.map(u => u._id);
+        // Use central hierarchy filter
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'collections', 'viewAllCollections');
 
-            query.$or = [
-                { createdBy: userId },
-                { createdBy: { $in: subordinateIds } }
-            ];
-        }
-        else {
-            // Regular User: View Own Only
-            query.createdBy = userId;
-        }
+        // Merge with existing org query
+        Object.assign(query, hierarchyFilter);
 
         const collections = await Collection.find(query)
             .populate('party', 'partyName ownerName')
@@ -209,26 +195,8 @@ exports.getCollectionById = async (req, res, next) => {
         };
 
         // Dynamic role filtering:
-        // 1. System roles and org admin: can access any collection in org
-        // 2. Users with 'viewTeamCollections': can access own or subordinates' collections
-        // 3. Regular users: can access own collections only
-        if (role === 'admin' || isSystemRole(role)) {
-            // Admin/System: Access All
-        }
-        else if (req.user.hasFeature('collections', 'viewTeamCollections')) {
-            // Manager: View Self + Subordinates
-            const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
-            const subordinateIds = subordinates.map(u => u._id);
-
-            query.$or = [
-                { createdBy: userId },
-                { createdBy: { $in: subordinateIds } }
-            ];
-        }
-        else {
-            // Regular User: View Own Only
-            query.createdBy = userId;
-        }
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'collections', 'viewAllCollections');
+        Object.assign(query, hierarchyFilter);
 
         const collection = await Collection.findOne(query)
             .populate('party', 'partyName ownerName')

@@ -131,7 +131,6 @@ exports.getAllProspects = async (req, res, next) => {
         const accessFilter = await getEntityAccessFilter(
             req.user,
             'prospects',
-            'viewTeamProspects',
             'viewAllProspects'
         );
         const query = { organizationId: organizationId, ...accessFilter };
@@ -166,7 +165,6 @@ exports.getAllProspectsDetails = async (req, res, next) => {
         const accessFilter = await getEntityAccessFilter(
             req.user,
             'prospects',
-            'viewTeamProspects',
             'viewAllProspects'
         );
         const query = { organizationId, ...accessFilter };

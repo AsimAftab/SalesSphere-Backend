@@ -176,7 +176,7 @@ exports.getAllLeaveRequests = async (req, res, next) => {
         const { organizationId, role, _id: userId } = req.user;
 
         // Get hierarchy filter
-        const hierarchyFilter = await getHierarchyFilter(req.user, 'leaves', 'viewTeamLeaves');
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'leaves', 'viewAllLeaves');
 
         const query = {
             organizationId,
@@ -184,25 +184,10 @@ exports.getAllLeaveRequests = async (req, res, next) => {
         };
 
         const leaveRequests = await LeaveRequest.find(query)
-            .populate('employee', 'name email role') // Changed from 'createdBy' to 'employee' based on previous context, but checking model... 
-            // Wait, schema uses 'employee' or 'createdBy'?
-            // In updateLeaveRequestStatus (lines 305+), we see populate('employee', ...).
-            // But in createLeaveRequest (lines 118, 155), we see 'createdBy'.
-            // Looking at the view_file for createLeaveRequest (lines 155), it saves as 'createdBy: userId'.
-            // BUT earlier viewing of updateLeaveRequestStatus (Step 1910) showed populate('employee').
-            // Let's check schema/previous code to be sure. 
-            // Step 1905: `populate('employee', 'name email reportsTo role')` was used.
-            // Step 2003: `populate('createdBy', ...)` was used in getLeaveRequestById.
-            // It seems inconsistent or I misread.
-            // Let's assume 'createdBy' is the field since it's standard.
-            // Wait, line 306 in viewed file said `.populate('createdBy', ...)` in previous turns?
-            // Actually, in Step 1897 check, I replaced content to use `employee`.
-            // Let's stick to `createdBy` if the schema has it, or `employee` if that's the field.
-            // The LeaveRequest model schema isn't fully visible, but `createLeaveRequest` saves `createdBy`.
-            // Let's use `createdBy` to be safe as per `getAllLeaveRequests` existing code.
             .populate('createdBy', 'name email role')
-            .populate('approvedBy', 'name email')
-            .sort({ createdAt: -1 });
+            .populate('approvedBy', 'name email role')
+            .sort({ createdAt: -1 })
+            .lean();
 
         res.status(200).json({ success: true, count: leaveRequests.length, data: leaveRequests });
     } catch (error) {
@@ -233,7 +218,7 @@ exports.getLeaveRequestById = async (req, res, next) => {
         const { organizationId, role, _id: userId } = req.user;
 
         // Get hierarchy filter
-        const hierarchyFilter = await getHierarchyFilter(req.user, 'leaves', 'viewTeamLeaves');
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'leaves', 'viewAllLeaves');
 
         const query = {
             _id: req.params.id,
@@ -358,14 +343,14 @@ exports.updateLeaveRequestStatus = async (req, res, next) => {
         const { status, rejectionReason } = statusSchemaValidation.parse(req.body);
 
         const leaveRequest = await LeaveRequest.findOne({ _id: req.params.id, organizationId })
-            .populate('employee', 'name email reportsTo role'); // Populate employee to check supervisor
+            .populate('createdBy', 'name email reportsTo role organizationId'); // Check creator's supervisor
 
         if (!leaveRequest) return res.status(404).json({ success: false, message: 'Leave request not found' });
         if (leaveRequest.status !== 'pending') return res.status(400).json({ success: false, message: 'Already processed' });
 
         // Hierarchy & Permission Check
         // Can this user (approver) approve this employee's request?
-        const authorized = await canApprove(req.user, leaveRequest.employee, 'leaves');
+        const authorized = await canApprove(req.user, leaveRequest.createdBy, 'leaves');
 
         if (!authorized) {
             return res.status(403).json({
@@ -378,7 +363,7 @@ exports.updateLeaveRequestStatus = async (req, res, next) => {
         const adminRoles = ['admin', 'superadmin', 'developer'];
         const isAdminOrSystem = adminRoles.includes(req.user.role);
 
-        if (leaveRequest.employee._id.toString() === userId.toString() && !isAdminOrSystem) {
+        if (leaveRequest.createdBy._id.toString() === userId.toString() && !isAdminOrSystem) {
             return res.status(403).json({ success: false, message: 'Cannot approve own request' });
         }
 

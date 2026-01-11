@@ -2,7 +2,7 @@
 // Composite Permission Middleware - Checks BOTH Plan (Subscription) AND Role
 // This is the MAIN middleware to use for route protection
 
-const { isSystemRole } = require('../utils/defaultPermissions');
+const { isSystemRole, getRoleDefaultFeatures } = require('../utils/defaultPermissions');
 const { isValidFeature } = require('../config/featureRegistry');
 const Organization = require('../api/organizations/organization.model');
 
@@ -202,7 +202,6 @@ async function checkPlanFeatureForOrg(req, organizationId, moduleName, featureKe
  */
 function checkRoleFeaturePermission(user, moduleName, featureKey) {
     const { role, customRoleId } = user;
-    const { getRoleDefaultFeatures } = require('../utils/defaultPermissions');
 
     // 1. Check custom role first (highest priority)
     if (customRoleId && customRoleId.permissions) {
@@ -516,5 +515,6 @@ module.exports = {
     checkAllAccess,
     checkModuleAccess,
     requireSystemRole,
-    requireOrgAdmin
+    requireOrgAdmin,
+    checkRoleFeaturePermission
 };

@@ -8,6 +8,17 @@ const path = require('path');
 const fs = require('fs');
 const mongoose = require('mongoose');
 
+// --- Models for Cascading Deletion ---
+const Attendance = require('../attendance/attendance.model');
+const LeaveRequest = require('../leave-request/leave.model');
+const ExpenseClaim = require('../expense-claim/expense-claim.model');
+const TourPlan = require('../tour-plans/tour-plans.model');
+const BeatPlan = require('../beat-plans/beat-plan.model');
+const MiscellaneousWork = require('../miscellaneous-work/miscellaneous.model');
+const LocationTracking = require('../beat-plans/tracking/tracking.model');
+const Invoice = require('../invoice/invoice.model');
+// -------------------------------------
+
 // Helper function to safely delete a file
 const cleanupTempFile = (filePath) => {
     if (filePath) {
@@ -924,25 +935,75 @@ exports.updateUser = async (req, res, next) => {
         next(error);
     }
 };
-// Soft delete a user (deactivate), enforcing role permissions
+// Hard delete a user and cascade delete associated non-critical data
 exports.deleteUser = async (req, res, next) => {
     try {
-        const userToDeactivate = await User.findOne({ _id: req.params.id, organizationId: req.user.organizationId });
-        if (!userToDeactivate) return res.status(404).json({ success: false, message: 'User not found' });
+        const userIdToDelete = req.params.id;
+        const userToDelete = await User.findOne({ _id: userIdToDelete, organizationId: req.user.organizationId });
 
-        // --- Permission Checks (Protected by requirePermission('employees', 'delete') in route) ---\n        // Cannot deactivate own account
-        if (req.user.id === req.params.id) {
-            return res.status(403).json({ success: false, message: 'Cannot deactivate your own account via this endpoint.' });
+        if (!userToDelete) return res.status(404).json({ success: false, message: 'User not found' });
+
+        // --- Permission Checks ---
+        // 1. Cannot delete self
+        if (req.user.id === userIdToDelete) {
+            return res.status(403).json({ success: false, message: 'Cannot delete your own account via this endpoint.' });
         }
-        // Non-admin users cannot deactivate admin accounts
-        if (userToDeactivate.role === 'admin' && req.user.role !== 'admin') {
-            return res.status(403).json({ success: false, message: 'Only admin can deactivate admin accounts.' });
+        // 2. Only Admin can delete Admin
+        if (userToDelete.role === 'admin' && req.user.role !== 'admin') {
+            return res.status(403).json({ success: false, message: 'Only admin can delete admin accounts.' });
         }
         // --- End Permission Checks ---
 
-        const user = await User.findByIdAndUpdate(req.params.id, { isActive: false }, { new: true });
-        res.status(200).json({ success: true, message: 'User deactivated successfully' });
-    } catch (error) { next(error); }
+        // --- Safety Check: Critical Financial Records ---
+        // Prevent deletion if user has created Invoices (Audit Trail)
+        // using 'createdBy' field in Invoice model
+        const hasFinancialRecords = await Invoice.exists({ createdBy: userIdToDelete });
+        if (hasFinancialRecords) {
+            return res.status(400).json({
+                success: false,
+                message: 'Cannot delete user: This user has created Invoices/Estimates. Deleting them would break financial audit trails. Please deactivate the user instead.'
+            });
+        }
+
+        // --- Cascading Hard Delete ---
+        // 1. Attendance (Employee's records)
+        await Attendance.deleteMany({ employee: userIdToDelete });
+
+        // 2. Leave Requests (Employee's requests)
+        // usually 'createdBy' matches 'employee' for leaves
+        await LeaveRequest.deleteMany({ createdBy: userIdToDelete });
+
+        // 3. Expense Claims (Employee's claims)
+        await ExpenseClaim.deleteMany({ createdBy: userIdToDelete });
+
+        // 4. Tour Plans (Employee's plans)
+        await TourPlan.deleteMany({ createdBy: userIdToDelete });
+
+        // 5. Miscellaneous Work (Employee's logs)
+        // MiscellaneousWork uses 'employeeId' instead of 'createdBy'
+        await MiscellaneousWork.deleteMany({ employeeId: userIdToDelete });
+
+        // 6. Location Tracking (Employee's history)
+        await LocationTracking.deleteMany({ userId: userIdToDelete });
+
+        // 7. Beat Plans (Remove assignment)
+        // We do NOT delete the Beat Plan itself (it might be shared), just remove user from employees list
+        await BeatPlan.updateMany(
+            { employees: userIdToDelete },
+            { $pull: { employees: userIdToDelete } }
+        );
+
+        // 8. Finally Delete User
+        await User.findByIdAndDelete(userIdToDelete);
+
+        res.status(200).json({
+            success: true,
+            message: 'User and associated data (Attendance, Leaves, Expenses, etc.) permanently deleted.'
+        });
+
+    } catch (error) {
+        next(error);
+    }
 };
 
 // Update logged-in user's own profile image
@@ -1330,7 +1391,7 @@ exports.getEmployeeAttendanceSummary = async (req, res, next) => {
             _id: employeeId,
             organizationId: organizationId,
             isActive: true
-        }).select('name email role').lean();
+        }).select('name email role reportsTo').lean();
 
         if (!employee) {
             return res.status(404).json({
@@ -1356,8 +1417,10 @@ exports.getEmployeeAttendanceSummary = async (req, res, next) => {
             });
         }
 
-        // Permission check: Admin or the employee themselves can view (protected by route middleware)
-        if (requestorRole !== 'admin' && requestorId.toString() !== employeeId) {
+        // Permission check: Admin, the employee themselves, or their supervisor can view
+        const isSupervisor = employee.reportsTo && employee.reportsTo.some(id => id.toString() === requestorId.toString());
+
+        if (requestorRole !== 'admin' && requestorId.toString() !== employeeId && !isSupervisor) {
             return res.status(403).json({
                 success: false,
                 message: 'You do not have permission to view this employee\'s attendance'

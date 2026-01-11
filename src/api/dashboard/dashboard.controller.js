@@ -113,23 +113,15 @@ exports.getTeamPerformance = async (req, res) => {
     // Dynamic Role Filtering
     const { role, _id: userId } = req.user;
     const { isSystemRole } = require('../../utils/defaultPermissions');
+    const { getHierarchyFilter } = require('../../utils/hierarchyHelper');
 
-    if (role === 'admin' || isSystemRole(role)) {
-      // 1. Admin/System: View All
-    }
-    else if (req.user.hasFeature('dashboard', 'viewTeamPerformance')) {
-      // 2. Manager: View Self + Subordinates
-      const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
-      const subordinateIds = subordinates.map(u => u._id);
-      matchQuery.$or = [
-        { createdBy: userId },
-        { createdBy: { $in: subordinateIds } }
-      ];
-    }
-    else {
-      // 3. Regular User: View Self Only
-      matchQuery.createdBy = userId;
-    }
+    // Use centralized hierarchy filter (handles View All + Implicit Supervisor)
+    // viewAllPerformance: allows viewing all invoices in org (Global Access)
+    // If not global, implicit check allows seeing team's invoices.
+    const hierarchyFilter = await getHierarchyFilter(req.user, 'dashboard', 'viewAllPerformance');
+
+    // Merge filter into matchQuery
+    Object.assign(matchQuery, hierarchyFilter);
 
     const performance = await Invoice.aggregate([
       { $match: matchQuery },

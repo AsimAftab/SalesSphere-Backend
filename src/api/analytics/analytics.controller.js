@@ -189,7 +189,7 @@ exports.getSalesTrend = async (req, res) => {
         }
 
         // Get Hierarchy Filter
-        const hierarchyQuery = await getHierarchyFilter(req.user, 'analytics', 'viewTeamAnalytics');
+        const hierarchyQuery = await getHierarchyFilter(req.user, 'analytics', 'viewAllAnalytics');
 
         // Get sales data for each week using $facet for parallel execution
         const facetStages = {};
@@ -261,7 +261,7 @@ exports.getProductsByCategory = async (req, res) => {
         const { monthStart, monthEnd } = await getTimezoneAwareMonthRange(organizationId, month, year);
 
         // Get Hierarchy Filter
-        const hierarchyQuery = await getHierarchyFilter(req.user, 'analytics', 'viewTeamAnalytics');
+        const hierarchyQuery = await getHierarchyFilter(req.user, 'analytics', 'viewAllAnalytics');
 
         // Aggregate products sold by category
         const categoryData = await Invoice.aggregate([
@@ -359,7 +359,7 @@ exports.getTopProducts = async (req, res) => {
         const { monthStart, monthEnd } = await getTimezoneAwareMonthRange(organizationId, month, year);
 
         // Get Hierarchy Filter
-        const hierarchyQuery = await getHierarchyFilter(req.user, 'analytics', 'viewTeamAnalytics');
+        const hierarchyQuery = await getHierarchyFilter(req.user, 'analytics', 'viewAllAnalytics');
 
         // Aggregate top products sold
         const topProducts = await Invoice.aggregate([
@@ -438,7 +438,7 @@ exports.getTopParties = async (req, res) => {
         const { monthStart, monthEnd } = await getTimezoneAwareMonthRange(organizationId, month, year);
 
         // Get Hierarchy Filter
-        const hierarchyQuery = await getHierarchyFilter(req.user, 'analytics', 'viewTeamAnalytics');
+        const hierarchyQuery = await getHierarchyFilter(req.user, 'analytics', 'viewAllAnalytics');
 
         // Aggregate top parties by total order value
         const topParties = await Invoice.aggregate([

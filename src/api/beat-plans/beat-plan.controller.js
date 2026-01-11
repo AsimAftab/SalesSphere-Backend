@@ -6,6 +6,7 @@ const User = require('../users/user.model');
 const { z } = require('zod');
 const { calculateDistance, calculateRouteDistance, optimizeRoute } = require('../../utils/distanceCalculator');
 const { closeTrackingSessionsForBeatPlan } = require('./tracking/tracking.controller');
+const { getAllSubordinateIds, canApprove } = require('../../utils/hierarchyHelper');
 
 // --- Zod Validation Schemas ---
 // Simple validation for UI create beat plan
@@ -172,33 +173,33 @@ exports.getBeatPlanData = async (req, res, next) => {
         // --- HIERARCHY LOGIC FOR STATS ---
         let hierarchyFilter = {};
 
-        // 1. Admin / System Role: View All
-        if (role === 'admin' || isSystemRole(role)) {
+        // 1. Admin / System Role / View All Feature: View All
+        if (role === 'admin' || isSystemRole(role) || req.user.hasFeature('beatPlan', 'viewAllBeatPlans')) {
             hierarchyFilter = {};
         }
-        // 2. Manager with viewTeamBeatPlans: View Self + Subordinates
-        else if (req.user.hasFeature('beatPlan', 'viewTeamBeatPlans')) {
-            const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
-            const subordinateIds = subordinates.map(u => u._id);
-            // Plans created by OR assigned to (Me or Subordinates)
-            hierarchyFilter = {
-                $or: [
-                    { createdBy: userId },
-                    { createdBy: { $in: subordinateIds } },
-                    { employees: userId }, // Assigned to me
-                    { employees: { $in: subordinateIds } } // Assigned to subordinates
-                ]
-            };
-        }
-        // 3. Regular User: View Self Only
         else {
-            // Plans created by Me OR Assigned to Me
-            hierarchyFilter = {
-                $or: [
-                    { createdBy: userId },
-                    { employees: userId }
-                ]
-            };
+            // Implicit Supervisor Check
+            const subordinateIds = await getAllSubordinateIds(userId, organizationId);
+
+            if (subordinateIds.length > 0) {
+                // Manager: View Self + Subordinates (Created or Assigned)
+                hierarchyFilter = {
+                    $or: [
+                        { createdBy: userId },
+                        { createdBy: { $in: subordinateIds } },
+                        { employees: userId },
+                        { employees: { $in: subordinateIds } }
+                    ]
+                };
+            } else {
+                // Regular User: View Self Only (Created or Assigned)
+                hierarchyFilter = {
+                    $or: [
+                        { createdBy: userId },
+                        { employees: userId }
+                    ]
+                };
+            }
         }
 
         const commonFilter = { organizationId, ...hierarchyFilter };
@@ -278,6 +279,7 @@ exports.createBeatPlan = async (req, res, next) => {
             _id: validatedData.employeeId,
             organizationId,
             role: 'user',
+            role: 'user',
             isActive: true
         });
 
@@ -286,6 +288,33 @@ exports.createBeatPlan = async (req, res, next) => {
                 success: false,
                 message: 'Invalid employee. Employee must be an active user in your organization.'
             });
+        }
+
+        // Security: Ensure Manager can only assign to subordinates
+        // Admin and System roles bypass this
+        const { role } = req.user;
+        const isAdmin = role === 'admin' || isSystemRole(role);
+
+        if (!isAdmin) {
+            // Check if employee reports to this user
+            const isSubordinate = await canApprove(req.user, employee, 'beatPlan'); // reusing canApprove for hierarchy check
+            // Note: canApprove returns true if approver is supervisor. 
+            // We can also double check direct reportsTo if canApprove isn't granular enough, 
+            // but canApprove handles deep hierarchy if designed well. 
+            // Let's use specific check for safety if canApprove is strict on "permissions".
+            // Actually, let's use the explicit check:
+            const reportsTo = employee.reportsTo || [];
+            const isDirectOrIndirectReport = Array.isArray(reportsTo)
+                ? reportsTo.some(id => id.toString() === userId.toString())
+                : reportsTo.toString() === userId.toString();
+
+            // Fallback to canApprove which handles logic properly
+            if (!isDirectOrIndirectReport && !await canApprove(req.user, employee, 'beatPlan')) {
+                return res.status(403).json({
+                    success: false,
+                    message: "You can only assign beat plans to your subordinates."
+                });
+            }
         }
 
         // Verify all parties, sites, and prospects belong to the organization
@@ -414,32 +443,33 @@ exports.getAllBeatPlans = async (req, res, next) => {
         // --- HIERARCHY LOGIC ---
         let hierarchyFilter = {};
 
-        // 1. Admin / System Role: View All
-        if (role === 'admin' || isSystemRole(role)) {
+        // 1. Admin / System Role / View All Feature: View All
+        if (role === 'admin' || isSystemRole(role) || req.user.hasFeature('beatPlan', 'viewAllBeatPlans')) {
             hierarchyFilter = {};
         }
-        // 2. Manager with viewTeamBeatPlans: View Self + Subordinates
-        else if (req.user.hasFeature('beatPlan', 'viewTeamBeatPlans')) {
-            const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
-            const subordinateIds = subordinates.map(u => u._id);
-            // Plans created by OR assigned to (Me or Subordinates)
-            hierarchyFilter = {
-                $or: [
-                    { createdBy: userId },
-                    { createdBy: { $in: subordinateIds } },
-                    { employees: userId }, // Assigned to me
-                    { employees: { $in: subordinateIds } } // Assigned to subordinates
-                ]
-            };
-        }
-        // 3. Regular User: View Self + Assigned
         else {
-            hierarchyFilter = {
-                $or: [
-                    { createdBy: userId },
-                    { employees: userId }
-                ]
-            };
+            // Implicit Supervisor Check
+            const subordinateIds = await getAllSubordinateIds(userId, organizationId);
+
+            if (subordinateIds.length > 0) {
+                // Manager: View Self + Subordinates (Created or Assigned)
+                hierarchyFilter = {
+                    $or: [
+                        { createdBy: userId },
+                        { createdBy: { $in: subordinateIds } },
+                        { employees: userId },
+                        { employees: { $in: subordinateIds } }
+                    ]
+                };
+            } else {
+                // Regular User: View Self Only (Created or Assigned)
+                hierarchyFilter = {
+                    $or: [
+                        { createdBy: userId },
+                        { employees: userId }
+                    ]
+                };
+            }
         }
 
         // Build filter
@@ -504,6 +534,26 @@ exports.getBeatPlanById = async (req, res, next) => {
             return res.status(404).json({ success: false, message: 'Beat plan not found' });
         }
 
+        // --- IDOR PROTECTION ---
+        // Access allowed if: Admin, Creator, Assigned, or Supervisor of Assigned
+        const { role, _id: userId } = req.user;
+        const isAdmin = role === 'admin' || isSystemRole(role);
+        const isCreator = beatPlan.createdBy?._id.toString() === userId.toString();
+        const isAssigned = beatPlan.employees.some(emp => emp._id.toString() === userId.toString());
+
+        if (!isAdmin && !isCreator && !isAssigned) {
+            // Check if user is supervisor of ANY assigned employee
+            // Optimization: Get user's subordinates once
+            const mySubordinates = await getAllSubordinateIds(userId, organizationId);
+            const mySubordinateIds = new Set(mySubordinates.map(id => id.toString()));
+
+            const isSupervisorOfAssigned = beatPlan.employees.some(emp => mySubordinateIds.has(emp._id.toString()));
+
+            if (!isSupervisorOfAssigned) {
+                return res.status(403).json({ success: false, message: 'Access denied to this beat plan' });
+            }
+        }
+
         res.status(200).json({ success: true, data: beatPlan });
     } catch (error) {
         console.error('Error fetching beat plan:', error);
@@ -550,6 +600,24 @@ exports.updateBeatPlan = async (req, res, next) => {
                     success: false,
                     message: 'Invalid employee. Employee must be an active user in your organization.'
                 });
+            }
+
+            // Security: Subordinate check for update
+            const { role, _id: userId } = req.user;
+            const isAdmin = role === 'admin' || isSystemRole(role);
+
+            if (!isAdmin) {
+                const reportsTo = employee.reportsTo || [];
+                const isSubordinate = Array.isArray(reportsTo)
+                    ? reportsTo.some(id => id.toString() === userId.toString())
+                    : reportsTo.toString() === userId.toString();
+
+                if (!isSubordinate && !await canApprove(req.user, employee, 'beatPlan')) {
+                    return res.status(403).json({
+                        success: false,
+                        message: "You can only assign beat plans to your subordinates."
+                    });
+                }
             }
 
             beatPlan.employees = [validatedData.employeeId];
@@ -832,14 +900,23 @@ exports.getBeatPlanDetails = async (req, res, next) => {
         }
 
         // Check access - either assigned employee or admin
+        // Fix Manager Blind Spot: Allow Creator and Supervisors too
         const isAssigned = beatPlan.employees.some(emp => emp._id.toString() === userId.toString());
-        const isAdmin = role === 'admin';
+        const isAdmin = role === 'admin' || isSystemRole(role);
+        const isCreator = beatPlan.createdBy?._id.toString() === userId.toString();
 
-        if (!isAssigned && !isAdmin) {
-            return res.status(403).json({
-                success: false,
-                message: 'You do not have access to this beat plan'
-            });
+        if (!isAssigned && !isAdmin && !isCreator) {
+            // Subordinate check
+            const mySubordinates = await getAllSubordinateIds(userId, organizationId);
+            const mySubordinateIds = new Set(mySubordinates.map(id => id.toString()));
+            const isSupervisorOfAssigned = beatPlan.employees.some(emp => mySubordinateIds.has(emp._id.toString()));
+
+            if (!isSupervisorOfAssigned) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'You do not have access to this beat plan'
+                });
+            }
         }
 
         // Populate all directory types with only necessary fields
@@ -1041,14 +1118,23 @@ exports.optimizeBeatPlanRoute = async (req, res, next) => {
         }
 
         // Check access - either assigned employee or admin (permissions via route middleware)
+        // Fix Manager Blind Spot: Allow Creator and Supervisors too
         const isAssigned = beatPlan.employees.some(emp => emp._id.toString() === userId.toString());
-        const isAdmin = role === 'admin';
+        const isAdmin = role === 'admin' || isSystemRole(role);
+        const isCreator = beatPlan.createdBy?._id.toString() === userId.toString();
 
-        if (!isAssigned && !isAdmin) {
-            return res.status(403).json({
-                success: false,
-                message: 'You do not have access to this beat plan'
-            });
+        if (!isAssigned && !isAdmin && !isCreator) {
+            // Subordinate check
+            const mySubordinates = await getAllSubordinateIds(userId, organizationId);
+            const mySubordinateIds = new Set(mySubordinates.map(id => id.toString()));
+            const isSupervisorOfAssigned = beatPlan.employees.some(emp => mySubordinateIds.has(emp._id.toString()));
+
+            if (!isSupervisorOfAssigned) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'You do not have access to this beat plan'
+                });
+            }
         }
 
         // Separate parties with and without valid location coordinates
@@ -1307,10 +1393,16 @@ exports.markPartyVisited = async (req, res, next) => {
         const visitIndex = beatPlan.visits.findIndex(v =>
             v.directoryId.toString() === actualDirectoryId && v.directoryType === actualDirectoryType
         );
-        if (visitIndex === -1) {
-            return res.status(400).json({
+        // Fix: Strictly ensure req.user is in the beatPlan.employees list
+        // Even Admins should not "mark visited" remotely unless they optimize/update. 
+        // Visiting implies physical presence or direct action by the assigned user.
+        // If you want to allow Admins for testing, add || role === 'admin'
+
+        const isAssigned = beatPlan.employees.some(empId => empId.toString() === userId.toString());
+        if (!isAssigned) {
+            return res.status(403).json({
                 success: false,
-                message: 'Visit record not found'
+                message: 'Only the assigned employee can mark items as visited.'
             });
         }
 
