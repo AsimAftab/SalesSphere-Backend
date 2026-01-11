@@ -71,18 +71,18 @@ router.post('/', checkAccess('expenses', 'create'), createExpenseClaim);
 
 // UPLOAD RECEIPT
 
-router.post('/:id/receipt', 
+router.post('/:id/receipt',
     checkAnyAccess([
         { module: 'expenses', feature: 'create' }, // For initial upload workflow
         { module: 'expenses', feature: 'update' }  // For corrections later
-    ]), 
-    imageUpload.single('receipt'), 
+    ]),
+    imageUpload.single('receipt'),
     uploadReceipt
 );
 
 // UPDATE
-router.put('/:id', checkAccess('expenses', 'update'), updateExpenseClaim);
 router.put('/:id/status', checkAccess('expenses', 'updateStatus'), updateExpenseClaimStatus);
+router.put('/:id', checkAccess('expenses', 'update'), updateExpenseClaim);
 
 // DELETE
 router.delete('/bulk-delete', checkAccess('expenses', 'bulkDelete'), bulkDeleteExpenseClaims);

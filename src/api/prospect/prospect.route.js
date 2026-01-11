@@ -62,6 +62,24 @@ router.get('/categories',
     getProspectCategories
 );
 
+// POST /categories - Create new prospect category (all authenticated users)
+router.post('/categories',
+    checkAccess('prospects', 'create'),
+    createProspectCategory
+);
+
+// PUT /categories/:id - Update prospect category (admin only)
+router.put('/categories/:id',
+    requireOrgAdmin(),
+    updateProspectCategory
+);
+
+// DELETE /categories/:id - Delete prospect category (admin only)
+router.delete('/categories/:id',
+    requireOrgAdmin(),
+    deleteProspectCategory
+);
+
 // ============================================
 // ASSIGNMENT ROUTES (must be before /:id wildcard)
 // ============================================
@@ -130,38 +148,19 @@ router.post('/:id/transfer',
 // ============================================
 // DELETE OPERATIONS
 // ============================================
-// DELETE /:id - Remove prospect records from the system
-router.delete('/:id',
-    checkAccess('prospects', 'delete'),
-    deleteProspect
-);
-
 // DELETE /:id/images/:imageNumber - Permanently remove images from prospect profile
 router.delete('/:id/images/:imageNumber',
     checkAccess('prospects', 'deleteImage'),
     deleteProspectImage
 );
 
-// ============================================
-// CATEGORY MANAGEMENT
-// ============================================
-// POST /categories - Create new prospect category (all authenticated users)
-router.post('/categories',
-    checkAccess('prospects', 'create'),
-    createProspectCategory
+// DELETE /:id - Remove prospect records from the system
+router.delete('/:id',
+    checkAccess('prospects', 'delete'),
+    deleteProspect
 );
 
-// PUT /categories/:id - Update prospect category (admin only)
-router.put('/categories/:id',
-    requireOrgAdmin(),
-    updateProspectCategory
-);
 
-// DELETE /categories/:id - Delete prospect category (admin only)
-router.delete('/categories/:id',
-    requireOrgAdmin(),
-    deleteProspectCategory
-);
 
 // ============================================
 // IMPORT/EXPORT ROUTES (Future)

@@ -1,7 +1,16 @@
-// controllers/dashboard.controller.js
+// src/api/dashboard/dashboard.controller.js
 const mongoose = require('mongoose');
 const User = require('../users/user.model');
-const { DateTime } = require('luxon'); // npm i luxon
+const { DateTime } = require('luxon');
+const { getHierarchyFilter, getAllSubordinateIds } = require('../../utils/hierarchyHelper');
+const { isSystemRole } = require('../../utils/defaultPermissions');
+// Import the permission checker to safely check roles/permissions
+const { checkRoleFeaturePermission } = require('../../middlewares/compositeAccess.middleware');
+
+// Models
+const Invoice = require('../invoice/invoice.model');
+const Party = require('../parties/party.model');
+const Attendance = require('../attendance/attendance.model');
 
 // Luxon helper: get UTC start/end instants for "date" in timeZone
 function getUTCRangeForDateInTimeZone(date = new Date(), timeZone = 'UTC') {
@@ -20,42 +29,38 @@ function toObjectIdIfNeeded(id) {
 // =============================
 // GET /api/v1/dashboard/stats
 // =============================
-// Fast, index-friendly: compute UTC window via Luxon and use createdAt range.
-// Includes ALL invoices (no status filter) for today's totals, per your request.
 exports.getDashboardStats = async (req, res) => {
   try {
     const { organizationId } = req.user;
-    if (!organizationId)
-      return res.status(400).json({ success: false, message: 'organizationId missing' });
+    if (!organizationId) return res.status(400).json({ success: false, message: 'organizationId missing' });
 
     const orgObjectId = toObjectIdIfNeeded(organizationId);
-
-    const Invoice = require('../invoice/invoice.model');
-    const Party = require('../parties/party.model');
-
-    // Use timezone from req.organization (cached by protect middleware)
     const timezone = req.organization?.timezone || 'UTC';
-
-    // compute UTC range for org-local "today" (fast & indexable)
     const { startUTC: today, endUTC: tomorrow } = getUTCRangeForDateInTimeZone(new Date(), timezone);
 
-    // DEBUG (enable while testing)
-    // console.log('getDashboardStats range', timezone, today.toISOString(), tomorrow.toISOString());
+    // --- HIERARCHY FILTERS ---
+    // 1. Parties: 'viewAllParties' or implicit team view
+    const partyAccessFilter = await getHierarchyFilter(req.user, 'parties', 'viewAllParties');
 
-    // 1) Total parties created today (index-friendly)
+    // 2. Invoices: 'viewAllInvoices' or implicit team view
+    const invoiceAccessFilter = await getHierarchyFilter(req.user, 'invoice', 'viewAllInvoices');
+
+    // --- QUERIES ---
+
+    // 1) Total parties created today (Personalized)
     const totalPartiesToday = await Party.countDocuments({
       organizationId: orgObjectId,
-      createdAt: { $gte: today, $lt: tomorrow }
+      createdAt: { $gte: today, $lt: tomorrow },
+      ...partyAccessFilter // Only count parties visible to user
     });
 
-    // 2) Today's invoices (ALL statuses included)
+    // 2) Today's invoices (Personalized)
     const invoiceMatch = {
       organizationId: orgObjectId,
       createdAt: { $gte: today, $lt: tomorrow },
-      // no status filter — includes pending/completed/rejected/etc.
+      ...invoiceAccessFilter // Only aggregate invoices visible to user
     };
 
-    // Sum totals using aggregation (ensures correct numeric sum)
     const todayAgg = await Invoice.aggregate([
       { $match: invoiceMatch },
       { $group: { _id: null, totalSalesToday: { $sum: { $ifNull: ['$totalAmount', 0] } }, totalOrdersToday: { $sum: 1 } } }
@@ -63,11 +68,12 @@ exports.getDashboardStats = async (req, res) => {
     const totalSalesToday = todayAgg[0]?.totalSalesToday || 0;
     const totalOrdersToday = todayAgg[0]?.totalOrdersToday || 0;
 
-    // 3) Pending orders (global count across all time) - exclude estimates
+    // 3) Pending orders (Personalized)
     const pendingOrders = await Invoice.countDocuments({
       organizationId: orgObjectId,
       status: 'pending',
-      isEstimate: false
+      isEstimate: false,
+      ...invoiceAccessFilter
     });
 
     return res.status(200).json({
@@ -89,39 +95,23 @@ exports.getDashboardStats = async (req, res) => {
 // =============================
 // GET /api/v1/dashboard/team-performance
 // =============================
-// Uses Luxon range (same approach) — excludes 'rejected' as before.
 exports.getTeamPerformance = async (req, res) => {
   try {
     const { organizationId } = req.user;
-    if (!organizationId) return res.status(400).json({ success: false, message: 'organizationId missing' });
-
     const orgObjectId = toObjectIdIfNeeded(organizationId);
-
-    const Invoice = require('../invoice/invoice.model');
-
-    // Use timezone from req.organization (cached by protect middleware)
     const timezone = req.organization?.timezone || 'UTC';
-
     const { startUTC: today, endUTC: tomorrow } = getUTCRangeForDateInTimeZone(new Date(), timezone);
+
+    // Dynamic Role Filtering (Consistent with other modules)
+    // Checks 'viewAllInvoices' or falls back to team view
+    const hierarchyFilter = await getHierarchyFilter(req.user, 'invoice', 'viewAllInvoices');
 
     const matchQuery = {
       organizationId: orgObjectId,
       createdAt: { $gte: today, $lt: tomorrow },
-      status: { $ne: 'rejected' }
+      status: { $ne: 'rejected' },
+      ...hierarchyFilter // Apply permissions
     };
-
-    // Dynamic Role Filtering
-    const { role, _id: userId } = req.user;
-    const { isSystemRole } = require('../../utils/defaultPermissions');
-    const { getHierarchyFilter } = require('../../utils/hierarchyHelper');
-
-    // Use centralized hierarchy filter (handles View All + Implicit Supervisor)
-    // viewAllPerformance: allows viewing all invoices in org (Global Access)
-    // If not global, implicit check allows seeing team's invoices.
-    const hierarchyFilter = await getHierarchyFilter(req.user, 'dashboard', 'viewAllPerformance');
-
-    // Merge filter into matchQuery
-    Object.assign(matchQuery, hierarchyFilter);
 
     const performance = await Invoice.aggregate([
       { $match: matchQuery },
@@ -142,10 +132,8 @@ exports.getTeamPerformance = async (req, res) => {
           as: 'userInfo'
         }
       },
-      // CRITICAL: Filter out deleted users (orphan invoices) by not preserving nulls
-      // This prevents "Unknown User" entries from appearing in the leaderboard
       { $unwind: { path: '$userInfo', preserveNullAndEmptyArrays: false } },
-      // Also filter out system roles from the leaderboard to keep it org-focused
+      // Filter out system roles from leaderboard
       {
         $match: {
           'userInfo.role': { $nin: ['superadmin', 'developer'] }
@@ -156,7 +144,6 @@ exports.getTeamPerformance = async (req, res) => {
           _id: 0,
           userId: '$_id',
           name: '$userInfo.name',
-          email: '$userInfo.email',
           role: '$userInfo.role',
           avatarUrl: '$userInfo.avatarUrl',
           sales: '$totalSales',
@@ -186,62 +173,52 @@ exports.getTeamPerformance = async (req, res) => {
 // =============================
 exports.getAttendanceSummary = async (req, res) => {
   try {
-    const { organizationId, role } = req.user;
-    if (!organizationId) return res.status(400).json({ success: false, message: 'organizationId missing' });
-
+    const { organizationId, role, _id: userId } = req.user;
     const orgObjectId = toObjectIdIfNeeded(organizationId);
-    const { isSystemRole } = require('../../utils/defaultPermissions');
-
-    const Attendance = require('../attendance/attendance.model');
-
-    // Use timezone from req.organization (cached by protect middleware)
     const timezone = req.organization?.timezone || 'UTC';
-
-    // Get UTC range for today in org timezone
     const { startUTC: today, endUTC: tomorrow } = getUTCRangeForDateInTimeZone(new Date(), timezone);
 
-    // Get total team strength (active employees in organization)
-    // Dynamic Role Filtering
+    // --- HIERARCHY LOGIC (Fixed for Deep Hierarchy) ---
+    let allowedUserIds = [];
+
+    // Check permission using the centralized helper
+    const canViewAll = checkRoleFeaturePermission(req.user, 'attendance', 'viewAllAttendance').allowed;
+
+    // 1. Admin / System Role / View All Permission
+    if (role === 'admin' || isSystemRole(role) || canViewAll) {
+      allowedUserIds = null; // null means "fetch all based on organizationId"
+    }
+    // 2. Manager / Regular User: View Self + Deep Subordinates
+    else {
+      // Use the optimized helper to get ALL nested subordinates (not just direct reports)
+      const subordinateIds = await getAllSubordinateIds(userId, organizationId);
+      allowedUserIds = [userId, ...subordinateIds];
+    }
+
+    // Build Queries
     const teamStrengthQuery = {
       organizationId: orgObjectId,
       isActive: true
     };
 
-    // Filter for attendance records aggregation
     const attendanceMatch = {
       organizationId: orgObjectId,
       date: { $gte: today, $lt: tomorrow }
     };
 
-    if (isSystemRole(role) || role === 'admin') {
-      // 1. Admin/System: View All (exclude superadmin/developer/admin from count if needed, or keep logic consistent)
-      if (!isSystemRole(role)) {
-        teamStrengthQuery.role = { $nin: ['superadmin', 'developer'] }; // Keep seeing Admins/Users
-      }
-    }
-    else if (req.user.hasFeature('dashboard', 'viewAttendanceSummary')) {
-      // 2. Manager: View Self + Subordinates
-      const subordinates = await User.find({ reportsTo: { $in: [req.user._id] } }).select('_id');
-      const subordinateIds = subordinates.map(u => u._id);
-
-      const allowedIds = [req.user._id, ...subordinateIds];
-
-      teamStrengthQuery._id = { $in: allowedIds };
-      attendanceMatch.employee = { $in: allowedIds };
-    }
-    else {
-      // 3. Regular User: View Self Only
-      teamStrengthQuery._id = req.user._id;
-      attendanceMatch.employee = req.user._id;
+    // Apply User Filter if not allowed to view all
+    if (allowedUserIds !== null) {
+      teamStrengthQuery._id = { $in: allowedUserIds };
+      attendanceMatch.employee = { $in: allowedUserIds };
+    } else {
+      // Even admins shouldn't see superadmin stats usually
+      teamStrengthQuery.role = { $nin: ['superadmin', 'developer'] };
     }
 
     const teamStrength = await User.countDocuments(teamStrengthQuery);
 
-    // Get today's attendance records
     const attendanceRecords = await Attendance.aggregate([
-      {
-        $match: attendanceMatch
-      },
+      { $match: attendanceMatch },
       {
         $group: {
           _id: '$status',
@@ -250,49 +227,34 @@ exports.getAttendanceSummary = async (req, res) => {
       }
     ]);
 
-    // Process attendance counts
-    let present = 0;
-    let absent = 0;
-    let onLeave = 0;
-    let halfDay = 0;
-    let weeklyOff = 0;
+    // Process counts
+    let present = 0, absent = 0, onLeave = 0, halfDay = 0, weeklyOff = 0;
 
     attendanceRecords.forEach(record => {
-      switch (record._id) {
-        case 'P':
-          present = record.count;
-          break;
-        case 'A':
-          absent = record.count;
-          break;
-        case 'L':
-          onLeave = record.count;
-          break;
-        case 'H':
-          halfDay = record.count;
-          break;
-        case 'W':
-          weeklyOff = record.count;
-          break;
-      }
+      if (record._id === 'P') present = record.count;
+      else if (record._id === 'A') absent = record.count;
+      else if (record._id === 'L') onLeave = record.count;
+      else if (record._id === 'H') halfDay = record.count;
+      else if (record._id === 'W') weeklyOff = record.count;
     });
 
-    // Calculate attendance rate (present + half day / team strength * 100)
+    // Calculate attendance rate
     const attendanceRate = teamStrength > 0
       ? ((present + halfDay * 0.5) / teamStrength * 100).toFixed(2)
       : 0;
 
-    const summary = {
-      teamStrength,
-      present,
-      absent,
-      onLeave,
-      halfDay,
-      weeklyOff,
-      attendanceRate: parseFloat(attendanceRate),
-    };
-
-    return res.status(200).json({ success: true, data: summary });
+    return res.status(200).json({
+      success: true,
+      data: {
+        teamStrength,
+        present,
+        absent,
+        onLeave,
+        halfDay,
+        weeklyOff,
+        attendanceRate: parseFloat(attendanceRate),
+      }
+    });
   } catch (error) {
     console.error('Error fetching attendance summary:', error);
     return res.status(500).json({ message: 'Server Error', error: error.message });
@@ -302,37 +264,28 @@ exports.getAttendanceSummary = async (req, res) => {
 // =============================
 // GET /api/v1/dashboard/sales-trend
 // =============================
-// Pre-filter by UTC window (Luxon) then group by local date in Mongo ($dateToString + timezone)
 exports.getSalesTrend = async (req, res) => {
   try {
     const { organizationId } = req.user;
-    if (!organizationId) return res.status(400).json({ success: false, message: 'organizationId missing' });
-
     const orgObjectId = toObjectIdIfNeeded(organizationId);
-
-    const Invoice = require('../invoice/invoice.model');
-
-    // Use timezone from req.organization (cached by protect middleware)
     const timezone = req.organization?.timezone || 'UTC';
 
-    // compute startUTC for 7-day window (include today)
+    // 7-day window
     const now = new Date();
     const sevenDaysAgo = DateTime.fromJSDate(now, { zone: timezone }).minus({ days: 6 }).startOf('day').toUTC().toJSDate();
-    const { startUTC: startWindow } = { startUTC: sevenDaysAgo };
 
-    // DEBUG
-    // console.log('getSalesTrend startWindow UTC:', startWindow.toISOString(), 'timezone:', timezone);
+    // Access Control
+    const hierarchyFilter = await getHierarchyFilter(req.user, 'invoice', 'viewAllInvoices');
 
     const salesData = await Invoice.aggregate([
-      // pre-filter by UTC to reduce scanned docs (index-friendly)
       {
         $match: {
           organizationId: orgObjectId,
-          createdAt: { $gte: startWindow },
-          status: { $ne: 'rejected' } // exclude rejected for trends; change if you want all statuses
+          createdAt: { $gte: sevenDaysAgo },
+          status: { $ne: 'rejected' },
+          ...hierarchyFilter // Personalized trend
         }
       },
-      // group by org-local date string
       {
         $group: {
           _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt", timezone } },

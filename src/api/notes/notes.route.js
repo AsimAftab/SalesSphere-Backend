@@ -46,6 +46,17 @@ router.get('/',
     getAllNotes
 );
 
+// GET /:id/images - View images for a specific note
+// NOTE: Must come before /:id to avoid route matching issues
+router.get('/:id/images',
+    checkAnyAccess([
+        { module: 'notes', feature: 'viewList' },
+        { module: 'notes', feature: 'viewDetails' },
+        { module: 'notes', feature: 'viewOwn' }
+    ]),
+    getNoteImages
+);
+
 // GET /:id - View specific note details
 // Users with viewList can view any, users with viewOwn/viewDetails can view accessible notes
 router.get('/:id',
@@ -55,16 +66,6 @@ router.get('/:id',
         { module: 'notes', feature: 'viewOwn' }
     ]),
     getNoteById
-);
-
-// GET /:id/images - View images for a specific note
-router.get('/:id/images',
-    checkAnyAccess([
-        { module: 'notes', feature: 'viewList' },
-        { module: 'notes', feature: 'viewDetails' },
-        { module: 'notes', feature: 'viewOwn' }
-    ]),
-    getNoteImages
 );
 
 // ============================================
@@ -95,13 +96,8 @@ router.post('/:id/images',
 // ============================================
 // DELETE OPERATIONS
 // ============================================
-// DELETE /:id - Delete specific note
-router.delete('/:id',
-    checkAccess('notes', 'delete'),
-    deleteNote
-);
-
 // DELETE /bulk-delete - Bulk delete notes
+// NOTE: Must come before /:id to avoid route matching issues
 router.delete('/bulk-delete',
     checkAccess('notes', 'bulkDelete'),
     bulkDeleteNotes
@@ -111,6 +107,12 @@ router.delete('/bulk-delete',
 router.delete('/:id/images/:imageNumber',
     checkAccess('notes', 'update'),
     deleteNoteImage
+);
+
+// DELETE /:id - Delete specific note
+router.delete('/:id',
+    checkAccess('notes', 'delete'),
+    deleteNote
 );
 
 // ============================================

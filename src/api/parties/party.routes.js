@@ -60,6 +60,15 @@ router.get('/details',
 // GET /types - View available party types (all authenticated users)
 router.get('/types', getPartyTypes);
 
+// POST /types - Create party type (all authenticated users)
+router.post('/types', checkAccess('parties', 'create'), createPartyType);
+
+// PUT /types/:id - Update party type (admin only)
+router.put('/types/:id', requireOrgAdmin(), updatePartyType);
+
+// DELETE /types/:id - Delete party type (admin only)
+router.delete('/types/:id', requireOrgAdmin(), deletePartyType);
+
 // ============================================
 // ASSIGNMENT ROUTES (must be before /:id wildcard)
 // ============================================
@@ -114,7 +123,7 @@ router.post('/:id/image',
     checkAnyAccess([
         { module: 'parties', feature: 'create' }, // For initial upload workflow
         { module: 'parties', feature: 'update' }  // For corrections later
-    ]), 
+    ]),
     imageUpload.single('image'),
     uploadPartyImage
 );
@@ -131,16 +140,16 @@ router.put('/:id',
 // ============================================
 // DELETE OPERATIONS
 // ============================================
-// DELETE /:id - Remove party records from the database
-router.delete('/:id',
-    checkAccess('parties', 'delete'),
-    deleteParty
-);
-
 // DELETE /:id/image - Permanently remove images from the party profile
 router.delete('/:id/image',
     checkAccess('parties', 'deleteImage'),
     deletePartyImage
+);
+
+// DELETE /:id - Remove party records from the database
+router.delete('/:id',
+    checkAccess('parties', 'delete'),
+    deleteParty
 );
 
 // ============================================
@@ -158,16 +167,6 @@ router.delete('/:id/image',
 //     exportPartiesExcel
 
 
-// ============================================
-// PARTY TYPE MANAGEMENT ROUTES
-// ============================================
-// POST /types - Create party type (all authenticated users)
-router.post('/types', checkAccess('parties', 'create'), createPartyType);
 
-// PUT /types/:id - Update party type (admin only)
-router.put('/types/:id', requireOrgAdmin(), updatePartyType);
-
-// DELETE /types/:id - Delete party type (admin only)
-router.delete('/types/:id', requireOrgAdmin(), deletePartyType);
 
 module.exports = router;

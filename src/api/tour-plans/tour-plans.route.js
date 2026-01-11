@@ -57,31 +57,32 @@ router.post('/',
 // ============================================
 // UPDATE OPERATIONS
 // ============================================
-// PATCH /:id - Edit specific details, dates, or routes of an existing tour plan
-router.patch('/:id',
-    checkAccess('tourPlan', 'update'),
-    updateTourPlan
-);
-
 // PATCH /:id/status - Approve, reject, or update the progress of a tour plan
 router.patch('/:id/status',
     checkAccess('tourPlan', 'updateStatus'),
     updateTourPlanStatus
 );
 
+// PATCH /:id - Edit specific details, dates, or routes of an existing tour plan
+router.patch('/:id',
+    checkAccess('tourPlan', 'update'),
+    updateTourPlan
+);
+
 // ============================================
 // DELETE OPERATIONS
 // ============================================
+// DELETE /bulk-delete - Mass delete multiple tour records simultaneously
+// NOTE: Must come before /:id to avoid route matching issues
+router.delete('/bulk-delete',
+    checkAccess('tourPlan', 'bulkDelete'),
+    bulkDeleteTourPlans
+);
+
 // DELETE /:id - Permanently remove a specific tour plan from the system
 router.delete('/:id',
     checkAccess('tourPlan', 'delete'),
     deleteTourPlan
-);
-
-// DELETE /bulk-delete - Mass delete multiple tour records simultaneously
-router.delete('/bulk-delete',
-    checkAccess('tourPlan', 'bulkDelete'),
-    bulkDeleteTourPlans
 );
 
 // ============================================

@@ -1,4 +1,5 @@
 const TourPlan = require('./tour-plans.model');
+const BeatPlan = require('../beat-plans/beat-plan.model');
 const mongoose = require('mongoose');
 const { z } = require('zod');
 const { DateTime } = require('luxon');
@@ -26,6 +27,20 @@ const statusSchemaValidation = z.object({
     rejectionReason: z.string().optional(),
 });
 
+// --- Helper Functions ---
+
+/**
+ * Calculate the number of days for a tour (inclusive of start and end dates)
+ * @param {Date|string} startDate - Tour start date
+ * @param {Date|string} endDate - Tour end date
+ * @returns {number} Number of days (inclusive)
+ */
+const calculateTourDuration = (startDate, endDate) => {
+    const start = DateTime.fromJSDate(new Date(startDate));
+    const end = DateTime.fromJSDate(new Date(endDate));
+    return Math.ceil(end.diff(start, 'days').days) + 1; // +1 to include both start and end days
+};
+
 // ============================================
 // TOUR PLAN ENDPOINTS
 // ============================================
@@ -35,16 +50,71 @@ const statusSchemaValidation = z.object({
 // @access  Private (All authenticated users)
 exports.createTourPlan = async (req, res, next) => {
     try {
-        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId, _id: userId } = req.user;
 
         const validatedData = tourPlanSchemaValidation.parse(req.body);
 
+        // Convert dates to Date objects
+        const startDate = new Date(validatedData.startDate);
+        const endDate = new Date(validatedData.endDate);
+
+        // Validation: End date cannot be in the past
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        if (endDate < today) {
+            return res.status(400).json({
+                success: false,
+                message: 'Tour end date cannot be in the past'
+            });
+        }
+
+        // Validation: Check for overlapping tour plans for the same user
+        const overlappingTour = await TourPlan.findOne({
+            createdBy: userId,
+            organizationId: organizationId,
+            status: { $in: ['pending', 'approved'] },
+            $or: [
+                // New tour starts during an existing tour
+                { startDate: { $lte: startDate }, endDate: { $gte: startDate } },
+                // New tour ends during an existing tour
+                { startDate: { $lte: endDate }, endDate: { $gte: endDate } },
+                // New tour completely covers an existing tour
+                { startDate: { $gte: startDate }, endDate: { $lte: endDate } }
+            ]
+        });
+
+        if (overlappingTour) {
+            return res.status(400).json({
+                success: false,
+                message: `You already have a tour plan scheduled during these dates (${overlappingTour.startDate.toISOString().split('T')[0]} to ${overlappingTour.endDate.toISOString().split('T')[0]})`
+            });
+        }
+
+        // Validation: Check for conflicting beat plans
+        // Beat plans have schedule.startDate and schedule.endDate fields
+        const conflictingBeatPlan = await BeatPlan.findOne({
+            organizationId: organizationId,
+            status: { $in: ['pending', 'active'] },
+            'schedule.startDate': { $lte: endDate },
+            'schedule.endDate': { $gte: startDate },
+            $or: [
+                { employees: userId }, // User is assigned to beat plan
+                { createdBy: userId } // Or user created the beat plan
+            ]
+        });
+
+        if (conflictingBeatPlan) {
+            return res.status(400).json({
+                success: false,
+                message: `You have a beat plan assigned during this tour period (${conflictingBeatPlan.schedule?.startDate?.toISOString().split('T')[0]} to ${conflictingBeatPlan.schedule?.endDate?.toISOString().split('T')[0]})`
+            });
+        }
+
         const newTourPlan = await TourPlan.create({
-            placeOfVisit: validatedData.placeOfVisit,
-            startDate: new Date(validatedData.startDate),
-            endDate: new Date(validatedData.endDate),
-            purposeOfVisit: validatedData.purposeOfVisit,
+            placeOfVisit: validatedData.placeOfVisit.trim(),
+            startDate: startDate,
+            endDate: endDate,
+            purposeOfVisit: validatedData.purposeOfVisit.trim(),
             organizationId: organizationId,
             createdBy: userId,
             status: 'pending',
@@ -68,8 +138,7 @@ exports.createTourPlan = async (req, res, next) => {
 // @access  Private
 exports.getAllTourPlans = async (req, res, next) => {
     try {
-        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
-        const { organizationId, role, _id: userId } = req.user;
+        const { organizationId } = req.user;
 
         const query = { organizationId: organizationId };
 
@@ -84,13 +153,11 @@ exports.getAllTourPlans = async (req, res, next) => {
             .sort({ createdAt: -1 })
             .lean();
 
-        // Calculate numberOfDays for each tour plan using luxon
-        const tourPlansWithDays = tourPlans.map(plan => {
-            const startDate = DateTime.fromJSDate(new Date(plan.startDate));
-            const endDate = DateTime.fromJSDate(new Date(plan.endDate));
-            const numberOfDays = Math.ceil(endDate.diff(startDate, 'days').days) + 1; // +1 to include both start and end days
-            return { ...plan, numberOfDays };
-        });
+        // Calculate numberOfDays for each tour plan using helper
+        const tourPlansWithDays = tourPlans.map(plan => ({
+            ...plan,
+            numberOfDays: calculateTourDuration(plan.startDate, plan.endDate)
+        }));
 
         res.status(200).json({ success: true, count: tourPlansWithDays.length, data: tourPlansWithDays });
     } catch (error) {
@@ -103,7 +170,6 @@ exports.getAllTourPlans = async (req, res, next) => {
 // @access  Private
 exports.getMyTourPlans = async (req, res, next) => {
     try {
-        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId, _id: userId } = req.user;
 
         const query = { organizationId, createdBy: userId };
@@ -115,13 +181,11 @@ exports.getMyTourPlans = async (req, res, next) => {
             .sort({ createdAt: -1 })
             .lean();
 
-        // Calculate numberOfDays for each tour plan using luxon
-        const tourPlansWithDays = tourPlans.map(plan => {
-            const startDate = DateTime.fromJSDate(new Date(plan.startDate));
-            const endDate = DateTime.fromJSDate(new Date(plan.endDate));
-            const numberOfDays = Math.ceil(endDate.diff(startDate, 'days').days) + 1;
-            return { ...plan, numberOfDays };
-        });
+        // Calculate numberOfDays for each tour plan using helper
+        const tourPlansWithDays = tourPlans.map(plan => ({
+            ...plan,
+            numberOfDays: calculateTourDuration(plan.startDate, plan.endDate)
+        }));
 
         res.status(200).json({ success: true, count: tourPlansWithDays.length, data: tourPlansWithDays });
     } catch (error) {
@@ -134,19 +198,17 @@ exports.getMyTourPlans = async (req, res, next) => {
 // @access  Private
 exports.getTourPlanById = async (req, res, next) => {
     try {
-        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
-        const { organizationId, role, _id: userId } = req.user;
+        const { organizationId } = req.user;
 
         const query = {
             _id: req.params.id,
             organizationId: organizationId
         };
 
-        // Non-system users can only see their own tour plans
-        // Note: Permission check happens at route level for viewList/viewDetails
-        if (role !== 'admin' && !isSystemRole(role)) {
-            query.createdBy = userId;
-        }
+        // Apply hierarchy filter to ensure managers can view subordinate plans
+        // Same logic as getAllTourPlans
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'tourPlan', 'viewAllTourPlans');
+        Object.assign(query, hierarchyFilter);
 
         const tourPlan = await TourPlan.findOne(query)
             .populate('createdBy', 'name email')
@@ -157,10 +219,8 @@ exports.getTourPlanById = async (req, res, next) => {
             return res.status(404).json({ success: false, message: 'Tour plan not found' });
         }
 
-        // Calculate numberOfDays using luxon
-        const startDate = DateTime.fromJSDate(new Date(tourPlan.startDate));
-        const endDate = DateTime.fromJSDate(new Date(tourPlan.endDate));
-        const numberOfDays = Math.ceil(endDate.diff(startDate, 'days').days) + 1; // +1 to include both start and end days
+        // Calculate numberOfDays using helper
+        const numberOfDays = calculateTourDuration(tourPlan.startDate, tourPlan.endDate);
 
         res.status(200).json({ success: true, data: { ...tourPlan, numberOfDays } });
     } catch (error) {
@@ -173,7 +233,6 @@ exports.getTourPlanById = async (req, res, next) => {
 // @access  Private (Only the creator can update if status is pending)
 exports.updateTourPlan = async (req, res, next) => {
     try {
-        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId, _id: userId } = req.user;
 
         const validatedData = tourPlanSchemaValidation.partial().parse(req.body);
@@ -225,7 +284,6 @@ exports.updateTourPlan = async (req, res, next) => {
 // @access  Private (Only the creator can delete if status is pending, Admin/Manager can delete any)
 exports.deleteTourPlan = async (req, res, next) => {
     try {
-        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId, role, _id: userId } = req.user;
 
         const query = {
@@ -233,10 +291,15 @@ exports.deleteTourPlan = async (req, res, next) => {
             organizationId: organizationId
         };
 
-        // If not system role, restrict to own pending plans
-        // Note: Permission check happens at route level for delete permission
+        // If not system role, restrict deletions
+        // Managers -> Team's pending plans
+        // Users -> Own pending plans
         if (role !== 'admin' && !isSystemRole(role)) {
-            query.createdBy = userId;
+            // Get hierarchy filter (handles managers seeing subordinates)
+            const hierarchyFilter = await getHierarchyFilter(req.user, 'tourPlan', 'delete');
+            Object.assign(query, hierarchyFilter);
+
+            // Additionally ensure status is pending for non-admins
             query.status = 'pending';
         }
 
@@ -260,11 +323,19 @@ exports.deleteTourPlan = async (req, res, next) => {
 // @access  Private (Admin or Supervisor with approval permission)
 exports.updateTourPlanStatus = async (req, res, next) => {
     try {
-        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
-        const { organizationId, _id: userId } = req.user;
+        const { organizationId, _id: userId, role } = req.user;
 
         const { status, rejectionReason } = statusSchemaValidation.parse(req.body);
 
+        // Validation: rejection reason is required when status is rejected
+        if (status === 'rejected' && (!rejectionReason || rejectionReason.trim().length === 0)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Rejection reason is required when rejecting a tour plan'
+            });
+        }
+
+        // First, fetch tour plan for authorization checks (before atomic update)
         const tourPlan = await TourPlan.findOne({
             _id: req.params.id,
             organizationId: organizationId
@@ -294,8 +365,7 @@ exports.updateTourPlanStatus = async (req, res, next) => {
         }
 
         // Prevent self-approval for regular users (Admins and system roles can approve their own tour plans)
-        const adminRoles = ['admin', 'superadmin', 'developer'];
-        const isAdminOrSystem = adminRoles.includes(req.user.role);
+        const isAdminOrSystem = role === 'admin' || isSystemRole(role);
 
         if (tourPlan.createdBy._id.toString() === userId.toString() && !isAdminOrSystem) {
             return res.status(403).json({
@@ -304,25 +374,37 @@ exports.updateTourPlanStatus = async (req, res, next) => {
             });
         }
 
-        // Update status
-        tourPlan.status = status;
+        // Build update object based on status
+        const updateData = {
+            status: status,
+            approvedAt: new Date()
+        };
 
         if (status === 'approved') {
-            tourPlan.approvedBy = userId;
-            tourPlan.approvedAt = new Date();
+            updateData.approvedBy = userId;
+            updateData.rejectionReason = null; // Clear any previous rejection reason
         } else if (status === 'rejected') {
-            tourPlan.approvedBy = userId;
-            tourPlan.approvedAt = new Date();
-            if (rejectionReason) {
-                tourPlan.rejectionReason = rejectionReason;
-            }
+            // For rejected, we track who processed it but not as an approver
+            updateData.approvedBy = userId;
+            updateData.rejectionReason = rejectionReason;
         }
 
-        await tourPlan.save();
-
-        const updatedPlan = await TourPlan.findById(tourPlan._id)
+        // Atomic update with condition - prevents race condition
+        // Only updates if status is still 'pending' (concurrent request protection)
+        const updatedPlan = await TourPlan.findOneAndUpdate(
+            { _id: req.params.id, status: 'pending', organizationId: organizationId },
+            updateData,
+            { new: true }
+        )
             .populate('createdBy', 'name email')
             .populate('approvedBy', 'name email');
+
+        if (!updatedPlan) {
+            return res.status(400).json({
+                success: false,
+                message: 'Tour plan was already processed by another request'
+            });
+        }
 
         res.status(200).json({ success: true, data: updatedPlan });
     } catch (error) {
@@ -338,8 +420,7 @@ exports.updateTourPlanStatus = async (req, res, next) => {
 // @access  Private (Admin, Manager)
 exports.bulkDeleteTourPlans = async (req, res, next) => {
     try {
-        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
-        const { organizationId } = req.user;
+        const { organizationId, role } = req.user;
 
         const { ids } = req.body;
 
@@ -358,37 +439,39 @@ exports.bulkDeleteTourPlans = async (req, res, next) => {
             });
         }
 
-        // Validate all IDs
-        const validIds = ids.filter(id => mongoose.Types.ObjectId.isValid(id));
-        if (validIds.length !== ids.length) {
-            return res.status(400).json({
-                success: false,
-                message: 'One or more invalid tour plan IDs'
-            });
+        // 1. Get Hierarchy Filter
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'tourPlan', 'delete');
+
+        // 2. Build SECURE query
+        const query = {
+            _id: { $in: ids },
+            organizationId,
+            ...hierarchyFilter
+        };
+
+        // If not admin/system, ensure we only delete PENDING requests
+        if (role !== 'admin' && !isSystemRole(role)) {
+            query.status = 'pending';
         }
 
-        // Find all tour plans matching the IDs and belonging to this organization
-        const tourPlans = await TourPlan.find({
-            _id: { $in: validIds },
-            organizationId: organizationId
-        }).select('_id');
+        const tourPlans = await TourPlan.find(query).select('_id');
 
         if (tourPlans.length === 0) {
             return res.status(404).json({
                 success: false,
-                message: 'No tour plans found matching the provided IDs'
+                message: 'No tour plans found matching the provided IDs or you do not have permission to delete them'
             });
         }
 
-        // Delete tour plans from database
+        const foundIds = tourPlans.map(tp => tp._id);
+
         const deleteResult = await TourPlan.deleteMany({
-            _id: { $in: tourPlans.map(p => p._id) },
-            organizationId: organizationId
+            _id: { $in: foundIds }
         });
 
         // Find IDs that were not found
-        const notFoundIds = validIds.filter(
-            id => !tourPlans.some(p => p._id.toString() === id)
+        const notFoundIds = ids.filter(
+            id => !foundIds.some(fid => fid.toString() === id)
         );
 
         res.status(200).json({

@@ -159,7 +159,6 @@ const FEATURE_REGISTRY = {
   expenses: {
     viewAllClaims: 'Master Key: View ALL organization expense claims',
     viewList: 'Access expense claim list page',
-    viewList: 'View all employee expense claims and operational costs',
     viewDetails: 'Access detailed breakdown, receipts, and approval history',
     create: 'Submit and record new expense claims',
     update: 'Edit specific details of an existing expense record',
@@ -232,7 +231,7 @@ const FEATURE_REGISTRY = {
   // ============================================
   dashboard: {
     viewAllPerformance: 'Master Key: View real-time organization performance metrics',
-    viewStats: 'View high-level business metrics and overview cards',
+    viewTeamPerformance: 'View team performance metrics (scoped by hierarchy)',
     viewStats: 'View high-level business metrics and overview cards',
     viewAttendanceSummary: 'View daily attendance overview across the organization',
     viewSalesTrend: 'View sales revenue and growth trends for the last 7 days',

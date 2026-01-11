@@ -71,16 +71,16 @@ router.patch('/:id/status',
 // ============================================
 // DELETE OPERATIONS
 // ============================================
-// DELETE /:id - Delete/cancel leave request
-router.delete('/:id',
-    checkAccess('leaves', 'delete'),
-    deleteLeaveRequest
-);
-
 // DELETE /bulk-delete - Bulk delete leave requests
 router.delete('/bulk-delete',
     checkAccess('leaves', 'bulkDelete'),
     bulkDeleteLeaveRequests
+);
+
+// DELETE /:id - Delete/cancel leave request
+router.delete('/:id',
+    checkAccess('leaves', 'delete'),
+    deleteLeaveRequest
 );
 
 // ============================================

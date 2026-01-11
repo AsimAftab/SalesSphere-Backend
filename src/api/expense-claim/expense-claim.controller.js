@@ -349,34 +349,38 @@ exports.updateExpenseClaimStatus = async (req, res, next) => {
 // @desc    Bulk delete expense claims
 // @route   DELETE /api/v1/expense-claims/bulk-delete
 // @access  Private (Admin, Manager)
+// @desc    Bulk delete expense claims
+// @route   DELETE /api/v1/expense-claims/bulk-delete
+// @access  Private (Admin, Manager)
 exports.bulkDeleteExpenseClaims = async (req, res, next) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId } = req.user;
-
         const { ids } = req.body;
 
         if (!ids || !Array.isArray(ids) || ids.length === 0) {
-            return res.status(400).json({
-                success: false,
-                message: 'Please provide an array of expense claim IDs'
-            });
+            return res.status(400).json({ success: false, message: 'Please provide an array of expense claim IDs' });
         }
 
-        // Validate all IDs
-        const validIds = ids.filter(id => mongoose.Types.ObjectId.isValid(id));
-        if (validIds.length !== ids.length) {
-            return res.status(400).json({
-                success: false,
-                message: 'One or more invalid expense claim IDs'
-            });
-        }
+        // 1. Get Hierarchy Filter (Security Layer)
+        // Managers can only delete their team's claims; Admins can delete all
+        // Regular users usually don't have 'bulkDelete' permission, but if they did, this restricts them to their own.
+        const hierarchyFilter = await getHierarchyFilter(req.user, 'expenses', 'delete');
 
-        // First, find all expense claims to get their receipt URLs
-        const expenseClaims = await ExpenseClaim.find({
-            _id: { $in: validIds },
-            organizationId: organizationId
-        }).select('_id receipt');
+        // 2. Find claims matching IDs + Org + Hierarchy
+        // This ensures a user cannot delete a claim they aren't allowed to see/edit
+        const query = {
+            _id: { $in: ids }, // We use the raw IDs here, but the filter below restricts it
+            organizationId: organizationId,
+            ...hierarchyFilter // <--- CRITICAL SECURITY ADDITION
+        };
+
+        // Fetch claims to get receipts (and verify existence/permission)
+        const expenseClaims = await ExpenseClaim.find(query).select('_id receipt');
+
+        if (expenseClaims.length === 0) {
+            return res.status(404).json({ success: false, message: 'No valid expense claims found to delete.' });
+        }
 
         // Get organization for Cloudinary folder path
         const organization = await Organization.findById(organizationId);
@@ -386,50 +390,29 @@ exports.bulkDeleteExpenseClaims = async (req, res, next) => {
             const deletePromises = expenseClaims
                 .filter(claim => claim.receipt)
                 .map(claim => {
-                    // Extract public_id robustly from the stored URL
-                    // Cloudinary URL format: https://res.cloudinary.com/cloudName/image/upload/v1234/folder/subfolder/publicId.jpg
-                    // We need to extract: folder/subfolder/publicId (without extension)
                     try {
                         const receiptUrl = claim.receipt;
                         const urlParts = receiptUrl.split('/');
+                        const versionIndex = urlParts.findIndex(part => part.startsWith('v') && !isNaN(Number(part.substring(1))));
+                        if (versionIndex === -1) return Promise.resolve(null);
 
-                        // Find version folder (starts with 'v' followed by digits)
-                        const versionIndex = urlParts.findIndex(part =>
-                            part.startsWith('v') && part.length > 1 && !isNaN(Number(part.substring(1)))
-                        );
-
-                        if (versionIndex === -1) {
-                            console.warn(`Could not extract public_id from URL for claim ${claim._id}`);
-                            return Promise.resolve(null);
-                        }
-
-                        // Extract parts after version, remove file extension
                         const publicIdWithExt = urlParts.slice(versionIndex + 1).join('/');
                         const lastDotIndex = publicIdWithExt.lastIndexOf('.');
+                        const publicId = lastDotIndex > 0 ? publicIdWithExt.substring(0, lastDotIndex) : publicIdWithExt;
 
-                        // Handle case where there might be no extension or multiple dots
-                        const publicId = lastDotIndex > 0
-                            ? publicIdWithExt.substring(0, lastDotIndex)
-                            : publicIdWithExt;
-
-                        return cloudinary.uploader.destroy(publicId).catch(err => {
-                            console.error(`Error deleting receipt for claim ${claim._id}:`, err);
-                            return null;
-                        });
-                    } catch (extractErr) {
-                        console.error(`Error extracting public_id for claim ${claim._id}:`, extractErr);
+                        return cloudinary.uploader.destroy(publicId).catch(err => console.error(err));
+                    } catch (err) {
+                        console.error(err);
                         return Promise.resolve(null);
                     }
                 });
-
             await Promise.all(deletePromises);
         }
 
-        // Now delete the expense claims
-        const result = await ExpenseClaim.deleteMany({
-            _id: { $in: validIds },
-            organizationId: organizationId
-        });
+        // 3. Perform Delete based on the SECURE query (only the ones found above)
+        // We use the IDs from the *found* claims to ensure we don't try to delete something the filter excluded.
+        const foundIds = expenseClaims.map(c => c._id);
+        const result = await ExpenseClaim.deleteMany({ _id: { $in: foundIds } });
 
         res.status(200).json({
             success: true,
@@ -585,16 +568,19 @@ exports.uploadReceipt = async (req, res, next) => {
             return res.status(400).json({ success: false, message: 'Please upload an image file' });
         }
 
-        // Check if expense claim exists and belongs to user
-        const expenseClaim = await ExpenseClaim.findOne({
-            _id: id,
-            organizationId: organizationId,
-            createdBy: userId
-        });
+        // Check if expense claim exists
+        // Security: If NOT Admin/System, restrict to own claim
+        const query = { _id: id, organizationId };
+
+        if (role !== 'admin' && !isSystemRole(role)) {
+            query.createdBy = userId;
+        }
+
+        const expenseClaim = await ExpenseClaim.findOne(query);
 
         if (!expenseClaim) {
             cleanupTempFile(tempFilePath);
-            return res.status(404).json({ success: false, message: 'Expense claim not found' });
+            return res.status(404).json({ success: false, message: 'Expense claim not found or access denied' });
         }
 
         // Fetch Organization for folder path
@@ -682,7 +668,7 @@ exports.deleteReceipt = async (req, res, next) => {
             organizationId: organizationId
         };
 
-        // Only restrict to creator if not system role
+        // Security: If NOT Admin/System, restrict to own claim
         if (role !== 'admin' && !isSystemRole(role)) {
             query.createdBy = userId;
         }
