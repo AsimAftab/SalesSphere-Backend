@@ -801,7 +801,6 @@ const USER_GRANULAR_PERMISSIONS = {
     },
     collections: {
         view: true,
-        viewTeamCollections: false,
         collectPayment: true,
         verifyPayment: false,
         updateChequeStatus: false,
