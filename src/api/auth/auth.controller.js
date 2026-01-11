@@ -92,11 +92,23 @@ const sendTokenResponse = async (
   let subscriptionInfo = null;
   if (orgWithPlan && orgWithPlan.subscriptionPlanId) {
     const plan = orgWithPlan.subscriptionPlanId;
+
+    // Filter enabledModules to only include those where user has at least one active permission
+    // This maintains consistency with the /me endpoint
+    let enabledModules = plan.enabledModules || [];
+    if (permissions) {
+      enabledModules = enabledModules.filter(moduleName => {
+        const modulePerms = permissions[moduleName];
+        if (!modulePerms) return false;
+        return Object.values(modulePerms).some(val => val === true);
+      });
+    }
+
     subscriptionInfo = {
       planName: plan.name,
       tier: plan.tier,
       maxEmployees: plan.maxEmployees,
-      enabledModules: plan.enabledModules,
+      enabledModules: enabledModules,
       subscriptionEndDate: orgWithPlan.subscriptionEndDate,
       isActive: orgWithPlan.subscriptionEndDate ? new Date() < new Date(orgWithPlan.subscriptionEndDate) : true
     };
