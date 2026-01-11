@@ -257,7 +257,7 @@ exports.getCollectionById = async (req, res, next) => {
 exports.updateCollection = async (req, res, next) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
-        const { organizationId, _id: userId } = req.user;
+        const { organizationId, role, _id: userId } = req.user;
 
         const validatedData = collectionSchemaValidation.partial().parse(req.body);
 
@@ -280,6 +280,21 @@ exports.updateCollection = async (req, res, next) => {
         }
         if (updateData.chequeDate) {
             updateData.chequeDate = new Date(updateData.chequeDate);
+        }
+
+        // PERMISSION CHECK: Cheque Status Update
+        // Only allow updating chequeStatus if user has specific permission or is Admin/System
+        if (updateData.chequeStatus) {
+            const hasStatusPermission =
+                isSystemRole(role) ||
+                role === 'admin' ||
+                (req.permissions && req.permissions.collections &&
+                    (req.permissions.collections.updateChequeStatus || req.permissions.collections.collectPayment));
+
+            if (!hasStatusPermission) {
+                // If user doesn't have permission, ignore the status update
+                delete updateData.chequeStatus;
+            }
         }
 
         // Update the collection
