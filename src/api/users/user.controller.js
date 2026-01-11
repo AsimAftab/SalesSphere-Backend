@@ -1156,6 +1156,15 @@ exports.getMyProfile = async (req, res, next) => {
                 const now = new Date();
                 const isActive = orgWithPlan.subscriptionEndDate && orgWithPlan.subscriptionEndDate > now;
 
+                // Filter enabledModules to only include those where user has at least one active permission
+                // This prevents the frontend from showing modules the user cannot access
+                enabledModules = enabledModules.filter(moduleName => {
+                    const modulePerms = permissionsWithPlan[moduleName];
+                    if (!modulePerms) return false;
+                    // Check if any permission in the module is true
+                    return Object.values(modulePerms).some(val => val === true);
+                });
+
                 subscriptionFeatures = {
                     permissions: permissionsWithPlan,
                     planName: plan.name,
