@@ -179,6 +179,8 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         create: true,
         update: true,
         delete: true,
+        uploadImage: true,
+        deleteImage: true,
         assign: true,
         exportPdf: true,
         exportExcel: true
@@ -423,6 +425,8 @@ const DEVELOPER_GRANULAR_PERMISSIONS = {
         create: true,
         update: true,
         delete: false,
+        uploadImage: true,
+        deleteImage: true,
         assign: true,
         exportPdf: true,
         exportExcel: true
@@ -486,6 +490,10 @@ const DEVELOPER_GRANULAR_PERMISSIONS = {
         record: true,
         delete: true,
         exportExcel: true
+    },
+    siteImages: {
+        upload: true,
+        delete: true
     },
     // System modules (superadmin/developer)
     systemUsers: {
@@ -669,6 +677,8 @@ const ADMIN_GRANULAR_PERMISSIONS = {
         create: true,
         update: true,
         delete: true,
+        uploadImage: true,
+        deleteImage: true,
         assign: true,
         exportPdf: true,
         exportExcel: true
@@ -732,6 +742,10 @@ const ADMIN_GRANULAR_PERMISSIONS = {
         record: true,
         delete: true,
         exportExcel: true
+    },
+    siteImages: {
+        upload: true,
+        delete: true
     }
 };
 
@@ -895,6 +909,8 @@ const USER_GRANULAR_PERMISSIONS = {
         create: false,
         update: false,
         delete: false,
+        uploadImage: true,
+        deleteImage: false,
         assign: false,
         exportPdf: false,
         exportExcel: false
@@ -955,6 +971,10 @@ const USER_GRANULAR_PERMISSIONS = {
         record: true,
         delete: false,
         exportExcel: false
+    },
+    siteImages: {
+        upload: true,
+        delete: false
     }
 };
 

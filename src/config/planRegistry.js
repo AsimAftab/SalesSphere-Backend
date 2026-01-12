@@ -53,8 +53,8 @@ const STANDARD_UPGRADES = {
     // Prospects: Lead management
     prospects: ['viewList', 'viewDetails', 'create', 'update', 'transferToParty'],
 
-    // Sites: Location management
-    sites: ['viewList', 'viewDetails'],
+    // Sites: Location management + image upload (Standard+)
+    sites: ['viewList', 'viewDetails', 'uploadImage', 'deleteImage'],
 
     // Invoicing: Basic billing
     invoices: ['viewList', 'viewDetails', 'create', 'updateStatus'],
