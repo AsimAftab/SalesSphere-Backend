@@ -5,8 +5,9 @@ const Organization = require('../organizations/organization.model');
 const { z } = require('zod');
 const cloudinary = require('../../config/cloudinary');
 const fs = require('fs').promises;
-const { getHierarchyFilter, getEntityAccessFilter } = require('../../utils/hierarchyHelper');
-const { isValidFeature } = require('../../config/featureRegistry');
+const { getEntityAccessFilter } = require('../../utils/hierarchyHelper');
+// const { isValidFeature } = require('../../config/featureRegistry'); // Removed unused import
+const { checkRoleFeaturePermission } = require('../../middlewares/compositeAccess.middleware');
 
 // Helper to escape regex metacharacters (prevents NoSQL injection via regex)
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -184,10 +185,19 @@ exports.getAllSites = async (req, res, next) => {
         );
         const query = { organizationId, ...accessFilter };
 
-        const sites = await Site.find(query)
-            .select('-images') // Exclude images for performance and security
+        // Check if user has permission to view images
+        const { allowed: canViewImages } = checkRoleFeaturePermission(req.user, 'sites', 'manageImages');
+
+        let sitesQuery = Site.find(query)
             .populate('createdBy', 'name email')
             .sort({ createdAt: -1 });
+
+        // Only exclude images if user lacks permission
+        if (!canViewImages) {
+            sitesQuery = sitesQuery.select('-images');
+        }
+
+        const sites = await sitesQuery;
 
         return res.status(200).json({
             success: true,
@@ -223,10 +233,19 @@ exports.getAllSitesDetails = async (req, res, next) => {
         );
         const query = { organizationId, ...accessFilter };
 
-        const sites = await Site.find(query)
-            .select('-images') // Exclude images for performance and security
+        // Check if user has permission to view images
+        const { allowed: canViewImages } = checkRoleFeaturePermission(req.user, 'sites', 'manageImages');
+
+        let sitesQuery = Site.find(query)
             .sort({ createdAt: -1 })
             .lean(); // Optional: returns plain JSON, faster
+
+        // Only exclude images if user lacks permission
+        if (!canViewImages) {
+            sitesQuery = sitesQuery.select('-images');
+        }
+
+        const sites = await sitesQuery;
 
         return res.status(200).json({
             success: true,
@@ -257,9 +276,18 @@ exports.getSiteById = async (req, res, next) => {
         );
         const query = { _id: id, organizationId, ...accessFilter };
 
-        const site = await Site.findOne(query)
-            .select('-images') // Exclude images for performance and security
+        // Check if user has permission to view images
+        const { allowed: canViewImages } = checkRoleFeaturePermission(req.user, 'sites', 'manageImages');
+
+        let siteQuery = Site.findOne(query)
             .populate('createdBy', 'name email');
+
+        // Only exclude images if user lacks permission
+        if (!canViewImages) {
+            siteQuery = siteQuery.select('-images');
+        }
+
+        const site = await siteQuery;
 
         if (!site) {
             return res.status(404).json({ success: false, message: 'Site not found' });

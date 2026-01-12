@@ -9,7 +9,7 @@ const { z } = require('zod');
 const cloudinary = require('../../config/cloudinary'); // Ensure this path matches your project structure
 const fs = require('fs').promises; // Required for file cleanup
 const { getHierarchyFilter, getEntityAccessFilter } = require('../../utils/hierarchyHelper');
-// const { isValidFeature } = require('../../config/featureRegistry'); // Removed unused import
+const { checkRoleFeaturePermission } = require('../../middlewares/compositeAccess.middleware');
 
 // --- Zod Validation Schema ---
 const prospectSchemaValidation = z.object({
@@ -135,8 +135,18 @@ exports.getAllProspects = async (req, res, next) => {
         );
         const query = { organizationId: organizationId, ...accessFilter };
 
+        // Check if user has permission to view images
+        const { allowed: canViewImages } = checkRoleFeaturePermission(req.user, 'prospects', 'manageImages');
+
+        // Base fields to select
+        let selectedFields = '_id prospectName ownerName location.address prospectInterest createdBy';
+        // Conditionally add images
+        if (canViewImages) {
+            selectedFields += ' images';
+        }
+
         const prospects = await Prospect.find(query)
-            .select('_id prospectName ownerName location.address prospectInterest createdBy') // Already explicit select, but confirm images are excluded
+            .select(selectedFields)
             .populate('createdBy', 'name')
             .sort({ createdAt: -1 })
             .lean();
@@ -169,11 +179,19 @@ exports.getAllProspectsDetails = async (req, res, next) => {
         );
         const query = { organizationId, ...accessFilter };
 
-        // Fetch all prospects belonging to the organization
-        const prospects = await Prospect.find(query)
-            .select('-images') // Exclude images
+        // Check if user has permission to view images
+        const { allowed: canViewImages } = checkRoleFeaturePermission(req.user, 'prospects', 'manageImages');
+
+        let prospectsQuery = Prospect.find(query)
             .sort({ createdAt: -1 })
             .lean(); // Optional: returns plain JSON, faster
+
+        if (!canViewImages) {
+            prospectsQuery = prospectsQuery.select('-images');
+        }
+
+        // Fetch all prospects belonging to the organization
+        const prospects = await prospectsQuery;
 
         return res.status(200).json({
             success: true,
@@ -208,11 +226,17 @@ exports.getProspectById = async (req, res, next) => {
             ...accessFilter
         };
 
-        const prospect = await Prospect.findOne(query)
-            .select(
-                '_id prospectName ownerName panVatNumber dateJoined description prospectInterest organizationId createdBy contact location createdAt updatedAt' // Removed images field
-            )
-            .lean();
+        // Check if user has permission to view images
+        const { allowed: canViewImages } = checkRoleFeaturePermission(req.user, 'prospects', 'manageImages');
+
+        let prospectQuery = Prospect.findOne(query);
+
+        if (!canViewImages) {
+            // Exclude images if not allowed
+            prospectQuery = prospectQuery.select('-images');
+        }
+
+        const prospect = await prospectQuery.lean();
 
         if (!prospect) {
             return res.status(404).json({ success: false, message: 'Prospect not found' });
