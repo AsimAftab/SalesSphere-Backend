@@ -237,10 +237,11 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         exportExcel: true
     },
     odometer: {
+        viewAllOdometer: true,
         view: true,
-        create: true,
-        update: true,
-        approve: true
+        record: true,
+        delete: true,
+        exportExcel: true
     },
     // System modules (superadmin only)
     systemUsers: {
@@ -480,10 +481,11 @@ const DEVELOPER_GRANULAR_PERMISSIONS = {
         exportExcel: true
     },
     odometer: {
+        viewAllOdometer: true,
         view: true,
-        create: true,
-        update: true,
-        approve: true
+        record: true,
+        delete: true,
+        exportExcel: true
     },
     // System modules (superadmin/developer)
     systemUsers: {
@@ -725,10 +727,11 @@ const ADMIN_GRANULAR_PERMISSIONS = {
         exportExcel: true
     },
     odometer: {
+        viewAllOdometer: true,
         view: true,
-        create: true,
-        update: true,
-        approve: true
+        record: true,
+        delete: true,
+        exportExcel: true
     }
 };
 
@@ -947,10 +950,11 @@ const USER_GRANULAR_PERMISSIONS = {
         exportExcel: false
     },
     odometer: {
+        viewAllOdometer: false,
         view: true,
-        create: true,
-        update: false,
-        approve: false
+        record: true,
+        delete: false,
+        exportExcel: false
     }
 };
 

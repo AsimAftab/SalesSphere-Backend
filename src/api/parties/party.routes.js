@@ -142,7 +142,7 @@ router.put('/:id',
 // ============================================
 // DELETE /:id/image - Permanently remove images from the party profile
 router.delete('/:id/image',
-    checkAccess('parties', 'deleteImage'),
+    checkAccess('parties', 'update'),
     deletePartyImage
 );
 

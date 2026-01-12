@@ -560,7 +560,7 @@ exports.uploadReceipt = async (req, res, next) => {
     let tempFilePath = req.file ? req.file.path : null;
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
-        const { organizationId, _id: userId } = req.user;
+        const { organizationId, _id: userId, role } = req.user;
         const { id } = req.params;
 
         // Validate image file
