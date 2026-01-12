@@ -185,6 +185,7 @@ exports.getAllSites = async (req, res, next) => {
         const query = { organizationId, ...accessFilter };
 
         const sites = await Site.find(query)
+            .select('-images') // Exclude images for performance and security
             .populate('createdBy', 'name email')
             .sort({ createdAt: -1 });
 
@@ -223,6 +224,7 @@ exports.getAllSitesDetails = async (req, res, next) => {
         const query = { organizationId, ...accessFilter };
 
         const sites = await Site.find(query)
+            .select('-images') // Exclude images for performance and security
             .sort({ createdAt: -1 })
             .lean(); // Optional: returns plain JSON, faster
 
@@ -256,6 +258,7 @@ exports.getSiteById = async (req, res, next) => {
         const query = { _id: id, organizationId, ...accessFilter };
 
         const site = await Site.findOne(query)
+            .select('-images') // Exclude images for performance and security
             .populate('createdBy', 'name email');
 
         if (!site) {
@@ -268,6 +271,41 @@ exports.getSiteById = async (req, res, next) => {
         });
     } catch (error) {
         console.error('Error fetching site:', error);
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+// @desc    Get site images
+// @route   GET /api/sites/:id/images
+// @access  Private (Requires manageImages permission)
+exports.getSiteImages = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+        const { id } = req.params;
+
+        // Use entity access filter (includes hierarchy + assignment)
+        const accessFilter = await getEntityAccessFilter(
+            req.user,
+            'sites',
+            'viewTeamSites',
+            'viewAllSites'
+        );
+        const query = { _id: id, organizationId, ...accessFilter };
+
+        const site = await Site.findOne(query).select('images');
+
+        if (!site) {
+            return res.status(404).json({ success: false, message: 'Site not found or access denied' });
+        }
+
+        return res.status(200).json({
+            success: true,
+            count: site.images.length,
+            data: site.images,
+        });
+    } catch (error) {
+        console.error('Error fetching site images:', error);
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };

@@ -24,7 +24,8 @@ const {
     assignUsersToSite,
     removeUserFromSite,
     getSiteAssignments,
-    getMyAssignedSites
+    getMyAssignedSites,
+    getSiteImages
 } = require('./sites.controller');
 const { protect, requireOrgAdmin } = require('../../middlewares/auth.middleware');
 const { checkAccess, checkAnyAccess } = require('../../middlewares/compositeAccess.middleware');
@@ -110,6 +111,12 @@ router.delete('/:id/assign',
 router.get('/:id/assignments',
     checkAccess('sites', 'viewDetails'),
     getSiteAssignments
+);
+
+// GET /:id/images - View site images (requires manageImages permission)
+router.get('/:id/images',
+    checkAccess('sites', 'manageImages'),
+    getSiteImages
 );
 
 // GET /:id - Access detailed configuration and history for a specific site
