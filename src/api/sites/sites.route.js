@@ -129,10 +129,7 @@ router.post('/',
 
 // POST /:id/images - Upload site photos, blueprints, or progress images
 router.post('/:id/images',
-    checkAnyAccess([
-        { module: 'sites', feature: 'create' }, // For initial upload workflow
-        { module: 'sites', feature: 'update' }  // For corrections later
-    ]),
+    checkAccess('sites', 'uploadImage'),
     imageUpload.single('image'),
     uploadSiteImage
 );
