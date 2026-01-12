@@ -212,7 +212,6 @@ const FEATURE_REGISTRY = {
     viewDetails: 'Access detailed configuration and history for a specific site',
     viewOwn: 'View own sites only',
     viewAssigned: 'View sites assigned to the current user',
-    viewSubOrganizations: 'View available sub-organizations for site categorization',
     create: 'Register new site locations in the system',
     update: 'Edit site details, boundaries, or contact information',
     delete: 'Permanently remove site records from the system',
