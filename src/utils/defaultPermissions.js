@@ -176,7 +176,6 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         viewOwn: true,
         viewAllSites: true,
         viewAssigned: true,
-        viewSubOrganizations: true,
         create: true,
         update: true,
         delete: true,
