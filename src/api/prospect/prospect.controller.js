@@ -136,7 +136,7 @@ exports.getAllProspects = async (req, res, next) => {
         const query = { organizationId: organizationId, ...accessFilter };
 
         const prospects = await Prospect.find(query)
-            .select('_id prospectName ownerName location.address prospectInterest createdBy')
+            .select('_id prospectName ownerName location.address prospectInterest createdBy') // Already explicit select, but confirm images are excluded
             .populate('createdBy', 'name')
             .sort({ createdAt: -1 })
             .lean();
@@ -171,6 +171,7 @@ exports.getAllProspectsDetails = async (req, res, next) => {
 
         // Fetch all prospects belonging to the organization
         const prospects = await Prospect.find(query)
+            .select('-images') // Exclude images
             .sort({ createdAt: -1 })
             .lean(); // Optional: returns plain JSON, faster
 
@@ -209,7 +210,7 @@ exports.getProspectById = async (req, res, next) => {
 
         const prospect = await Prospect.findOne(query)
             .select(
-                '_id prospectName ownerName panVatNumber dateJoined description prospectInterest organizationId createdBy contact location images createdAt updatedAt' // <-- FIXED
+                '_id prospectName ownerName panVatNumber dateJoined description prospectInterest organizationId createdBy contact location createdAt updatedAt' // Removed images field
             )
             .lean();
 
@@ -219,6 +220,47 @@ exports.getProspectById = async (req, res, next) => {
         res.status(200).json({ success: true, data: prospect });
     } catch (error) {
         next(error);
+    }
+};
+
+// @desc    Get prospect images
+// @route   GET /api/v1/prospects/:id/images
+// @access  Private (Requires manageImages permission)
+exports.getProspectImages = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+        const { id } = req.params;
+
+        // Use entity access filter (includes hierarchy + assignment)
+        const accessFilter = await getEntityAccessFilter(
+            req.user,
+            'prospects',
+            'viewTeamProspects',
+            'viewAllProspects'
+        );
+
+        // Combine ID check with access filter
+        const query = {
+            _id: id,
+            organizationId: organizationId,
+            ...accessFilter
+        };
+
+        const prospect = await Prospect.findOne(query).select('images');
+
+        if (!prospect) {
+            return res.status(404).json({ success: false, message: 'Prospect not found or access denied' });
+        }
+
+        return res.status(200).json({
+            success: true,
+            count: prospect.images.length,
+            data: prospect.images,
+        });
+    } catch (error) {
+        console.error('Error fetching prospect images:', error);
+        return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
 
