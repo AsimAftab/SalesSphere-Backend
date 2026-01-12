@@ -125,7 +125,7 @@ router.post('/',
 
 // POST /:id/images - Upload profile photos for the prospect
 router.post('/:id/images',
-    checkAccess('prospects', 'create'),
+    checkAccess('prospects', 'manageImages'),
     imageUpload.single('image'),
     uploadProspectImage
 );
@@ -150,7 +150,7 @@ router.post('/:id/transfer',
 // ============================================
 // DELETE /:id/images/:imageNumber - Permanently remove images from prospect profile
 router.delete('/:id/images/:imageNumber',
-    checkAccess('prospects', 'deleteImage'),
+    checkAccess('prospects', 'manageImages'),
     deleteProspectImage
 );
 
