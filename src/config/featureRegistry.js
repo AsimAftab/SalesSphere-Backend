@@ -305,10 +305,11 @@ const FEATURE_REGISTRY = {
   // ODOMETER MODULE
   // ============================================
   odometer: {
-    view: 'View odometer readings',
-    create: 'Add odometer reading',
-    update: 'Edit odometer reading',
-    approve: 'Approve odometer reading',
+    viewAllOdometer: 'Master Key: View ALL organization odometer readings',
+    view: 'View own odometer readings and reports',
+    record: 'Record start/stop odometer readings (includes image upload)',
+    delete: 'Delete odometer entries',
+    exportExcel: 'Export odometer data to Excel spreadsheet',
   },
 
   // ============================================

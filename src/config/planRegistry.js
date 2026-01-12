@@ -74,7 +74,10 @@ const STANDARD_UPGRADES = {
     expenses: ['viewList', 'viewDetails', 'create'],
 
     // Misc work
-    miscellaneousWork: ['viewList', 'viewOwn', 'viewDetails', 'create', 'update']
+    miscellaneousWork: ['viewList', 'viewOwn', 'viewDetails', 'create', 'update'],
+
+    // Odometer: Record readings
+    odometer: ['record']
 };
 
 /**
@@ -135,8 +138,8 @@ const PREMIUM_UPGRADES = {
     // Employees: Full management
     employees: ['viewList', 'viewDetails', 'create', 'update', 'delete', 'assignSupervisor', 'viewAttendance', 'uploadDocuments', 'deleteDocuments', 'exportPdf', 'exportExcel'],
 
-    // Odometer: Full management
-    odometer: ['create', 'update', 'approve']
+    // Odometer: Full management + exports
+    odometer: ['viewAllOdometer', 'delete', 'exportExcel']
 };
 
 // ==========================================

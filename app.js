@@ -33,6 +33,7 @@ const collectionsRoutes = require('./src/api/collections/collections.route.js');
 const leaveRequestRoutes = require('./src/api/leave-request/leave.route.js');
 const roleRoutes = require('./src/api/roles/role.route.js');
 const subscriptionRoutes = require('./src/api/subscriptions/subscription.route.js');
+const odometerRoutes = require('./src/api/odometer/odometer.route.js');
 
 dotenv.config();
 
@@ -272,6 +273,7 @@ app.use('/api/v1/collections', authLimiter, collectionsRoutes);
 app.use('/api/v1/leave-requests', authLimiter, leaveRequestRoutes);
 app.use('/api/v1/roles', authLimiter, roleRoutes);
 app.use('/api/v1/subscriptions', authLimiter, subscriptionRoutes);
+app.use('/api/v1/odometer', authLimiter, odometerRoutes);
 
 // Test Route
 app.get("/", (req, res) => {
