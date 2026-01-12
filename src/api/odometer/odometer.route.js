@@ -12,6 +12,7 @@ const {
     deleteStartImage,
     deleteStopImage,
     deleteOdometerEntry,
+    getOdometerById,
 } = require('./odometer.controller');
 const { protect, checkAccess } = require('../../middlewares/auth.middleware');
 
@@ -122,6 +123,14 @@ router.delete('/:id/stop-image',
 // ============================================
 // DELETE OPERATIONS
 // ============================================
+
+// @route   GET /api/v1/odometer/:id
+// @desc    Get odometer details by ID
+// @access  Private (odometer:view)
+router.get('/:id',
+    checkAccess('odometer', 'view'),
+    getOdometerById
+);
 
 // @route   DELETE /api/v1/odometer/:id
 // @desc    Delete odometer entry

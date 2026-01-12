@@ -267,6 +267,46 @@ exports.getStatusToday = async (req, res, next) => {
     }
 };
 
+// @desc    Get odometer details by ID
+// @route   GET /api/v1/odometer/:id
+// @access  Private (odometer:view permission)
+exports.getOdometerById = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+        const { id } = req.params;
+
+        // Fetch organization for timezone
+        const organization = await Organization.findById(organizationId).select('timezone');
+        const timezone = organization?.timezone || 'Asia/Kolkata';
+
+        const record = await Odometer.findOne({
+            _id: id,
+            organizationId: organizationId
+        });
+
+        if (!record) {
+            return res.status(404).json({ success: false, message: 'Odometer record not found' });
+        }
+
+        // Calculate distance
+        let distance = null;
+        if (record.status === 'completed' && record.startReading !== undefined && record.stopReading !== undefined) {
+            distance = record.stopReading - record.startReading;
+        }
+
+        res.status(200).json({
+            success: true,
+            data: record,
+            distance: distance,
+            organizationTimezone: timezone
+        });
+
+    } catch (error) {
+        next(error);
+    }
+};
+
 // @desc    Get my monthly odometer report
 // @route   GET /api/v1/odometer/my-monthly-report
 // @access  Private (odometer:view permission)
@@ -318,6 +358,7 @@ exports.getMyMonthlyReport = async (req, res, next) => {
             summary.daysRecorded++;
 
             odometerByDate[day] = {
+                _id: record._id, // Added _id for navigation
                 status: record.status,
                 startReading: record.startReading,
                 startUnit: record.startUnit,
@@ -362,6 +403,9 @@ exports.getMyMonthlyReport = async (req, res, next) => {
    2. FOR THE WEB (Admin / Manager)
    ====================== */
 
+// @desc    Get team/org odometer report
+// @route   GET /api/v1/odometer/report
+// @access  Private (odometer:view permission)
 // @desc    Get team/org odometer report
 // @route   GET /api/v1/odometer/report
 // @access  Private (odometer:view permission)
@@ -414,47 +458,55 @@ exports.getOdometerReport = async (req, res, next) => {
             organizationId: orgObjectId,
             employee: { $in: employeeIds },
             date: { $gte: startDate, $lte: endDate }
-        }).lean();
+        }).sort({ date: 1 }).lean();
 
-        // Build map
-        const odometerMap = new Map();
+        // Group records by employee
+        const recordsByEmployee = {};
         for (const record of records) {
-            const dateIso = DateTime.fromJSDate(record.date, { zone: 'UTC' }).toISODate();
-            const key = `${record.employee.toString()}-${dateIso}`;
-            odometerMap.set(key, record);
+            const empId = record.employee.toString();
+            if (!recordsByEmployee[empId]) {
+                recordsByEmployee[empId] = [];
+            }
+            recordsByEmployee[empId].push(record);
         }
 
         const report = [];
-        const summary = {};
-        const daysInMonth = DateTime.fromJSDate(endDate, { zone: 'UTC' }).day;
 
         for (const employee of employees) {
             const empId = employee._id.toString();
-            summary[empId] = { totalDistance: 0, daysCompleted: 0 };
-            const dailyRecords = {};
+            const empRecords = recordsByEmployee[empId] || [];
 
-            for (let day = 1; day <= daysInMonth; day++) {
-                const dt = DateTime.fromObject({ year, month, day }, { zone: timezone });
-                const dateIso = dt.toISODate();
-                const key = `${empId}-${dateIso}`;
+            let totalDistance = 0;
+            let daysCompleted = 0;
+            const recordList = [];
 
-                const record = odometerMap.get(key);
-
-                if (record) {
-                    let distance = null;
-                    if (record.status === 'completed' && record.startReading !== undefined && record.stopReading !== undefined) {
-                        distance = record.stopReading - record.startReading;
-                        summary[empId].totalDistance += distance;
-                        summary[empId].daysCompleted++;
-                    }
-                    dailyRecords[day] = {
-                        status: record.status,
-                        distance: distance
-                    };
-                } else {
-                    dailyRecords[day] = { status: 'not_started' };
+            for (const record of empRecords) {
+                let distance = null;
+                if (record.status === 'completed' && record.startReading !== undefined && record.stopReading !== undefined) {
+                    distance = record.stopReading - record.startReading;
+                    totalDistance += distance;
+                    daysCompleted++;
                 }
+
+                recordList.push({
+                    _id: record._id,
+                    date: DateTime.fromJSDate(record.date, { zone: 'UTC' }).toISODate(), // Send pure date string
+                    status: record.status,
+                    startReading: record.startReading,
+                    startUnit: record.startUnit,
+                    stopReading: record.stopReading,
+                    stopUnit: record.stopUnit,
+                    distance: distance,
+                    startTime: record.startTime,
+                    stopTime: record.stopTime,
+                    // location details could be added if needed, keeping it light for report list
+                });
             }
+
+            // Only add to report if user wants to see everyone, OR filter out empty? 
+            // Usually report should show all queried employees even if 0 data, 
+            // but for "odometer reading wont be everyday" typically we still list the employee.
+            // If the user wants ONLY days with data, we successfully changed `records` to a list.
 
             report.push({
                 employee: {
@@ -463,9 +515,9 @@ exports.getOdometerReport = async (req, res, next) => {
                     email: employee.email,
                     role: employee.role
                 },
-                records: dailyRecords,
-                totalDistance: summary[empId].totalDistance,
-                daysCompleted: summary[empId].daysCompleted
+                records: recordList,
+                totalDistance: totalDistance,
+                daysCompleted: daysCompleted
             });
         }
 
