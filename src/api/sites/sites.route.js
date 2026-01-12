@@ -129,7 +129,7 @@ router.post('/',
 
 // POST /:id/images - Upload site photos, blueprints, or progress images
 router.post('/:id/images',
-    checkAccess('sites', 'uploadImage'),
+    checkAccess('sites', 'manageImages'),
     imageUpload.single('image'),
     uploadSiteImage
 );
@@ -148,7 +148,7 @@ router.put('/:id',
 // ============================================
 // DELETE /:id/images/:imageNumber - Permanently remove images from the site profile
 router.delete('/:id/images/:imageNumber',
-    checkAccess('sites', 'deleteImage'),
+    checkAccess('sites', 'manageImages'),
     deleteSiteImage
 );
 

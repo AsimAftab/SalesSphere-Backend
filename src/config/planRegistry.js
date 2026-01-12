@@ -50,11 +50,11 @@ const STANDARD_UPGRADES = {
     // Parties: Basic CRM
     parties: ['viewList', 'viewDetails'],
 
-    // Prospects: Lead management
-    prospects: ['viewList', 'viewDetails', 'create', 'update', 'transferToParty'],
+    // Prospects: Lead management + image management
+    prospects: ['viewList', 'viewDetails', 'create', 'update', 'transferToParty', 'manageImages'],
 
-    // Sites: Location management + image upload (Standard+)
-    sites: ['viewList', 'viewDetails', 'uploadImage', 'deleteImage'],
+    // Sites: Location management + image management (Standard+)
+    sites: ['viewList', 'viewDetails', 'manageImages'],
 
     // Invoicing: Basic billing
     invoices: ['viewList', 'viewDetails', 'create', 'updateStatus'],
