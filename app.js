@@ -55,7 +55,8 @@ const DEFAULT_ALLOWED = [
   'http://127.0.0.1:5173',
   'https://salessphere360.com',
   'https://www.salessphere360.com',
-  'https://app.requestly.io'
+  'https://app.requestly.io',
+  'https://staging.salessphere360.com'
 ];
 
 const ALLOWED_ORIGINS = (() => {

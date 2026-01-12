@@ -190,9 +190,9 @@ const initializeTrackingSocket = (io) => {
 
                 // Check all directories
                 const allDirectories = [
-                    ...beatPlan.parties.map(p => ({ ...p.toObject(), type: 'party', name: p.partyName })),
-                    ...beatPlan.sites.map(s => ({ ...s.toObject(), type: 'site', name: s.siteName })),
-                    ...beatPlan.prospects.map(pr => ({ ...pr.toObject(), type: 'prospect', name: pr.prospectName })),
+                    ...(beatPlan.parties || []).filter(p => p).map(p => ({ ...p.toObject(), type: 'party', name: p.partyName })),
+                    ...(beatPlan.sites || []).filter(s => s).map(s => ({ ...s.toObject(), type: 'site', name: s.siteName })),
+                    ...(beatPlan.prospects || []).filter(pr => pr).map(pr => ({ ...pr.toObject(), type: 'prospect', name: pr.prospectName })),
                 ];
 
                 for (const directory of allDirectories) {
