@@ -85,6 +85,10 @@ const organizationSchema = new mongoose.Schema({
         default: 'Saturday',
         trim: true,
     },
+    enableGeoFencingAttendance: {
+        type: Boolean,
+        required: [true, 'GeoFencing attendance setting is required'],
+    },
     timezone: {
         type: String,
         default: 'Asia/Kolkata',

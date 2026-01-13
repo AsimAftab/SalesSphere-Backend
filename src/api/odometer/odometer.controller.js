@@ -39,6 +39,14 @@ const getMonthRangeInOrgTZ = (year, month, timezone = 'Asia/Kolkata') => {
     return { start, end };
 };
 
+// Convert distance to km for consistent totals
+const convertToKm = (distance, unit) => {
+    if (unit === 'miles') {
+        return distance * 1.60934; // 1 mile = 1.60934 km
+    }
+    return distance; // Already in km
+};
+
 /* ======================
    Zod Validation Schemas
    ====================== */
@@ -275,8 +283,10 @@ exports.getStatusToday = async (req, res, next) => {
                 status: record.status,
                 startReading: record.startReading,
                 startUnit: record.startUnit,
+                startImage: record.startImage || null,
                 stopReading: record.stopReading,
                 stopUnit: record.stopUnit,
+                stopImage: record.stopImage || null,
                 distance: distance,
                 startTime: record.startTime,
                 stopTime: record.stopTime,
@@ -386,7 +396,9 @@ exports.getMyMonthlyReport = async (req, res, next) => {
             let distance = null;
             if (record.status === 'completed' && record.startReading !== undefined && record.stopReading !== undefined) {
                 distance = record.stopReading - record.startReading;
-                summary.totalDistance += distance;
+                // Convert to km for consistent totals (use stopUnit as the trip unit)
+                const distanceInKm = convertToKm(distance, record.stopUnit || record.startUnit);
+                summary.totalDistance += distanceInKm;
                 summary.tripsCompleted++;
             } else if (record.status === 'in_progress') {
                 summary.tripsInProgress++;
@@ -422,7 +434,9 @@ exports.getMyMonthlyReport = async (req, res, next) => {
             }
         }
 
-        // Calculate average
+        // Calculate average and round totalDistance
+        summary.totalDistance = Math.round(summary.totalDistance * 100) / 100; // Round to 2 decimal places
+        summary.distanceUnit = 'km'; // All distances converted to km
         summary.avgDistancePerTrip = summary.tripsCompleted > 0 ? Math.round(summary.totalDistance / summary.tripsCompleted) : 0;
 
         res.status(200).json({
@@ -528,7 +542,9 @@ exports.getOdometerReport = async (req, res, next) => {
                 let distance = null;
                 if (record.status === 'completed' && record.startReading !== undefined && record.stopReading !== undefined) {
                     distance = record.stopReading - record.startReading;
-                    totalDistance += distance;
+                    // Convert to km for consistent totals
+                    const distanceInKm = convertToKm(distance, record.stopUnit || record.startUnit);
+                    totalDistance += distanceInKm;
                     tripsCompleted++;
                 }
 

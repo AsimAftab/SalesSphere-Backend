@@ -210,6 +210,32 @@ exports.checkIn = async (req, res, next) => {
       });
     }
 
+    // Validate: Prevent check-in if user has approved leave for today
+    const LeaveRequest = require('../leave-request/leave.model');
+    const approvedLeave = await LeaveRequest.findOne({
+      createdBy: userId,
+      organizationId: orgObjectId,
+      status: 'approved',
+      startDate: { $lte: today },
+      $or: [
+        { endDate: { $gte: today } },
+        { endDate: null, startDate: today }
+      ]
+    });
+
+    if (approvedLeave) {
+      return res.status(400).json({
+        success: false,
+        message: 'You cannot check in today as you have an approved leave.',
+        leave: {
+          category: approvedLeave.category,
+          startDate: approvedLeave.startDate,
+          endDate: approvedLeave.endDate,
+          reason: approvedLeave.reason
+        }
+      });
+    }
+
     const checkInTime = new Date();
 
     // Validate check-in time window (2 hours before to 30 minutes after orgCheckInTime)

@@ -213,6 +213,7 @@ exports.register = async (req, res) => {
       checkOutTime,
       halfDayCheckOutTime,
       weeklyOffDay,
+      enableGeoFencingAttendance,
       timezone
     } = req.body;
 
@@ -267,6 +268,13 @@ exports.register = async (req, res) => {
     // Generate temporary password
     const temporaryPassword = crypto.randomBytes(8).toString('hex');
 
+    // Validate enableGeoFencingAttendance (required)
+    if (enableGeoFencingAttendance === undefined || enableGeoFencingAttendance === null) {
+      return res.status(400).json({
+        message: 'Please provide enableGeoFencingAttendance setting (true/false)'
+      });
+    }
+
     // 1️⃣ Create organization with all details
     const organizationData = {
       name: organizationName,
@@ -275,6 +283,7 @@ exports.register = async (req, res) => {
       address,
       subscriptionType,
       subscriptionPlanId,
+      enableGeoFencingAttendance,
     };
 
     // Add optional location fields if provided
