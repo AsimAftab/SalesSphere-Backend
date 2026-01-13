@@ -39,6 +39,7 @@ const updateOrganizationLogic = async (organizationId, body, res) => {
         checkOutTime: body.checkOutTime,
         halfDayCheckOutTime: body.halfDayCheckOutTime,
         weeklyOffDay: body.weeklyOffDay,
+        enableGeoFencingAttendance: body.enableGeoFencingAttendance,
         timezone: body.timezone,
     };
 
