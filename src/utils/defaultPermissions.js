@@ -167,7 +167,6 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         bulkImport: true,
         exportPdf: true,
         exportExcel: true,
-        viewOrders: true,
         assign: true
     },
     sites: {
@@ -896,7 +895,6 @@ const USER_GRANULAR_PERMISSIONS = {
         bulkImport: false,
         exportPdf: false,
         exportExcel: false,
-        viewOrders: true,
         assign: false
     },
     sites: {

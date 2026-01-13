@@ -96,7 +96,7 @@ const PREMIUM_UPGRADES = {
     leaves: ['delete', 'bulkDelete', 'exportPdf', 'exportExcel'],
 
     // Parties: Full CRM + bulk operations
-    parties: ['create', 'update', 'delete', 'bulkImport', 'exportPdf', 'exportExcel', 'viewOrders', 'assign'],
+    parties: ['create', 'update', 'delete', 'bulkImport', 'exportPdf', 'exportExcel', 'assign'],
 
     // Prospects: Full lead management
     prospects: ['delete', 'import', 'exportPdf', 'exportExcel', 'assign'],
