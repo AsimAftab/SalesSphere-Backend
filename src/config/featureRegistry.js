@@ -199,7 +199,6 @@ const FEATURE_REGISTRY = {
     bulkImport: 'Import multiple parties at once via CSV/Excel',
     exportPdf: 'Export the list of parties as a PDF document',
     exportExcel: 'Export party contact and data to an Excel spreadsheet',
-    viewOrders: 'View specific order history and transactions for a party',
     assign: 'Assign parties to specific users',
   },
 

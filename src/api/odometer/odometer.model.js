@@ -19,6 +19,12 @@ const odometerSchema = new mongoose.Schema({
         enum: ['not_started', 'in_progress', 'completed'],
         default: 'not_started',
     },
+    // Trip number for multiple entries per day (auto-incremented)
+    tripNumber: {
+        type: Number,
+        default: 1,
+        min: [1, 'Trip number must be at least 1'],
+    },
 
     // ========== START FIELDS ==========
     startReading: {
@@ -86,8 +92,8 @@ const odometerSchema = new mongoose.Schema({
     },
 }, { timestamps: true });
 
-// Unique index to prevent an employee from having two records on the same day
-odometerSchema.index({ employee: 1, date: 1, organizationId: 1 }, { unique: true });
+// Unique index to allow multiple trips per day but prevent duplicates
+odometerSchema.index({ employee: 1, date: 1, organizationId: 1, tripNumber: 1 }, { unique: true });
 
 // Indexes for faster reporting
 odometerSchema.index({ organizationId: 1, date: 1 });

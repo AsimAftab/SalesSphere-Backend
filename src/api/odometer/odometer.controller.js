@@ -87,16 +87,35 @@ exports.startReading = async (req, res, next) => {
         const timezone = organization?.timezone || 'Asia/Kolkata';
         const today = getStartOfTodayInOrgTZ(timezone);
 
-        // Check if a record exists for today
-        const existingRecord = await Odometer.findOne({
+        // Check if there's already an in_progress trip for today (must complete before starting new)
+        const inProgressTrip = await Odometer.findOne({
+            employee: userId,
+            date: today,
+            organizationId: orgObjectId,
+            status: 'in_progress',
+        });
+
+        if (inProgressTrip) {
+            return res.status(400).json({
+                success: false,
+                message: 'You have an active trip in progress. Please complete it before starting a new one.',
+                activeTrip: {
+                    _id: inProgressTrip._id,
+                    tripNumber: inProgressTrip.tripNumber,
+                    startReading: inProgressTrip.startReading,
+                    startTime: inProgressTrip.startTime,
+                }
+            });
+        }
+
+        // Count existing trips for today to determine the next tripNumber
+        const existingTripsCount = await Odometer.countDocuments({
             employee: userId,
             date: today,
             organizationId: orgObjectId,
         });
 
-        if (existingRecord && existingRecord.startReading !== undefined) {
-            return res.status(400).json({ success: false, message: 'You have already recorded start reading for today.' });
-        }
+        const nextTripNumber = existingTripsCount + 1;
 
         // Build location object
         const startLocation = {};
@@ -104,30 +123,24 @@ exports.startReading = async (req, res, next) => {
         if (validatedData.longitude) startLocation.longitude = validatedData.longitude;
         if (validatedData.address) startLocation.address = validatedData.address;
 
-        // Upsert odometer record
-        const updatedRecord = await Odometer.findOneAndUpdate(
-            {
-                employee: userId,
-                date: today,
-                organizationId: orgObjectId,
-            },
-            {
-                $set: {
-                    status: 'in_progress',
-                    startReading: validatedData.startReading,
-                    startUnit: validatedData.startUnit,
-                    startDescription: validatedData.startDescription,
-                    startTime: new Date(),
-                    startLocation: Object.keys(startLocation).length > 0 ? startLocation : undefined,
-                }
-            },
-            { new: true, upsert: true, runValidators: true }
-        );
+        // Create new odometer record for this trip
+        const newRecord = await Odometer.create({
+            employee: userId,
+            date: today,
+            organizationId: orgObjectId,
+            tripNumber: nextTripNumber,
+            status: 'in_progress',
+            startReading: validatedData.startReading,
+            startUnit: validatedData.startUnit,
+            startDescription: validatedData.startDescription,
+            startTime: new Date(),
+            startLocation: Object.keys(startLocation).length > 0 ? startLocation : undefined,
+        });
 
         res.status(201).json({
             success: true,
-            message: 'Start reading recorded successfully',
-            data: updatedRecord,
+            message: `Trip #${nextTripNumber} started successfully`,
+            data: newRecord,
             organizationTimezone: timezone
         });
 
@@ -136,7 +149,7 @@ exports.startReading = async (req, res, next) => {
             return res.status(400).json({ success: false, message: "Validation failed", errors: error.flatten().fieldErrors });
         }
         if (error.code === 11000) {
-            return res.status(400).json({ success: false, message: 'Odometer reading already recorded for today.' });
+            return res.status(400).json({ success: false, message: 'Duplicate trip number. Please try again.' });
         }
         next(error);
     }
@@ -159,19 +172,16 @@ exports.stopReading = async (req, res, next) => {
         const timezone = organization?.timezone || 'Asia/Kolkata';
         const today = getStartOfTodayInOrgTZ(timezone);
 
-        // Find today's record
+        // Find today's in-progress trip (most recent)
         const existingRecord = await Odometer.findOne({
             employee: userId,
             date: today,
             organizationId: orgObjectId,
-        });
+            status: 'in_progress',
+        }).sort({ tripNumber: -1 }); // Get the latest in-progress trip
 
-        if (!existingRecord || existingRecord.startReading === undefined) {
-            return res.status(400).json({ success: false, message: 'You have not recorded start reading yet.' });
-        }
-
-        if (existingRecord.status === 'completed') {
-            return res.status(400).json({ success: false, message: 'You have already recorded stop reading for today.' });
+        if (!existingRecord) {
+            return res.status(400).json({ success: false, message: 'No active trip found. Please start a trip first.' });
         }
 
         // Warn if stop reading is less than start reading (but allow it)
@@ -219,7 +229,7 @@ exports.stopReading = async (req, res, next) => {
     }
 };
 
-// @desc    Get today's odometer status
+// @desc    Get today's odometer status (all trips)
 // @route   GET /api/v1/odometer/status/today
 // @access  Private (odometer:view permission)
 exports.getStatusToday = async (req, res, next) => {
@@ -234,32 +244,59 @@ exports.getStatusToday = async (req, res, next) => {
         const timezone = organization?.timezone || 'Asia/Kolkata';
         const today = getStartOfTodayInOrgTZ(timezone);
 
-        const record = await Odometer.findOne({
+        // Find ALL trips for today
+        const records = await Odometer.find({
             employee: userId,
             date: today,
             organizationId: orgObjectId,
-        });
+        }).sort({ tripNumber: 1 }).lean();
 
-        if (!record) {
+        if (records.length === 0) {
             return res.status(200).json({
                 success: true,
-                data: null,
-                message: 'No odometer reading for today',
-                status: 'not_started',
+                data: [],
+                trips: [],
+                message: 'No odometer readings for today',
+                hasActiveTrip: false,
+                totalTrips: 0,
                 organizationTimezone: timezone
             });
         }
 
-        // Calculate distance if completed
-        let distance = null;
-        if (record.status === 'completed' && record.startReading !== undefined && record.stopReading !== undefined) {
-            distance = record.stopReading - record.startReading;
-        }
+        // Build trip list with distances
+        const trips = records.map(record => {
+            let distance = null;
+            if (record.status === 'completed' && record.startReading !== undefined && record.stopReading !== undefined) {
+                distance = record.stopReading - record.startReading;
+            }
+            return {
+                _id: record._id,
+                tripNumber: record.tripNumber,
+                status: record.status,
+                startReading: record.startReading,
+                startUnit: record.startUnit,
+                stopReading: record.stopReading,
+                stopUnit: record.stopUnit,
+                distance: distance,
+                startTime: record.startTime,
+                stopTime: record.stopTime,
+            };
+        });
+
+        // Check if there's an active trip
+        const activeTrip = records.find(r => r.status === 'in_progress');
 
         res.status(200).json({
             success: true,
-            data: record,
-            distance: distance,
+            trips: trips,
+            totalTrips: records.length,
+            hasActiveTrip: !!activeTrip,
+            activeTrip: activeTrip ? {
+                _id: activeTrip._id,
+                tripNumber: activeTrip.tripNumber,
+                startReading: activeTrip.startReading,
+                startTime: activeTrip.startTime,
+            } : null,
             organizationTimezone: timezone
         });
     } catch (error) {
@@ -326,20 +363,20 @@ exports.getMyMonthlyReport = async (req, res, next) => {
         // Get month range
         const { start: startDate, end: endDate } = getMonthRangeInOrgTZ(year, month, timezone);
 
-        // Fetch records for the month
+        // Fetch records for the month (sorted by tripNumber for consistent ordering)
         const records = await Odometer.find({
             employee: userId,
             organizationId: orgObjectId,
             date: { $gte: startDate, $lte: endDate }
-        }).select('date status startReading startUnit stopReading stopUnit startTime stopTime').lean();
+        }).select('date tripNumber status startReading startUnit stopReading stopUnit startTime stopTime').sort({ date: 1, tripNumber: 1 }).lean();
 
-        // Build response
+        // Build response - group trips by day
         const odometerByDate = {};
         const summary = {
             totalDistance: 0,
-            daysRecorded: 0,
-            daysCompleted: 0,
-            daysInProgress: 0,
+            totalTrips: 0,
+            tripsCompleted: 0,
+            tripsInProgress: 0,
         };
 
         for (const record of records) {
@@ -350,15 +387,16 @@ exports.getMyMonthlyReport = async (req, res, next) => {
             if (record.status === 'completed' && record.startReading !== undefined && record.stopReading !== undefined) {
                 distance = record.stopReading - record.startReading;
                 summary.totalDistance += distance;
-                summary.daysCompleted++;
+                summary.tripsCompleted++;
             } else if (record.status === 'in_progress') {
-                summary.daysInProgress++;
+                summary.tripsInProgress++;
             }
 
-            summary.daysRecorded++;
+            summary.totalTrips++;
 
-            odometerByDate[day] = {
-                _id: record._id, // Added _id for navigation
+            const tripData = {
+                _id: record._id,
+                tripNumber: record.tripNumber,
                 status: record.status,
                 startReading: record.startReading,
                 startUnit: record.startUnit,
@@ -368,18 +406,24 @@ exports.getMyMonthlyReport = async (req, res, next) => {
                 startTime: record.startTime,
                 stopTime: record.stopTime,
             };
+
+            // Group trips by day
+            if (!odometerByDate[day]) {
+                odometerByDate[day] = [];
+            }
+            odometerByDate[day].push(tripData);
         }
 
-        // Fill in not_started days
+        // Fill in not_started days (as empty arrays)
         const daysInMonth = DateTime.fromJSDate(endDate, { zone: 'UTC' }).day;
         for (let day = 1; day <= daysInMonth; day++) {
             if (!odometerByDate[day]) {
-                odometerByDate[day] = { status: 'not_started' };
+                odometerByDate[day] = []; // Empty array means no trips
             }
         }
 
         // Calculate average
-        summary.avgDailyDistance = summary.daysCompleted > 0 ? Math.round(summary.totalDistance / summary.daysCompleted) : 0;
+        summary.avgDistancePerTrip = summary.tripsCompleted > 0 ? Math.round(summary.totalDistance / summary.tripsCompleted) : 0;
 
         res.status(200).json({
             success: true,
@@ -458,7 +502,7 @@ exports.getOdometerReport = async (req, res, next) => {
             organizationId: orgObjectId,
             employee: { $in: employeeIds },
             date: { $gte: startDate, $lte: endDate }
-        }).sort({ date: 1 }).lean();
+        }).sort({ date: 1, tripNumber: 1 }).lean();
 
         // Group records by employee
         const recordsByEmployee = {};
@@ -477,7 +521,7 @@ exports.getOdometerReport = async (req, res, next) => {
             const empRecords = recordsByEmployee[empId] || [];
 
             let totalDistance = 0;
-            let daysCompleted = 0;
+            let tripsCompleted = 0;
             const recordList = [];
 
             for (const record of empRecords) {
@@ -485,12 +529,13 @@ exports.getOdometerReport = async (req, res, next) => {
                 if (record.status === 'completed' && record.startReading !== undefined && record.stopReading !== undefined) {
                     distance = record.stopReading - record.startReading;
                     totalDistance += distance;
-                    daysCompleted++;
+                    tripsCompleted++;
                 }
 
                 recordList.push({
                     _id: record._id,
-                    date: DateTime.fromJSDate(record.date, { zone: 'UTC' }).toISODate(), // Send pure date string
+                    date: DateTime.fromJSDate(record.date, { zone: 'UTC' }).toISODate(),
+                    tripNumber: record.tripNumber || 1,
                     status: record.status,
                     startReading: record.startReading,
                     startUnit: record.startUnit,
@@ -499,7 +544,6 @@ exports.getOdometerReport = async (req, res, next) => {
                     distance: distance,
                     startTime: record.startTime,
                     stopTime: record.stopTime,
-                    // location details could be added if needed, keeping it light for report list
                 });
             }
 
@@ -517,7 +561,7 @@ exports.getOdometerReport = async (req, res, next) => {
                 },
                 records: recordList,
                 totalDistance: totalDistance,
-                daysCompleted: daysCompleted
+                tripsCompleted: tripsCompleted
             });
         }
 

@@ -199,7 +199,11 @@ exports.getAllMiscellaneousWork = async (req, res, next) => {
         }
 
         const works = await MiscellaneousWork.find(query)
-            .populate('employeeId', 'name role avatarUrl')
+            .populate({
+                path: 'employeeId',
+                select: 'name role avatarUrl customRoleId',
+                populate: { path: 'customRoleId', select: 'name' }
+            })
             .sort({ workDate: -1, createdAt: -1 })
             .lean();
 
@@ -245,7 +249,11 @@ exports.getMyMiscellaneousWork = async (req, res, next) => {
         }
 
         const works = await MiscellaneousWork.find(query)
-            .populate('employeeId', 'name role avatarUrl')
+            .populate({
+                path: 'employeeId',
+                select: 'name role avatarUrl customRoleId',
+                populate: { path: 'customRoleId', select: 'name' }
+            })
             .sort({ workDate: -1, createdAt: -1 })
             .lean();
 
