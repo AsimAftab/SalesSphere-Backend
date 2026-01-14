@@ -1,4 +1,7 @@
 const BeatPlan = require('./beat-plan.model');
+const BeatPlanBackup = require('./beatPlanBackup.model');
+const LocationTracking = require('./tracking/tracking.model');
+const LocationTrackingBackup = require('./tracking/locationTrackingBackup.model');
 const Party = require('../parties/party.model');
 const Site = require('../sites/sites.model');
 const Prospect = require('../prospect/prospect.model');
@@ -1452,9 +1455,21 @@ exports.markPartyVisited = async (req, res, next) => {
                 const io = req.app?.get('io');
                 const result = await closeTrackingSessionsForBeatPlan(beatPlan._id, io);
                 console.log(`📊 Closed ${result.closed} tracking session(s) for completed beat plan: ${beatPlan._id}`);
+
+                // Archive the beat plan and its tracking data to backup collections
+                const archiveResult = await archiveBeatPlan(beatPlan);
+                console.log(`📦 Beat plan archived successfully: ${archiveResult.backupId}`);
+
+                // Return early since original beat plan is now deleted
+                return res.status(200).json({
+                    success: true,
+                    message: `Beat plan completed and archived. All directories visited.`,
+                    archived: true,
+                    backupId: archiveResult.backupId
+                });
             } catch (error) {
                 // Log error but don't fail the request
-                console.error('⚠️ Error closing tracking sessions, but beat plan was marked as completed:', error);
+                console.error('⚠️ Error during completion/archival, but beat plan was marked as completed:', error);
             }
         }
 
@@ -1480,3 +1495,288 @@ exports.markPartyVisited = async (req, res, next) => {
         });
     }
 };
+
+// --- Archive Helper Function ---
+// Archives a completed beat plan and its tracking sessions to backup collections
+// Uses aggregation pipeline with $merge for efficient bulk data transfer
+const archiveBeatPlan = async (beatPlan) => {
+    try {
+        const archivedAt = new Date();
+        const TEN_DAYS_MS = 10 * 24 * 60 * 60 * 1000;
+        const expireAt = new Date(archivedAt.getTime() + TEN_DAYS_MS);
+
+        // 1. Create beat plan backup
+        const backupData = {
+            originalId: beatPlan._id,
+            name: beatPlan.name,
+            employees: beatPlan.employees,
+            parties: beatPlan.parties,
+            sites: beatPlan.sites,
+            prospects: beatPlan.prospects,
+            visits: beatPlan.visits,
+            schedule: beatPlan.schedule,
+            status: beatPlan.status,
+            startedAt: beatPlan.startedAt,
+            completedAt: beatPlan.completedAt,
+            progress: beatPlan.progress,
+            organizationId: beatPlan.organizationId,
+            createdBy: beatPlan.createdBy,
+            originalCreatedAt: beatPlan.createdAt,
+            originalUpdatedAt: beatPlan.updatedAt,
+            archivedAt: archivedAt,
+        };
+
+        const beatPlanBackup = await BeatPlanBackup.create(backupData);
+
+        // 2. Archive tracking sessions using aggregation pipeline with $merge
+        // This is much more efficient for large datasets than find + loop + create
+        const trackingCount = await LocationTracking.countDocuments({ beatPlanId: beatPlan._id });
+
+        if (trackingCount > 0) {
+            await LocationTracking.aggregate([
+                // Match tracking sessions for this beat plan
+                { $match: { beatPlanId: beatPlan._id } },
+                // Add archive fields
+                {
+                    $addFields: {
+                        originalId: "$_id",
+                        beatPlanBackupId: beatPlanBackup._id,
+                        originalBeatPlanId: beatPlan._id,
+                        archivedAt: archivedAt,
+                        expireAt: expireAt
+                    }
+                },
+                // Remove the original _id so MongoDB generates a new one
+                { $unset: "_id" },
+                // Merge into backup collection
+                {
+                    $merge: {
+                        into: "locationtrackingbackups",
+                        whenMatched: "keepExisting",
+                        whenNotMatched: "insert"
+                    }
+                }
+            ]);
+        }
+
+        // 3. Delete original tracking sessions
+        await LocationTracking.deleteMany({ beatPlanId: beatPlan._id });
+
+        // 4. Delete original beat plan
+        await BeatPlan.findByIdAndDelete(beatPlan._id);
+
+        console.log(`📦 Archived beat plan ${beatPlan._id} with ${trackingCount} tracking session(s) using aggregation pipeline`);
+        return { success: true, backupId: beatPlanBackup._id, trackingSessionsArchived: trackingCount };
+    } catch (error) {
+        console.error('Error archiving beat plan:', error);
+        throw error;
+    }
+};
+
+// @desc    Clone a beat plan for reuse with new date/employees
+// @route   POST /api/v1/beat-plans/:id/clone
+// @access  Protected (beatPlan:add permission)
+exports.cloneBeatPlan = async (req, res, next) => {
+    try {
+        if (!req.user) {
+            return res.status(401).json({ success: false, message: 'Not authenticated' });
+        }
+
+        const { id } = req.params;
+        const { organizationId, _id: userId } = req.user;
+        const { employees, startDate, endDate } = req.body;
+
+        // Validate input
+        if (!employees || !Array.isArray(employees) || employees.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'At least one employee is required'
+            });
+        }
+        if (!startDate) {
+            return res.status(400).json({
+                success: false,
+                message: 'Start date is required'
+            });
+        }
+
+        // Find original beat plan (can be from main collection or backup)
+        let originalBeatPlan = await BeatPlan.findOne({ _id: id, organizationId });
+        let fromBackup = false;
+
+        if (!originalBeatPlan) {
+            // Try finding in backup
+            originalBeatPlan = await BeatPlanBackup.findOne({
+                $or: [{ _id: id }, { originalId: id }],
+                organizationId
+            });
+            fromBackup = true;
+        }
+
+        if (!originalBeatPlan) {
+            return res.status(404).json({
+                success: false,
+                message: 'Beat plan not found'
+            });
+        }
+
+        // Build visits array with pending status
+        const allDirectoryIds = [
+            ...originalBeatPlan.parties.map(p => ({ id: p, type: 'party' })),
+            ...originalBeatPlan.sites.map(s => ({ id: s, type: 'site' })),
+            ...originalBeatPlan.prospects.map(pr => ({ id: pr, type: 'prospect' }))
+        ];
+
+        const visits = allDirectoryIds.map(dir => ({
+            directoryId: dir.id,
+            directoryType: dir.type,
+            status: 'pending'
+        }));
+
+        // Create new beat plan (clone)
+        const newBeatPlan = await BeatPlan.create({
+            name: originalBeatPlan.name,
+            employees: employees,
+            parties: originalBeatPlan.parties,
+            sites: originalBeatPlan.sites,
+            prospects: originalBeatPlan.prospects,
+            visits: visits,
+            schedule: {
+                daysOfWeek: originalBeatPlan.schedule?.daysOfWeek || [],
+                frequency: originalBeatPlan.schedule?.frequency || 'weekly',
+                startDate: new Date(startDate),
+                endDate: endDate ? new Date(endDate) : null,
+            },
+            status: 'pending',
+            progress: {
+                totalDirectories: allDirectoryIds.length,
+                visitedDirectories: 0,
+                percentage: 0,
+                totalParties: originalBeatPlan.parties.length,
+                totalSites: originalBeatPlan.sites.length,
+                totalProspects: originalBeatPlan.prospects.length,
+            },
+            organizationId,
+            createdBy: userId,
+        });
+
+        // Populate for response
+        await newBeatPlan.populate([
+            { path: 'employees', select: 'name email role avatarUrl' },
+            { path: 'parties', select: 'partyName location' },
+            { path: 'sites', select: 'siteName location' },
+            { path: 'prospects', select: 'prospectName location' }
+        ]);
+
+        res.status(201).json({
+            success: true,
+            message: 'Beat plan cloned successfully',
+            data: newBeatPlan
+        });
+    } catch (error) {
+        console.error('Error cloning beat plan:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to clone beat plan',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Get archived/completed beat plans (history)
+// @route   GET /api/v1/beat-plans/history
+// @access  Protected (beatPlan:view permission)
+exports.getArchivedBeatPlans = async (req, res, next) => {
+    try {
+        if (!req.user) {
+            return res.status(401).json({ success: false, message: 'Not authenticated' });
+        }
+
+        const { organizationId } = req.user;
+        const { page = 1, limit = 20, employee } = req.query;
+
+        const query = { organizationId };
+        if (employee) {
+            query.employees = employee;
+        }
+
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+
+        const [archivedBeatPlans, total] = await Promise.all([
+            BeatPlanBackup.find(query)
+                .sort({ archivedAt: -1 })
+                .skip(skip)
+                .limit(parseInt(limit))
+                .populate('employees', 'name email avatarUrl')
+                .populate('createdBy', 'name email')
+                .lean(),
+            BeatPlanBackup.countDocuments(query)
+        ]);
+
+        res.status(200).json({
+            success: true,
+            count: archivedBeatPlans.length,
+            total,
+            page: parseInt(page),
+            totalPages: Math.ceil(total / parseInt(limit)),
+            data: archivedBeatPlans
+        });
+    } catch (error) {
+        console.error('Error fetching archived beat plans:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch archived beat plans',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Get archived beat plan by ID
+// @route   GET /api/v1/beat-plans/history/:id
+// @access  Protected (beatPlan:view permission)
+exports.getArchivedBeatPlanById = async (req, res, next) => {
+    try {
+        if (!req.user) {
+            return res.status(401).json({ success: false, message: 'Not authenticated' });
+        }
+
+        const { id } = req.params;
+        const { organizationId } = req.user;
+
+        const archivedBeatPlan = await BeatPlanBackup.findOne({ _id: id, organizationId })
+            .populate('employees', 'name email role avatarUrl phone')
+            .populate('parties', 'partyName ownerName contact location')
+            .populate('sites', 'siteName ownerName contact location')
+            .populate('prospects', 'prospectName ownerName contact location')
+            .populate('createdBy', 'name email');
+
+        if (!archivedBeatPlan) {
+            return res.status(404).json({
+                success: false,
+                message: 'Archived beat plan not found'
+            });
+        }
+
+        // Get tracking data if still available (within 10-day TTL)
+        const trackingData = await LocationTrackingBackup.find({ beatPlanBackupId: id })
+            .populate('userId', 'name email avatarUrl')
+            .lean();
+
+        res.status(200).json({
+            success: true,
+            data: archivedBeatPlan,
+            tracking: trackingData,
+            trackingExpired: trackingData.length === 0
+        });
+    } catch (error) {
+        console.error('Error fetching archived beat plan:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch archived beat plan',
+            error: error.message
+        });
+    }
+};
+
+// Export archive function for use in markPartyVisited
+exports.archiveBeatPlan = archiveBeatPlan;
