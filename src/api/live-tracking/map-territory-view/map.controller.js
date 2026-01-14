@@ -47,34 +47,43 @@ exports.getMapLocations = async (req, res, next) => {
                 : Promise.resolve([])
         ]);
 
-        // 3. Standardize the data into a single format
+        // 3. Standardize the data into a single format (filter out entries without valid coordinates)
+        const isValidCoord = (loc) => loc &&
+            typeof loc.latitude === 'number' && loc.latitude !== 0 &&
+            typeof loc.longitude === 'number' && loc.longitude !== 0;
 
-        const partyLocations = parties.map(p => ({
-            _id: p._id,
-            name: p.partyName,
-            address: p.location.address,
-            latitude: p.location.latitude,
-            longitude: p.location.longitude,
-            type: 'party' // Add a type for the frontend
-        }));
+        const partyLocations = parties
+            .filter(p => p.location && isValidCoord(p.location))
+            .map(p => ({
+                _id: p._id,
+                name: p.partyName,
+                address: p.location.address || '',
+                latitude: p.location.latitude,
+                longitude: p.location.longitude,
+                type: 'party'
+            }));
 
-        const prospectLocations = prospects.map(p => ({
-            _id: p._id,
-            name: p.prospectName,
-            address: p.location.address,
-            latitude: p.location.latitude,
-            longitude: p.location.longitude,
-            type: 'prospect'
-        }));
+        const prospectLocations = prospects
+            .filter(p => p.location && isValidCoord(p.location))
+            .map(p => ({
+                _id: p._id,
+                name: p.prospectName,
+                address: p.location.address || '',
+                latitude: p.location.latitude,
+                longitude: p.location.longitude,
+                type: 'prospect'
+            }));
 
-        const siteLocations = sites.map(s => ({
-            _id: s._id,
-            name: s.siteName,
-            address: s.location.address,
-            latitude: s.location.latitude,
-            longitude: s.location.longitude,
-            type: 'site'
-        }));
+        const siteLocations = sites
+            .filter(s => s.location && isValidCoord(s.location))
+            .map(s => ({
+                _id: s._id,
+                name: s.siteName,
+                address: s.location.address || '',
+                latitude: s.location.latitude,
+                longitude: s.location.longitude,
+                type: 'site'
+            }));
 
         // 4. Return locations organized by type
         res.status(200).json({
