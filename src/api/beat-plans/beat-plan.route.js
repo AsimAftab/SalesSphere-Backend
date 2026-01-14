@@ -16,7 +16,10 @@ const {
     startBeatPlan,
     getBeatPlanDetails,
     calculateDistanceToParty,
-    optimizeBeatPlanRoute
+    optimizeBeatPlanRoute,
+    cloneBeatPlan,
+    getArchivedBeatPlans,
+    getArchivedBeatPlanById
 } = require('./beat-plan.controller');
 const { protect } = require('../../middlewares/auth.middleware');
 const { checkAccess, checkAnyAccess } = require('../../middlewares/compositeAccess.middleware');
@@ -24,6 +27,21 @@ const { checkAccess, checkAnyAccess } = require('../../middlewares/compositeAcce
 const router = express.Router();
 
 router.use(protect);
+
+// ============================================
+// HISTORY/ARCHIVE OPERATIONS
+// ============================================
+// GET /history - View archived/completed beat plans
+router.get('/history',
+    checkAccess('beatPlan', 'viewList'),
+    getArchivedBeatPlans
+);
+
+// GET /history/:id - View specific archived beat plan
+router.get('/history/:id',
+    checkAccess('beatPlan', 'viewDetails'),
+    getArchivedBeatPlanById
+);
 
 // ============================================
 // VIEW OPERATIONS
@@ -81,6 +99,12 @@ router.get('/:id',
 router.post('/',
     checkAccess('beatPlan', 'create'),
     createBeatPlan
+);
+
+// POST /:id/clone - Clone beat plan for reuse with new date/employees
+router.post('/:id/clone',
+    checkAccess('beatPlan', 'create'),
+    cloneBeatPlan
 );
 
 // POST /calculate-distance - Calculate distance to parties from current location
