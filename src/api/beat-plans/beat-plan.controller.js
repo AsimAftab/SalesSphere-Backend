@@ -930,13 +930,26 @@ exports.getBeatPlanDetails = async (req, res, next) => {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId, _id: userId, role } = req.user;
 
-        // Find the beat plan
-        const beatPlan = await BeatPlan.findOne({
+        // Find the beat plan in main collection first
+        let beatPlan = await BeatPlan.findOne({
             _id: req.params.id,
             organizationId
         })
             .populate('employees', 'name email role avatarUrl phone')
             .populate('createdBy', 'name email');
+
+        let isArchived = false;
+
+        // If not found in main collection, check backup
+        if (!beatPlan) {
+            beatPlan = await BeatPlanBackup.findOne({
+                $or: [{ _id: req.params.id }, { originalId: req.params.id }],
+                organizationId
+            })
+                .populate('employees', 'name email role avatarUrl phone')
+                .populate('createdBy', 'name email');
+            isArchived = true;
+        }
 
         if (!beatPlan) {
             return res.status(404).json({ success: false, message: 'Beat plan not found' });
@@ -1036,6 +1049,9 @@ exports.getBeatPlanDetails = async (req, res, next) => {
             _id: beatPlan._id,
             name: beatPlan.name,
             status: beatPlan.status,
+            isArchived: isArchived,
+            archivedAt: isArchived ? beatPlan.archivedAt : undefined,
+            originalId: isArchived ? beatPlan.originalId : undefined,
             schedule: beatPlan.schedule,
             progress: beatPlan.progress,
             startedAt: beatPlan.startedAt || null,
