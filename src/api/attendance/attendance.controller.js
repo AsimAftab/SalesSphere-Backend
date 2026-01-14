@@ -572,10 +572,11 @@ exports.getMyStatusToday = async (req, res, next) => {
     const { _id: userId, organizationId } = req.user;
     const orgObjectId = toObjectIdIfNeeded(organizationId);
 
-    // Fetch organization timezone and time settings
-    const organization = await Organization.findById(orgObjectId).select('timezone checkInTime checkOutTime halfDayCheckOutTime');
+    // Fetch organization timezone, time settings, and geofencing setting with location
+    const organization = await Organization.findById(orgObjectId).select('timezone checkInTime checkOutTime halfDayCheckOutTime enableGeoFencingAttendance latitude longitude address');
     const timezone = organization?.timezone || 'Asia/Kolkata';
     const today = getStartOfTodayInOrgTZ(timezone);
+    const enableGeoFencing = organization?.enableGeoFencingAttendance || false;
 
     const record = await Attendance.findOne({
       employee: userId,
@@ -583,23 +584,34 @@ exports.getMyStatusToday = async (req, res, next) => {
       organizationId: orgObjectId,
     });
 
+    // Build base response
+    const baseResponse = {
+      organizationTimezone: timezone,
+      organizationCheckInTime: organization?.checkInTime || null,
+      organizationCheckOutTime: organization?.checkOutTime || null,
+      organizationHalfDayCheckOutTime: organization?.halfDayCheckOutTime || null,
+      enableGeoFencingAttendance: enableGeoFencing,
+      // Include geofencing location only if enabled
+      ...(enableGeoFencing && {
+        organizationLocation: {
+          latitude: organization?.latitude || null,
+          longitude: organization?.longitude || null,
+          address: organization?.address || null
+        }
+      })
+    };
+
     if (!record) return res.status(200).json({
       success: true,
       data: null,
       message: 'Not marked',
-      organizationTimezone: timezone,
-      organizationCheckInTime: organization?.checkInTime || null,
-      organizationCheckOutTime: organization?.checkOutTime || null,
-      organizationHalfDayCheckOutTime: organization?.halfDayCheckOutTime || null
+      ...baseResponse
     });
 
     res.status(200).json({
       success: true,
       data: record,
-      organizationTimezone: timezone, // For frontend to convert times to local timezone
-      organizationCheckInTime: organization?.checkInTime || null,
-      organizationCheckOutTime: organization?.checkOutTime || null,
-      organizationHalfDayCheckOutTime: organization?.halfDayCheckOutTime || null
+      ...baseResponse
     });
   } catch (error) {
     next(error);
