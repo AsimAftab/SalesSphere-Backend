@@ -824,7 +824,7 @@ exports.getMyBeatPlans = async (req, res, next) => {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
         const { organizationId, _id: userId } = req.user;
 
-        const { status, page = 1, limit = 10 } = req.query;
+        const { status, page = 1, limit = 10, includeArchived = 'true' } = req.query;
 
         // Build filter - find beat plans where this user is in the employees array
         const filter = {
@@ -833,47 +833,83 @@ exports.getMyBeatPlans = async (req, res, next) => {
         };
 
         // Optionally filter by status
-        if (status) {
+        if (status && status !== 'all') {
             filter.status = status;
         }
 
         const skip = (parseInt(page) - 1) * parseInt(limit);
 
-        const beatPlans = await BeatPlan.find(filter)
-            .select('name status schedule.startDate progress startedAt completedAt')
-            .sort({ 'schedule.startDate': -1, createdAt: -1 })
-            .skip(skip)
-            .limit(parseInt(limit))
-            .lean();
-
-        // Transform to minimal response format
-        const minimalBeatPlans = beatPlans.map(plan => ({
+        // Helper function to transform beat plan to minimal response format
+        const transformBeatPlan = (plan, isArchived = false) => ({
             _id: plan._id,
+            originalId: isArchived ? plan.originalId : undefined,
             name: plan.name,
             status: plan.status,
+            isArchived: isArchived,
             assignedDate: plan.schedule?.startDate || null,
             startedAt: plan.startedAt || null,
             completedAt: plan.completedAt || null,
+            archivedAt: isArchived ? plan.archivedAt : undefined,
             totalDirectories: plan.progress?.totalDirectories || 0,
             visitedDirectories: plan.progress?.visitedDirectories || 0,
             unvisitedDirectories: (plan.progress?.totalDirectories || 0) - (plan.progress?.visitedDirectories || 0),
             progressPercentage: plan.progress?.percentage || 0,
-            // Breakdown by type
             totalParties: plan.progress?.totalParties || 0,
             totalSites: plan.progress?.totalSites || 0,
             totalProspects: plan.progress?.totalProspects || 0,
-        }));
+        });
 
-        const total = await BeatPlan.countDocuments(filter);
+        // Query active beat plans
+        const [activeBeatPlans, activeCount] = await Promise.all([
+            BeatPlan.find(filter)
+                .select('name status schedule.startDate progress startedAt completedAt')
+                .sort({ 'schedule.startDate': -1, createdAt: -1 })
+                .lean(),
+            BeatPlan.countDocuments(filter)
+        ]);
+
+        let allBeatPlans = activeBeatPlans.map(plan => transformBeatPlan(plan, false));
+        let totalCount = activeCount;
+
+        // Include archived beat plans if requested
+        if (includeArchived === 'true') {
+            const archivedFilter = { ...filter };
+            // For archived, we don't filter by status unless specifically requested
+            if (!status || status === 'all') {
+                delete archivedFilter.status;
+            }
+
+            const [archivedBeatPlans, archivedCount] = await Promise.all([
+                BeatPlanBackup.find(archivedFilter)
+                    .select('originalId name status schedule.startDate progress startedAt completedAt archivedAt')
+                    .sort({ archivedAt: -1 })
+                    .lean(),
+                BeatPlanBackup.countDocuments(archivedFilter)
+            ]);
+
+            const transformedArchived = archivedBeatPlans.map(plan => transformBeatPlan(plan, true));
+            allBeatPlans = [...allBeatPlans, ...transformedArchived];
+            totalCount += archivedCount;
+        }
+
+        // Sort combined results by date (most recent first)
+        allBeatPlans.sort((a, b) => {
+            const dateA = a.archivedAt || a.assignedDate || 0;
+            const dateB = b.archivedAt || b.assignedDate || 0;
+            return new Date(dateB) - new Date(dateA);
+        });
+
+        // Apply pagination after merging
+        const paginatedResults = allBeatPlans.slice(skip, skip + parseInt(limit));
 
         res.status(200).json({
             success: true,
-            data: minimalBeatPlans,
+            data: paginatedResults,
             pagination: {
-                total,
+                total: totalCount,
                 page: parseInt(page),
                 limit: parseInt(limit),
-                pages: Math.ceil(total / parseInt(limit))
+                pages: Math.ceil(totalCount / parseInt(limit))
             }
         });
     } catch (error) {
