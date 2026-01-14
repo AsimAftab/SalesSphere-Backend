@@ -392,12 +392,13 @@ exports.deletePartyImage = async (req, res, next) => {
 const bulkPartySchemaValidation = z.object({
     partyName: z.string({ required_error: "Party name is required" }).min(1, "Party name is required"),
     ownerName: z.string({ required_error: "Owner name is required" }).min(1, "Owner name is required"),
-    panVatNumber: z.string({ required_error: "PAN/VAT number is required" }).min(1, "PAN/VAT number is required").max(14),
+    panVatNumber: z.coerce.string({ required_error: "PAN/VAT number is required" }).min(1, "PAN/VAT number is required").max(14),
+    partyType: z.string().optional(),
     contact: z.object({
         phone: z.string({ required_error: "Phone number is required" }).min(1, "Phone number is required"),
         email: z.string().email("Invalid email address").optional().or(z.literal('')),
     }),
-    address: z.string().optional(), // Simple address string for bulk import
+    address: z.string().optional(),
     description: z.string().optional(),
 });
 
@@ -448,15 +449,21 @@ exports.bulkImportParties = async (req, res, next) => {
                     continue;
                 }
 
+                // Sync party type to PartyType collection
+                if (validatedData.partyType) {
+                    await syncPartyType(validatedData.partyType, organizationId);
+                }
+
                 // Create party with auto-generated dateJoined
                 const newParty = await Party.create({
                     partyName: validatedData.partyName,
                     ownerName: validatedData.ownerName,
                     panVatNumber: validatedData.panVatNumber,
+                    ...(validatedData.partyType && { partyType: validatedData.partyType }),
                     contact: validatedData.contact,
                     location: validatedData.address ? { address: validatedData.address } : undefined,
                     description: validatedData.description,
-                    dateJoined: new Date(), // Auto-generated
+                    dateJoined: new Date(),
                     organizationId,
                     createdBy: userId,
                 });
@@ -468,11 +475,13 @@ exports.bulkImportParties = async (req, res, next) => {
                 });
 
             } catch (error) {
-                if (error instanceof z.ZodError) {
+                // Handle ZodError (check for issues array which is the proper Zod property)
+                if (error.name === 'ZodError' || error.issues) {
+                    const issues = error.issues || error.errors || [];
                     results.failed.push({
                         row: rowNumber,
                         partyName: partyData.partyName || 'Unknown',
-                        errors: error.errors.map(e => ({ field: e.path.join('.'), message: e.message }))
+                        errors: issues.map(e => ({ field: (e.path || []).join('.'), message: e.message }))
                     });
                 } else if (error.code === 11000) {
                     results.duplicates.push({
