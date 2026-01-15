@@ -39,7 +39,7 @@ const COMMON_FEATURES = {
  */
 const STANDARD_UPGRADES = {
     // Attendance: Admin controls
-    attendance: ['viewTeamAttendance', 'markHoliday', 'updateAttendance', 'biometricSync'],
+    attendance: ['viewTeamAttendance', 'markHoliday', 'updateAttendance'],
 
     // Products: CRUD operations (still no delete/bulk)
     products: ['create', 'update'],
@@ -90,7 +90,7 @@ const STANDARD_UPGRADES = {
  */
 const PREMIUM_UPGRADES = {
     // Attendance: Exports
-    attendance: ['exportPdf', 'exportExcel'],
+    attendance: ['exportPdf'],
 
     // Products: High-value tools
     products: ['delete', 'bulkUpload', 'bulkDelete', 'exportPdf', 'exportExcel'],

@@ -138,6 +138,60 @@ exports.getTrackingHistory = async (req, res) => {
     }
 };
 
+// @desc    Get data for an archived tracking session (from backup)
+// @route   GET /api/v1/beat-plans/tracking/archived/:sessionId
+// @access  Protected
+exports.getArchivedSession = async (req, res) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId } = req.user;
+        const { sessionId } = req.params;
+
+        const LocationTrackingBackup = require('./locationTrackingBackup.model');
+
+        const archivedSession = await LocationTrackingBackup.findOne({
+            _id: sessionId,
+            organizationId,
+        })
+            .populate('userId', 'name email avatarUrl role');
+
+        if (!archivedSession) {
+            return res.status(404).json({
+                success: false,
+                message: 'Archived tracking session not found',
+            });
+        }
+
+        // Security Check
+        if (!(await checkTrackingAccess(req.user, archivedSession.userId._id))) {
+            return res.status(403).json({ success: false, message: 'Not authorized to view this archived session' });
+        }
+
+        // Transform data to match active session format for frontend reuse
+        res.status(200).json({
+            success: true,
+            data: {
+                sessionId: archivedSession._id,
+                beatPlan: archivedSession.beatPlanBackupId || archivedSession.originalBeatPlanId,
+                user: archivedSession.userId,
+                points: archivedSession.locations, // Full path points
+                breadcrumbs: archivedSession.locations, // Alias for component compatibility
+                sessionStartedAt: archivedSession.sessionStartedAt,
+                sessionEndedAt: archivedSession.sessionEndedAt,
+                status: archivedSession.status,
+                summary: archivedSession.summary,
+            },
+        });
+    } catch (error) {
+        console.error('Error fetching archived tracking session:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch archived tracking session',
+            error: error.message,
+        });
+    }
+};
+
 // @desc    Get location breadcrumb trail for a tracking session
 // @route   GET /api/v1/beat-plans/tracking/session/:sessionId/breadcrumbs
 // @access  Protected
@@ -373,40 +427,95 @@ exports.getActiveTrackingSessions = async (req, res) => {
     }
 };
 
-// @desc    Delete tracking session (admin only)
-// @route   DELETE /api/v1/beat-plans/tracking/session/:sessionId
-// @access  Protected (Admin only)
-exports.deleteTrackingSession = async (req, res) => {
+// @desc    Get all completed (archived) tracking sessions for organization
+// @route   GET /api/v1/beat-plans/tracking/completed
+// @access  Protected (Admin, Manager)
+exports.getCompletedTrackingSessions = async (req, res) => {
     try {
         if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
-        const { organizationId } = req.user;
-        const { sessionId } = req.params;
+        const { organizationId, role, _id: userId } = req.user;
+        const { page = 1, limit = 20, employee, date } = req.query;
 
-        const trackingSession = await LocationTracking.findOneAndDelete({
-            _id: sessionId,
-            organizationId,
-        });
+        const LocationTrackingBackup = require('./locationTrackingBackup.model');
 
-        if (!trackingSession) {
-            return res.status(404).json({
-                success: false,
-                message: 'Tracking session not found',
-            });
+        // --- HIERARCHY LOGIC ---
+        let userFilter = {};
+
+        // 1. Admin / System Role: View All
+        if (role === 'admin' || isSystemRole(role)) {
+            userFilter = {};
         }
+        // 2. Manager with viewSessionHistory: View Subordinates Only
+        else if (req.user.hasFeature('liveTracking', 'viewSessionHistory')) {
+            const subordinates = await User.find({ reportsTo: { $in: [userId] } }).select('_id');
+            const subordinateIds = subordinates.map(u => u._id);
+            userFilter = { userId: { $in: subordinateIds } };
+        }
+        // 3. Regular User: View Self Only
+        else {
+            userFilter = { userId: userId };
+        }
+
+        const query = {
+            organizationId,
+            ...userFilter
+        };
+
+        if (employee) {
+            query.userId = employee;
+        }
+
+        if (date) {
+            const searchDate = new Date(date);
+            const nextDate = new Date(searchDate);
+            nextDate.setDate(nextDate.getDate() + 1);
+            query.sessionStartedAt = { $gte: searchDate, $lt: nextDate };
+        }
+
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+
+        const [sessions, total] = await Promise.all([
+            LocationTrackingBackup.find(query)
+                .sort({ sessionStartedAt: -1 })
+                .skip(skip)
+                .limit(parseInt(limit))
+                .populate('userId', 'name email avatarUrl phone role')
+                .populate('beatPlanBackupId', 'name') // Populate archived beat plan name
+                .lean(),
+            LocationTrackingBackup.countDocuments(query)
+        ]);
+
+        // Transform data
+        const transformedSessions = sessions.map(session => ({
+            sessionId: session._id,
+            beatPlanName: session.beatPlanBackupId?.name || 'Unknown Beat Plan',
+            user: session.userId,
+            sessionStartedAt: session.sessionStartedAt,
+            sessionEndedAt: session.sessionEndedAt,
+            summary: session.summary,
+            status: session.status,
+            locationsRecorded: session.locations?.length || 0
+        }));
 
         res.status(200).json({
             success: true,
-            message: 'Tracking session deleted successfully',
+            data: transformedSessions,
+            count: sessions.length,
+            total,
+            page: parseInt(page),
+            totalPages: Math.ceil(total / parseInt(limit))
         });
     } catch (error) {
-        console.error('Error deleting tracking session:', error);
+        console.error('Error fetching completed tracking sessions:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to delete tracking session',
+            message: 'Failed to fetch completed tracking sessions',
             error: error.message,
         });
     }
 };
+
+
 
 // @desc    Utility function to close all active tracking sessions for a beat plan
 // @access  Internal use (called when beat plan is completed)

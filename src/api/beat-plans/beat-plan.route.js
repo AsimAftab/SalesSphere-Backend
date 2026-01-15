@@ -125,4 +125,19 @@ router.post('/:id/optimize-route',
     optimizeBeatPlanRoute
 );
 
+// ============================================
+// ARCHIVED/HISTORY OPERATIONS
+// ============================================
+// GET /history - Get archived/completed beat plans
+router.get('/history',
+    checkAccess('beatPlan', 'viewAllBeatPlans'),
+    getArchivedBeatPlans
+);
+
+// GET /history/:id - Get specific archived beat plan details
+router.get('/history/:id',
+    checkAccess('beatPlan', 'viewDetails'),
+    getArchivedBeatPlanById
+);
+
 module.exports = router;

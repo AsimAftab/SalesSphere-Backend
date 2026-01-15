@@ -30,13 +30,10 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         viewMyAttendance: true,
         viewAllAttendance: true,
         exportPdf: true,
-        exportExcel: true,
         webCheckIn: true,
         mobileCheckIn: true,
-        remoteCheckIn: true,
         markHoliday: true,
-        updateAttendance: true,
-        biometricSync: true
+        updateAttendance: true
     },
     products: {
         viewList: true,
@@ -132,8 +129,7 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         viewActiveSessions: true,
         viewSessionHistory: true,
         viewCurrentLocation: true,
-        historyPlayback: true,
-        deleteSession: true
+        historyPlayback: true
     },
     expenses: {
         viewList: true,
@@ -278,13 +274,10 @@ const DEVELOPER_GRANULAR_PERMISSIONS = {
         viewMyAttendance: true,
         viewAllAttendance: true,
         exportPdf: true,
-        exportExcel: true,
         webCheckIn: true,
         mobileCheckIn: true,
-        remoteCheckIn: true,
         markHoliday: true,
-        updateAttendance: true,
-        biometricSync: true
+        updateAttendance: true
     },
     products: {
         viewList: true,
@@ -380,8 +373,7 @@ const DEVELOPER_GRANULAR_PERMISSIONS = {
         viewActiveSessions: true,
         viewSessionHistory: true,
         viewCurrentLocation: true,
-        historyPlayback: true,
-        deleteSession: false
+        historyPlayback: true
     },
     expenses: {
         viewList: true,
@@ -532,13 +524,10 @@ const ADMIN_GRANULAR_PERMISSIONS = {
         viewMyAttendance: true,
         viewAllAttendance: true,
         exportPdf: true,
-        exportExcel: true,
         webCheckIn: true,
         mobileCheckIn: true,
-        remoteCheckIn: true,
         markHoliday: true,
-        updateAttendance: true,
-        biometricSync: true
+        updateAttendance: true
     },
     products: {
         viewList: true,
@@ -636,8 +625,7 @@ const ADMIN_GRANULAR_PERMISSIONS = {
         viewActiveSessions: true,
         viewSessionHistory: true,
         viewCurrentLocation: true,
-        historyPlayback: true,
-        deleteSession: true
+        historyPlayback: true
     },
     expenses: {
         viewList: true,
@@ -768,13 +756,10 @@ const USER_GRANULAR_PERMISSIONS = {
         viewMyAttendance: true,
         viewTeamAttendance: false,
         exportPdf: false,
-        exportExcel: false,
         webCheckIn: true,
         mobileCheckIn: true,
-        remoteCheckIn: false,
         markHoliday: false,
-        updateAttendance: false,
-        biometricSync: false
+        updateAttendance: false
     },
     products: {
         viewList: true,
@@ -870,10 +855,9 @@ const USER_GRANULAR_PERMISSIONS = {
         viewLocations: true,
         viewLiveTracking: false,
         viewActiveSessions: false,
-        viewSessionHistory: false,
+        viewSessionHistory: true,
         viewCurrentLocation: false,
-        historyPlayback: false,
-        deleteSession: false
+        historyPlayback: true
     },
     expenses: {
         viewList: true,

@@ -16,13 +16,10 @@ const FEATURE_REGISTRY = {
     viewAllAttendance: 'Master Key: View ALL attendance records in organization',
     viewMyAttendance: 'View own attendance records',
     exportPdf: 'Export the attendance data as a PDF',
-    exportExcel: 'Export attendance data to an Excel spreadsheet',
     webCheckIn: 'Allow check-in/check-out via web portal',
     mobileCheckIn: 'Allow check-in/check-out via mobile app',
-    remoteCheckIn: 'Allow check-in from anywhere (no geofence) - Future',
     markHoliday: 'Admin: Mark holiday for organization',
     updateAttendance: 'Admin: Mark present, absent, leave and half day manually',
-    biometricSync: 'Enable biometric device sync',
   },
 
   // ============================================
@@ -149,10 +146,9 @@ const FEATURE_REGISTRY = {
     viewLocations: 'View map with party, prospect, and site locations',
     viewLiveTracking: 'View live team locations and tracking sessions',
     viewActiveSessions: 'View all active tracking sessions',
-    viewSessionHistory: 'View tracking session history and breadcrumbs',
+    viewSessionHistory: 'View completed tracking session history list and details',
     viewCurrentLocation: 'View current location of tracked users',
     historyPlayback: 'Replay route history for a specific date',
-    deleteSession: 'Delete tracking session data',
   },
 
   // ============================================
