@@ -755,8 +755,8 @@ exports.getAttendanceReport = async (req, res, next) => {
     let employeeQuery = { organizationId: orgObjectId };
 
     if (isSystemRole(req.user.role) || req.user.role === 'admin') {
-      // 1. Admin/System: View All (exclude superadmin/developer)
-      employeeQuery.role = { $nin: ['superadmin', 'developer'] };
+      // 1. Admin/System: View All (exclude superadmin/developer/admin)
+      employeeQuery.role = { $nin: ['superadmin', 'developer', 'admin'] };
     }
     else if (req.user.hasFeature('attendance', 'viewAllAttendance')) {
       // 2. View All (Organization Wide)
@@ -1125,7 +1125,7 @@ exports.adminMarkAbsentees = async (req, res, next) => {
     // - Managers: only their subordinates
     let employeeQuery = {
       organizationId: orgObjectId,
-      role: { $nin: ['superadmin', 'developer'] }
+      role: { $nin: ['superadmin', 'developer', 'admin'] }
     };
 
     if (!isSystemRole(role) && role !== 'admin') {
@@ -1222,7 +1222,7 @@ exports.adminMarkHoliday = async (req, res, next) => {
     // - Managers: only their subordinates
     let employeeQuery = {
       organizationId: orgObjectId,
-      role: { $nin: ['superadmin', 'developer'] },
+      role: { $nin: ['superadmin', 'developer', 'admin'] },
       isActive: true
     };
 
