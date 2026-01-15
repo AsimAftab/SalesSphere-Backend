@@ -116,7 +116,6 @@ locationTrackingBackupSchema.pre('save', function (next) {
 
 // Indexes
 locationTrackingBackupSchema.index({ organizationId: 1, archivedAt: -1 });
-locationTrackingBackupSchema.index({ beatPlanBackupId: 1 });
 
 const LocationTrackingBackup = mongoose.model('LocationTrackingBackup', locationTrackingBackupSchema);
 

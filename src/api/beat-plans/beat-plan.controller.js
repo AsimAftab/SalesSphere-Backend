@@ -1,4 +1,5 @@
 const BeatPlan = require('./beat-plan.model');
+const BeatPlanList = require('./beatPlanList.model');
 const BeatPlanBackup = require('./beatPlanBackup.model');
 const LocationTracking = require('./tracking/tracking.model');
 const LocationTrackingBackup = require('./tracking/locationTrackingBackup.model');
@@ -432,6 +433,141 @@ exports.createBeatPlan = async (req, res, next) => {
         res.status(500).json({
             success: false,
             message: 'Failed to create beat plan',
+            error: error.message
+        });
+    }
+};
+
+// Validation schema for assigning beat plan from template
+const assignBeatPlanValidation = z.object({
+    beatPlanListId: z.string({ required_error: "Template ID is required" }).min(1, "Template ID is required"),
+    employees: z.array(z.string()).min(1, "At least one employee is required"),
+    startDate: z.string().refine(val => !isNaN(Date.parse(val)), { message: "Invalid start date" }),
+});
+
+// @desc    Assign a beat plan from template to employee(s)
+// @route   POST /api/v1/beat-plans/assign
+// @access  Protected (beatPlan:create)
+exports.assignBeatPlan = async (req, res, next) => {
+    try {
+        if (!req.user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+        const { organizationId, _id: userId, role } = req.user;
+
+        // Validate request body
+        const validatedData = assignBeatPlanValidation.parse(req.body);
+
+        // Find the template
+        const template = await BeatPlanList.findOne({
+            _id: validatedData.beatPlanListId,
+            organizationId
+        });
+
+        if (!template) {
+            return res.status(404).json({
+                success: false,
+                message: 'Beat plan template not found'
+            });
+        }
+
+        // Verify employees exist and are active
+        const employees = await User.find({
+            _id: { $in: validatedData.employees },
+            organizationId,
+            isActive: true
+        });
+
+        if (employees.length !== validatedData.employees.length) {
+            return res.status(400).json({
+                success: false,
+                message: 'Some employees are invalid or inactive'
+            });
+        }
+
+        // Security: Check subordinate permission for non-admin roles
+        const isAdmin = role === 'admin' || isSystemRole(role);
+        if (!isAdmin) {
+            for (const emp of employees) {
+                // Check explicit reportsTo chain
+                const reportsTo = emp.reportsTo || [];
+                const isDirectOrIndirectReport = Array.isArray(reportsTo)
+                    ? reportsTo.some(id => id.toString() === userId.toString())
+                    : reportsTo?.toString() === userId.toString();
+
+                // Fallback to canApprove which handles deeper hierarchy logic
+                if (!isDirectOrIndirectReport && !await canApprove(req.user, emp, 'beatPlan')) {
+                    return res.status(403).json({
+                        success: false,
+                        message: `You can only assign beat plans to your subordinates. Cannot assign to ${emp.name}.`
+                    });
+                }
+            }
+        }
+
+        // COPY data from template (not reference)
+        const partyIds = template.parties.map(id => id);
+        const siteIds = template.sites.map(id => id);
+        const prospectIds = template.prospects.map(id => id);
+
+        // Initialize visits array with all directories as pending
+        const visits = [
+            ...partyIds.map(id => ({ directoryId: id, directoryType: 'party', status: 'pending' })),
+            ...siteIds.map(id => ({ directoryId: id, directoryType: 'site', status: 'pending' })),
+            ...prospectIds.map(id => ({ directoryId: id, directoryType: 'prospect', status: 'pending' }))
+        ];
+
+        const totalDirectories = partyIds.length + siteIds.length + prospectIds.length;
+
+        // Create the beat plan assignment
+        const newBeatPlan = await BeatPlan.create({
+            beatPlanListId: template._id,
+            name: template.name, // Inherit name from template
+            employees: validatedData.employees,
+            parties: partyIds,
+            sites: siteIds,
+            prospects: prospectIds,
+            visits: visits,
+            schedule: {
+                startDate: new Date(validatedData.startDate),
+            },
+            status: 'pending',
+            progress: {
+                totalDirectories,
+                visitedDirectories: 0,
+                percentage: 0,
+                totalParties: partyIds.length,
+                totalSites: siteIds.length,
+                totalProspects: prospectIds.length,
+            },
+            organizationId,
+            createdBy: userId,
+        });
+
+        // Populate references before sending response
+        await newBeatPlan.populate([
+            { path: 'employees', select: 'name email role avatarUrl phone' },
+            { path: 'parties', select: 'partyName ownerName contact location' },
+            { path: 'sites', select: 'siteName ownerName contact location' },
+            { path: 'prospects', select: 'prospectName ownerName contact location' },
+            { path: 'createdBy', select: 'name email' }
+        ]);
+
+        res.status(201).json({
+            success: true,
+            message: 'Beat plan assigned successfully',
+            data: newBeatPlan
+        });
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({
+                success: false,
+                message: 'Validation failed',
+                errors: error.errors
+            });
+        }
+        console.error('Error assigning beat plan:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to assign beat plan',
             error: error.message
         });
     }

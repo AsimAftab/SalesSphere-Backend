@@ -1,6 +1,12 @@
 const mongoose = require('mongoose');
 
 const beatPlanSchema = new mongoose.Schema({
+    // Reference to the template this assignment is based on
+    beatPlanListId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'BeatPlanList',
+        index: true,
+    },
     name: {
         type: String,
         required: [true, 'Beat plan name is required'],

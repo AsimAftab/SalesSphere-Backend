@@ -101,13 +101,17 @@ const SUPERADMIN_GRANULAR_PERMISSIONS = {
         viewDetails: true,
         viewSalespersons: true,
         viewDirectories: true,
-        create: true,
-        update: true,
+        assign: true,
         startExecution: true,
         markVisit: true,
         optimizeRoute: true,
         calculateDistance: true,
-        delete: true
+        // Template permissions
+        viewListTemplates: true,
+        viewDetailsTemplate: true,
+        createList: true,
+        updateList: true,
+        deleteList: true
     },
     tourPlan: {
         viewList: true,
@@ -345,13 +349,17 @@ const DEVELOPER_GRANULAR_PERMISSIONS = {
         viewDetails: true,
         viewSalespersons: true,
         viewDirectories: true,
-        create: true,
-        update: true,
+        assign: true,
         startExecution: true,
         markVisit: true,
         optimizeRoute: true,
         calculateDistance: true,
-        delete: false
+        // Template permissions
+        viewListTemplates: true,
+        viewDetailsTemplate: true,
+        createList: true,
+        updateList: true,
+        deleteList: false
     },
     tourPlan: {
         viewList: true,
@@ -597,13 +605,17 @@ const ADMIN_GRANULAR_PERMISSIONS = {
         viewDetails: true,
         viewSalespersons: true,
         viewDirectories: true,
-        create: true,
-        update: true,
+        assign: true,
         startExecution: true,
         markVisit: true,
         optimizeRoute: true,
         calculateDistance: true,
-        delete: true
+        // Template permissions
+        viewListTemplates: true,
+        viewDetailsTemplate: true,
+        createList: true,
+        updateList: true,
+        deleteList: true
     },
     tourPlan: {
         viewList: true,
@@ -829,13 +841,17 @@ const USER_GRANULAR_PERMISSIONS = {
         viewDetails: true,
         viewSalespersons: false,
         viewDirectories: true,
-        create: false,
-        update: false,
+        assign: false,
         startExecution: true,
         markVisit: true,
         optimizeRoute: false,
         calculateDistance: true,
-        delete: false
+        // Template permissions (users don't manage templates)
+        viewListTemplates: false,
+        viewDetailsTemplate: false,
+        createList: false,
+        updateList: false,
+        deleteList: false
     },
     tourPlan: {
         viewList: false,

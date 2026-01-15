@@ -107,6 +107,12 @@ const beatPlanBackupSchema = new mongoose.Schema({
         default: Date.now,
         required: true,
     },
+    // TTL field - document expires 10 days after archival (same as locationTrackingBackup)
+    expireAt: {
+        type: Date,
+        required: true,
+        index: { expires: 0 }, // TTL index
+    },
     // Original timestamps
     originalCreatedAt: {
         type: Date,
@@ -115,6 +121,15 @@ const beatPlanBackupSchema = new mongoose.Schema({
         type: Date,
     },
 }, { timestamps: true });
+
+// Set expireAt to 10 days from archivedAt
+beatPlanBackupSchema.pre('save', function (next) {
+    if (!this.expireAt) {
+        const TEN_DAYS_MS = 10 * 24 * 60 * 60 * 1000;
+        this.expireAt = new Date(this.archivedAt.getTime() + TEN_DAYS_MS);
+    }
+    next();
+});
 
 // Indexes for efficient querying
 beatPlanBackupSchema.index({ organizationId: 1, archivedAt: -1 });
