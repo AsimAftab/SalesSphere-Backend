@@ -3,13 +3,14 @@
 
 const express = require('express');
 const {
-    getTrackingSession,
-    getTrackingHistory,
-    getBreadcrumbs,
-    getCurrentLocation,
     getTrackingSummary,
     getActiveTrackingSessions,
-    deleteTrackingSession,
+    getTrackingSession,
+    getTrackingHistory,
+    getCurrentLocation,
+    getBreadcrumbs,
+    getArchivedSession,
+    getCompletedTrackingSessions
 } = require('./tracking.controller');
 const { protect } = require('../../../middlewares/auth.middleware');
 const { checkAccess } = require('../../../middlewares/compositeAccess.middleware');
@@ -25,6 +26,12 @@ router.use(protect);
 router.get('/active',
     checkAccess('liveTracking', 'viewActiveSessions'),
     getActiveTrackingSessions
+);
+
+// GET /completed - View all completed/archived tracking sessions
+router.get('/completed',
+    checkAccess('liveTracking', 'viewSessionHistory'),
+    getCompletedTrackingSessions
 );
 
 // GET /:beatPlanId - Get tracking session for a beat plan (view live tracking)
@@ -57,13 +64,10 @@ router.get('/session/:sessionId/summary',
     getTrackingSummary
 );
 
-// ============================================
-// DELETE OPERATIONS
-// ============================================
-// DELETE /session/:sessionId - Delete tracking session (admin only)
-router.delete('/session/:sessionId',
-    checkAccess('liveTracking', 'deleteSession'),
-    deleteTrackingSession
+// GET /archived/:sessionId - Get archived tracking session data (from backup)
+router.get('/archived/:sessionId',
+    checkAccess('liveTracking', 'historyPlayback'),
+    getArchivedSession
 );
 
 module.exports = router;
