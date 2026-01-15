@@ -1712,6 +1712,7 @@ const archiveBeatPlan = async (beatPlan) => {
             originalCreatedAt: beatPlan.createdAt,
             originalUpdatedAt: beatPlan.updatedAt,
             archivedAt: archivedAt,
+            expireAt: expireAt
         };
 
         const beatPlanBackup = await BeatPlanBackup.create(backupData);
