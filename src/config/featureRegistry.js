@@ -103,7 +103,7 @@ const FEATURE_REGISTRY = {
   },
 
   // ============================================
-  // BEAT PLANS MODULE
+  // BEAT PLANS MODULE (includes templates)
   // ============================================
   beatPlan: {
     viewAllBeatPlans: 'Master Key: View ALL organization beat plans',
@@ -112,13 +112,17 @@ const FEATURE_REGISTRY = {
     viewDetails: 'View detailed beat plan information including parties and visits',
     viewSalespersons: 'View list of salespersons for beat plan assignment',
     viewDirectories: 'View available beat plan directories/categories',
-    create: 'Create new beat plans and assign to users',
-    update: 'Edit beat plan details (parties, dates, etc.)',
+    assign: 'Assign beat plans from templates to employees',
     startExecution: 'Start/resume beat plan execution',
     markVisit: 'Mark parties as visited during beat execution',
     optimizeRoute: 'Optimize beat plan route for efficiency',
     calculateDistance: 'Calculate distance to parties from current location',
-    delete: 'Delete beat plans',
+    // Template (BeatPlanList) permissions
+    viewListTemplates: 'Access beat plan template list',
+    viewDetailsTemplate: 'View detailed template information',
+    createList: 'Create new beat plan templates',
+    updateList: 'Edit beat plan template details',
+    deleteList: 'Delete beat plan templates',
   },
 
   // ============================================

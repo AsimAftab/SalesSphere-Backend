@@ -77,7 +77,10 @@ const STANDARD_UPGRADES = {
     miscellaneousWork: ['viewList', 'viewOwn', 'viewDetails', 'create', 'update'],
 
     // Odometer: Record readings
-    odometer: ['record']
+    odometer: ['record'],
+
+    // Beat Plan Templates: CRUD for templates
+    beatPlan: ['viewListTemplates', 'viewDetailsTemplate', 'createList', 'updateList', 'deleteList', 'assign']
 };
 
 /**

@@ -6,18 +6,15 @@ const {
     getSalespersons,
     getAvailableDirectories,
     getBeatPlanData,
-    createBeatPlan,
+    assignBeatPlan,
     getAllBeatPlans,
     getBeatPlanById,
-    updateBeatPlan,
-    deleteBeatPlan,
     markPartyVisited,
     getMyBeatPlans,
     startBeatPlan,
     getBeatPlanDetails,
     calculateDistanceToParty,
     optimizeBeatPlanRoute,
-    cloneBeatPlan,
     getArchivedBeatPlans,
     getArchivedBeatPlanById
 } = require('./beat-plan.controller');
@@ -95,16 +92,10 @@ router.get('/:id',
 // ============================================
 // CREATE OPERATIONS
 // ============================================
-// POST / - Create new beat plans and assign to users
-router.post('/',
-    checkAccess('beatPlan', 'create'),
-    createBeatPlan
-);
-
-// POST /:id/clone - Clone beat plan for reuse with new date/employees
-router.post('/:id/clone',
-    checkAccess('beatPlan', 'create'),
-    cloneBeatPlan
+// POST /assign - Assign beat plan from template to employee(s)
+router.post('/assign',
+    checkAccess('beatPlan', 'assign'),
+    assignBeatPlan
 );
 
 // POST /calculate-distance - Calculate distance to parties from current location
@@ -128,28 +119,10 @@ router.post('/:id/visit',
     markPartyVisited
 );
 
-// ============================================
-// UPDATE OPERATIONS
-// ============================================
-// PUT /:id - Edit beat plan details (parties, dates, etc.)
-router.put('/:id',
-    checkAccess('beatPlan', 'update'),
-    updateBeatPlan
-);
-
 // POST /:id/optimize-route - Optimize beat plan route for efficiency
 router.post('/:id/optimize-route',
     checkAccess('beatPlan', 'optimizeRoute'),
     optimizeBeatPlanRoute
-);
-
-// ============================================
-// DELETE OPERATIONS
-// ============================================
-// DELETE /:id - Delete beat plans
-router.delete('/:id',
-    checkAccess('beatPlan', 'delete'),
-    deleteBeatPlan
 );
 
 module.exports = router;
